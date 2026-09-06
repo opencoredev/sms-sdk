@@ -1,0 +1,34 @@
+---
+title: First sandbox
+description: Create a memory sandbox, run a command, and stop it on scope exit.
+---
+
+`await using` calls `stop` when the scope exits.
+
+```ts
+import { memory } from "@opencoredev/sandbox-sdk/memory";
+
+await using sandbox = await memory().create();
+
+await sandbox.files.write("/tmp/mission.txt", "ready\n");
+const result = await sandbox.$`cat /tmp/mission.txt`;
+
+console.log(result.stdout);
+```
+
+Use `destroy` only when you want permanent deletion. Automatic disposal calls `stop`, not `destroy`.
+
+<QuestBoard
+  id="sandbox-first-run"
+  steps={[
+    { id: "create", label: "Create the memory sandbox" },
+    { id: "write", label: "Write one file" },
+    { id: "run", label: "Run one command" },
+    { id: "cleanup", label: "Confirm scoped cleanup" }
+  ]}
+/>
+
+## Next
+
+- [Limits](/docs/sandbox/limits) for provider differences.
+- [Sandbox support](/docs/support/sandbox) for command and cleanup failures.

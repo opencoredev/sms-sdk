@@ -1,0 +1,16 @@
+{
+  "title": "Sandbox SDK",
+  "pages": [
+    "index",
+    "compare",
+    "install",
+    "first-sandbox",
+    "limits",
+    "api",
+    "providers",
+    "integrations",
+    "guides",
+    "examples",
+    "reference"
+  ]
+}

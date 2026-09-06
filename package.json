@@ -1,0 +1,19 @@
+{
+  "name": "opencore-sdk-field-guide",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@email-sdk/config": "workspace:*"
+  },
+  "scripts": {
+    "dev": "bun run --cwd apps/docs dev",
+    "build": "bun run --cwd packages/email-sdk build && bun run --cwd packages/sandbox-sdk build && bun run --cwd apps/docs build",
+    "test": "bun run --cwd packages/email-sdk test && bun run --cwd packages/sandbox-sdk test && bun run --cwd apps/docs test",
+    "typecheck": "bun run --cwd packages/email-sdk check-types && bun run --cwd packages/sandbox-sdk typecheck && bun run --cwd apps/docs types:check"
+  },
+  "packageManager": "bun@1.3.14"
+}

@@ -1,0 +1,21 @@
+---
+title: "Release 04: Field guide"
+description: Finish the Fumadocs shell, machine-readable pages, quests, and support routes.
+---
+
+This release opens on `/docs` and has no marketing landing page. It adds four update pages, local quest progress, `/llms.txt`, per-page Markdown, and focused support routes.
+
+## Exit check
+
+Run the docs test, type check, build, and desktop plus mobile browser checks.
+
+```bash
+bun --cwd apps/docs test
+bun --cwd apps/docs run types:check
+bun --cwd apps/docs run build
+```
+
+## Next
+
+- [Support](/docs/support) to test the two failure paths.
+- [SDK Field Guide](/docs) to restart the reader journey.

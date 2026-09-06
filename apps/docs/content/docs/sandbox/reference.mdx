@@ -1,0 +1,30 @@
+---
+title: Reference
+description: Find the Sandbox SDK creation, command, file, and lifecycle methods.
+---
+
+## Create and reconnect
+
+| Method | Purpose |
+| --- | --- |
+| `adapter.create()` | Create one provider sandbox. |
+| `createSandbox({ provider })` | Create through the compatibility entry point. |
+| `connectSandbox()` | Reattach when the provider supports it. |
+| `listSandboxes()` | List account sandboxes when supported. |
+
+## Work in a sandbox
+
+Use `sandbox.run()` for commands, `sandbox.$` for quoted templates, and `sandbox.runCode()` for language snippets. File methods include read, write, stat, move, copy, upload, download, and watch.
+
+## End a session
+
+| Method | Effect |
+| --- | --- |
+| `stop()` | Pause or release the session. |
+| `destroy()` | Request permanent deletion. |
+| `Symbol.asyncDispose` | Call `stop()` at scope exit. |
+
+## Next
+
+- [First sandbox](/docs/sandbox/first-sandbox) for a runnable example.
+- [Sandbox support](/docs/support/sandbox) for failure diagnosis.

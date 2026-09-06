@@ -1,0 +1,25 @@
+---
+title: Limits
+description: Check security, capability, and lifecycle limits before provider work.
+---
+
+## Treat memory as a test adapter
+
+The memory adapter runs in the current process. It does not isolate untrusted code.
+
+## Check capabilities first
+
+The SDK gates files, commands, ports, processes, and snapshots against provider capability data. A missing capability fails before the runtime call.
+
+## Separate stop from destroy
+
+`stop()` pauses or releases a session. Persistent adapters may retain state. `destroy()` requests permanent deletion.
+
+## Expect provider differences
+
+Cloud providers differ in region, timeout, network policy, reconnect, and list support. The package exposes capabilities so your code can branch on facts.
+
+## Next
+
+- [Sandbox reference](/docs/sandbox/reference) for the shared contract.
+- [Sandbox support](/docs/support/sandbox) for a failure checklist.

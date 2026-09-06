@@ -1,0 +1,19 @@
+---
+title: "Release 02: Email paths"
+description: Add the Email SDK setup, delivery, reliability, and support path.
+---
+
+This release documents the primary product first. The path covers install, validation, send results, retries, fallback, and stable error classes.
+
+## Exit check
+
+Run the Email SDK tests and compile the documented imports.
+
+```bash
+bun --cwd packages/email-sdk test
+bun --cwd packages/email-sdk run check-types
+```
+
+## Next
+
+- [Release 03](/docs/releases/sandbox) to add sandbox setup and limits.

@@ -1,0 +1,5 @@
+{
+  "title": "Providers",
+  "icon": "providers",
+  "pages": ["index", "local", "memory", "e2b", "daytona", "vercel", "upstash", "box", "railway", "cloudflare"]
+}

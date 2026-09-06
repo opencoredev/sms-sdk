@@ -1,0 +1,39 @@
+---
+title: SDK Field Guide
+description: Install, test, and operate the OpenCore Email SDK and Sandbox SDK.
+---
+
+SDK Field Guide documents two installable TypeScript libraries. It starts with the common path and keeps provider limits visible.
+
+<Cards>
+  <Card title="Email SDK" href="/docs/email" description="Send transactional email through one adapter-first client." />
+  <Card title="Sandbox SDK" href="/docs/sandbox" description="Run files and commands through one sandbox contract." />
+  <Card title="Four releases" href="/docs/releases" description="Follow the four ordered implementation updates." />
+  <Card title="Support" href="/docs/support" description="Diagnose failed sends and sandbox cleanup errors." />
+</Cards>
+
+## Pick a path
+
+Use Email SDK when your app sends transactional email. Use Sandbox SDK when your app must run code outside its main process.
+
+<QuestBoard
+  id="start"
+  steps={[
+    { id: "choose", label: "Choose Email SDK or Sandbox SDK" },
+    { id: "install", label: "Install the package" },
+    { id: "verify", label: "Run the first local check" },
+    { id: "limits", label: "Read the limits before production" }
+  ]}
+/>
+
+## Track the updates
+
+The release path records what each implementation stage adds.
+
+<ReleaseTrack />
+
+## Next
+
+- [Install Email SDK](/docs/email/install) to configure a delivery adapter.
+- [Create a sandbox](/docs/sandbox/first-sandbox) to run a command in memory.
+- [Open support](/docs/support) when a provider call fails.

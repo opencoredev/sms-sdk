@@ -1,0 +1,22 @@
+---
+title: "Release 01: Foundation"
+description: Place both SDK packages in one Bun workspace with a shared docs app.
+---
+
+This release copies both package source trees into one local Bun workspace.
+
+```text
+apps/docs
+packages/email-sdk
+packages/sandbox-sdk
+```
+
+The root scripts build, test, and type-check both packages. The docs app depends on the workspace packages.
+
+## Exit check
+
+Run `bun install`, then build both packages.
+
+## Next
+
+- [Release 02](/docs/releases/email) to add the primary Email SDK path.

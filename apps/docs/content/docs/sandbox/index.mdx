@@ -1,0 +1,31 @@
+---
+title: Sandbox SDK
+description: Run files and commands through one TypeScript sandbox contract.
+---
+
+`@opencoredev/sandbox-sdk` is an installable TypeScript library. It wraps local and cloud sandbox providers behind one contract.
+
+```ts
+import { memory } from "@opencoredev/sandbox-sdk/memory";
+
+await using sandbox = await memory().create();
+console.log((await sandbox.$`echo ready`).stdout);
+```
+
+The memory adapter supports tests. It is not a security boundary.
+
+## Choose Sandbox SDK when
+
+- You must switch providers without rewriting command and file calls.
+- You need capability checks before provider work.
+- You want scoped cleanup with `await using`.
+
+## Know the limit
+
+Ports, snapshots, processes, and provider lifecycle rules differ. Read each capability before use.
+
+## Next
+
+- [Install](/docs/sandbox/install) to add the package.
+- [First sandbox](/docs/sandbox/first-sandbox) to run one command.
+- [Limits](/docs/sandbox/limits) before using cloud adapters.

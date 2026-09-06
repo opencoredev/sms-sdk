@@ -1,0 +1,31 @@
+---
+title: Install
+description: Add Email SDK and prepare one server-only provider key.
+---
+
+Install the package with Bun.
+
+```bash
+bun add @opencoredev/email-sdk
+```
+
+Set one provider key on the server. This example uses Resend.
+
+```bash title=".env.local"
+RESEND_API_KEY=re_xxx
+```
+
+Do not expose this value to browser code.
+
+## Check the adapter
+
+The CLI checks required environment variables without calling the provider.
+
+```bash
+bunx email-sdk doctor --adapter resend
+```
+
+## Next
+
+- [Send email](/docs/email/send) to validate and send one message.
+- [Email support](/docs/support/email) to diagnose credential failures.

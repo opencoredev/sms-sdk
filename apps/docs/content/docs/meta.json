@@ -1,0 +1,5 @@
+{
+  "title": "SDK Field Guide",
+  "root": true,
+  "pages": ["index", "email", "sandbox", "releases", "support"]
+}
