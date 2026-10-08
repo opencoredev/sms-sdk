@@ -1,4 +1,0 @@
-const BASIC = new Set("@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà".split(""));
-const EXT = new Set("^{}\\[~]|€".split(""));
-export type EncodingPreview = { encoding:"gsm7"|"ucs2"; segments:number; septets?:number; codeUnits?:number; containsUnicode:boolean };
-export function previewEncoding(body:string):EncodingPreview { let septets=0; let unicode=false; for (const ch of body) { if (BASIC.has(ch)) septets++; else if (EXT.has(ch)) septets+=2; else unicode=true; } if (unicode) { const codeUnits=body.length; return {encoding:"ucs2",codeUnits,containsUnicode:true,segments:codeUnits<=70?1:Math.ceil(codeUnits/67)}; } return {encoding:"gsm7",septets,containsUnicode:false,segments:septets<=160?1:Math.ceil(septets/153)}; }

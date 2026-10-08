@@ -1,7 +1,85 @@
-import { WebhookSignatureError } from "../errors.js";
-export type SmsEvent={id:string;provider:"twilio"|"telnyx"|"plivo"|"vonage";type:"delivery"|"inbound";messageId?:string;status?:"queued"|"sent"|"delivered"|"undelivered"|"filtered";from?:string;to?:string;body?:string;keyword?:"STOP"|"HELP";dedupeKey:string;raw:unknown};
-export type ParseWebhookOptions={provider:"twilio"|"telnyx";request:Request;publicUrl?:string;credentials:{authToken?:string;publicKey?:string};trustProxy?:boolean;unsafeSkipVerification?:boolean};
-async function hmacSha1(key:string,data:string){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(key),{name:"HMAC",hash:"SHA-1"},false,["sign"]);const b=new Uint8Array(await crypto.subtle.sign("HMAC",k,new TextEncoder().encode(data)));return btoa(String.fromCharCode(...b));}
-function parseRaw(raw:string,contentType:string):Record<string,string>{if(contentType.includes("json")){const value=JSON.parse(raw) as unknown; if(typeof value!=="object"||value===null)return {}; return Object.fromEntries(Object.entries(value).filter((x):x is [string,string]=>typeof x[1]==="string"));} return Object.fromEntries(new URLSearchParams(raw));}
-export async function parseSmsWebhook(options:ParseWebhookOptions):Promise<SmsEvent>{const raw=await options.request.clone().text(); const headers=options.request.headers; if(!options.unsafeSkipVerification){if(options.provider==="twilio"){if(!options.credentials.authToken||!options.publicUrl)throw new WebhookSignatureError("Twilio requires authToken and publicUrl");const fields=parseRaw(raw,headers.get("content-type")??"");const signature=headers.get("x-twilio-signature")??"";const data=options.publicUrl+Object.keys(fields).sort().map(k=>k+fields[k]).join("");const expected=await hmacSha1(options.credentials.authToken,data);if(signature!==expected)throw new WebhookSignatureError();} else {if(!options.credentials.publicKey)throw new WebhookSignatureError("Telnyx requires publicKey");const sig=headers.get("telnyx-signature-ed25519")??"";const ts=headers.get("telnyx-timestamp")??"";const age=Math.abs(Date.now()/1000-Number(ts));if(!/^\d+$/.test(ts)||age>300)throw new WebhookSignatureError("Telnyx timestamp outside tolerance");const key=await crypto.subtle.importKey("raw",Uint8Array.from(atob(options.credentials.publicKey),c=>c.charCodeAt(0)),{name:"Ed25519",namedCurve:"Ed25519"},false,["verify"]);const ok=await crypto.subtle.verify("Ed25519",key,Uint8Array.from(atob(sig),c=>c.charCodeAt(0)),new TextEncoder().encode(ts+raw));if(!ok)throw new WebhookSignatureError();}}
-const fields=parseRaw(raw,headers.get("content-type")??"");const id=fields.Sid??fields.id??fields.data_id??crypto.randomUUID();const statusRaw=(fields.MessageStatus??fields.status??"").toLowerCase();const status=statusRaw==="delivered"?"delivered":statusRaw==="sent"?"sent":statusRaw==="queued"?"queued":statusRaw==="failed"||statusRaw==="undelivered"?"undelivered":statusRaw==="filtered"?"filtered":undefined;const body=fields.Body??fields.text;const keyword=/^(stop|help)$/i.test(body??"")?(body!.toUpperCase() as "STOP"|"HELP"):undefined;const type=body!==undefined&&fields.From!==undefined?"inbound":"delivery";return {id,provider:options.provider,type,messageId:fields.MessageSid??fields.id, status,from:fields.From,to:fields.To,body,keyword,dedupeKey:`${options.provider}:${id}:${status??type}`,raw:fields};}
+/**
+ * Verified, normalized SMS webhooks for Twilio, Telnyx, Plivo, and Vonage.
+ *
+ * @packageDocumentation
+ */
+
+import type { SmsEvent } from "./events.js";
+import { parsePlivoWebhook, type PlivoWebhookOptions } from "./plivo.js";
+import { parseTelnyxWebhook, type TelnyxWebhookOptions } from "./telnyx.js";
+import { parseTwilioWebhook, type TwilioWebhookOptions } from "./twilio.js";
+import { parseVonageWebhook, type VonageWebhookOptions } from "./vonage.js";
+
+/** Options for {@link parseSmsWebhook}, discriminated by `provider`. */
+export type ParseSmsWebhookOptions =
+  | ({ readonly provider: "twilio" } & TwilioWebhookOptions)
+  | ({ readonly provider: "telnyx" } & TelnyxWebhookOptions)
+  | ({ readonly provider: "plivo" } & PlivoWebhookOptions)
+  | ({ readonly provider: "vonage" } & VonageWebhookOptions);
+
+/**
+ * Reads the raw request body once, verifies the provider's signature, then
+ * returns a normalized {@link SmsEvent}. Nothing is interpreted before
+ * verification succeeds.
+ *
+ * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
+ * @throws {WebhookPayloadError} when an authentic payload lacks required fields.
+ */
+export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<SmsEvent> {
+  switch (options.provider) {
+    case "twilio":
+      return parseTwilioWebhook(options);
+    case "telnyx":
+      return parseTelnyxWebhook(options);
+    case "plivo":
+      return parsePlivoWebhook(options);
+    case "vonage":
+      return parseVonageWebhook(options);
+    default: {
+      const _exhaustive: never = options;
+      return _exhaustive;
+    }
+  }
+}
+
+export {
+  detectKeyword,
+  HELP_KEYWORDS,
+  OPT_OUT_KEYWORDS,
+  type KeywordMatch,
+  type MessageReceivedEvent,
+  type MessageStatusEvent,
+  type MessageStatusType,
+  type RecipientKeywordEvent,
+  type SmsEvent,
+  type SmsEventBase,
+  type UnrecognizedEvent,
+  type WebhookProvider,
+} from "./events.js";
+export type { SignedUrlOptions, WebhookCommonOptions } from "./shared.js";
+export {
+  computeTwilioSignature,
+  parseTwilioWebhook,
+  verifyTwilioSignature,
+  type TwilioWebhookOptions,
+} from "./twilio.js";
+export {
+  parseTelnyxWebhook,
+  TELNYX_DEFAULT_TOLERANCE_SEC,
+  verifyTelnyxSignature,
+  type TelnyxWebhookOptions,
+  type WebhookVerification,
+} from "./telnyx.js";
+export {
+  computePlivoSignatureV2,
+  parsePlivoWebhook,
+  verifyPlivoSignatureV2,
+  type PlivoWebhookOptions,
+} from "./plivo.js";
+export {
+  parseVonageWebhook,
+  VONAGE_DEFAULT_TOLERANCE_SEC,
+  verifyVonageSignature,
+  type VonageWebhookOptions,
+} from "./vonage.js";
+export { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";

@@ -1,5 +1,89 @@
 {
-  "name":"@opencoredev/sms-sdk","version":"0.1.0","description":"Provider-agnostic SMS transport SDK","license":"MIT","type":"module","sideEffects":false,"bin":{"sms-sdk":"dist/cli.js"},"files":["dist","README.md","CHANGELOG.md","LICENSE","PROVIDERS.md","examples"],
-  "exports":{".":{"types":"./dist/index.d.ts","import":"./dist/index.js"},"./twilio":{"types":"./dist/providers/twilio.d.ts","import":"./dist/providers/twilio.js"},"./telnyx":{"types":"./dist/providers/telnyx.d.ts","import":"./dist/providers/telnyx.js"},"./plivo":{"types":"./dist/providers/plivo.d.ts","import":"./dist/providers/plivo.js"},"./vonage":{"types":"./dist/providers/vonage.d.ts","import":"./dist/providers/vonage.js"},"./webhooks":{"types":"./dist/webhooks/index.d.ts","import":"./dist/webhooks/index.js"},"./testing":{"types":"./dist/testing/index.d.ts","import":"./dist/testing/index.js"},"./encoding":{"types":"./dist/encoding.d.ts","import":"./dist/encoding.js"}},
-  "scripts":{"build":"rm -rf dist && tsc -p tsconfig.json && chmod +x dist/cli.js","test":"bun test","check-types":"tsc -p tsconfig.json --noEmit","prepack":"bun run build"},"devDependencies":{"@types/node":"^25.9.4","typescript":"^5.8.3"}
+  "name": "@opencoredev/sms-sdk",
+  "version": "0.1.0",
+  "description": "One TypeScript SDK for SMS providers: Twilio, Telnyx, Plivo, and Vonage behind one typed send API with safe fallback and verified webhooks.",
+  "keywords": [
+    "sms",
+    "sms-sdk",
+    "twilio",
+    "telnyx",
+    "plivo",
+    "vonage",
+    "webhooks",
+    "typescript"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opencoredev/sms-sdk.git",
+    "directory": "packages/sms-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/opencoredev/sms-sdk/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "sms-sdk": "dist/cli/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "PROVIDERS.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./twilio": {
+      "types": "./dist/providers/twilio.d.ts",
+      "import": "./dist/providers/twilio.js"
+    },
+    "./telnyx": {
+      "types": "./dist/providers/telnyx.d.ts",
+      "import": "./dist/providers/telnyx.js"
+    },
+    "./plivo": {
+      "types": "./dist/providers/plivo.d.ts",
+      "import": "./dist/providers/plivo.js"
+    },
+    "./vonage": {
+      "types": "./dist/providers/vonage.d.ts",
+      "import": "./dist/providers/vonage.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks/index.d.ts",
+      "import": "./dist/webhooks/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    },
+    "./encoding": {
+      "types": "./dist/core/encoding.d.ts",
+      "import": "./dist/core/encoding.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/bin.js",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test",
+    "prepack": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.4",
+    "@types/node": "^25.9.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "bun": ">=1.1.0"
+  }
 }

@@ -1,4 +1,44 @@
-import type { SmsAdapter, SmsCapabilities, SmsSendInput } from "../types.js";
-export function memory(options:{name?:string;accept?:boolean}={}):SmsAdapter & {sent:SmsSendInput[]} {const sent:SmsSendInput[]=[];const capabilities:SmsCapabilities={sendText:true,mms:true,scheduling:false,inbound:true,deliveryReceipts:true,senderTypes:["long_code","toll_free","short_code","alphanumeric","messaging_service"]};return {name:options.name??"memory",capabilities,sent,async send(input){sent.push(input);return options.accept===false?{kind:"rejected",message:"memory rejection",eligibleForFallback:true}:{kind:"accepted",providerId:`memory-${sent.length}`,delivery:"queued"};}};}
-export type ContractFixtures={validInput:SmsSendInput;rejectionInput?:SmsSendInput};
-export async function runSmsAdapterContract(factory:()=>SmsAdapter,fixtures:ContractFixtures):Promise<void>{const a=factory();const r=await a.send(fixtures.validInput,{attempt:1});if(r.kind!=="accepted")throw new Error(`${a.name} did not accept valid fixture`);}
+/**
+ * Test helpers: an in-memory adapter, a recording fake `fetch`, signed
+ * webhook request builders, and the adapter contract harness.
+ *
+ * Nothing here sends real messages.
+ *
+ * @packageDocumentation
+ */
+
+export {
+  acceptedOutcome,
+  memory,
+  rejectedOutcome,
+  unknownOutcome,
+  type MemoryAdapter,
+  type MemoryAdapterOptions,
+  type MemoryOutcome,
+  type MemorySentMessage,
+} from "./memory.js";
+export {
+  mockFetch,
+  type MockFetch,
+  type MockReply,
+  type MockResponse,
+  type RecordedRequest,
+} from "./fetch.js";
+export {
+  generateTelnyxKeyPair,
+  signedPlivoRequest,
+  signedTelnyxRequest,
+  signedTwilioRequest,
+  signedVonageRequest,
+} from "./webhooks.js";
+export {
+  runSmsAdapterContract,
+  smsAdapterContractCases,
+  type AdapterContractFixtures,
+  type AdapterFactory,
+  type ContractCase,
+  type ContractReport,
+  type ExpectedBody,
+  type WebhookContractCase,
+} from "./contracts.js";
+export { memoryIdempotencyStore } from "../core/idempotency.js";

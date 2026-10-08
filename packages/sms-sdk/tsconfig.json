@@ -1,5 +1,14 @@
 {
   "extends": "@email-sdk/config/tsconfig.base.json",
-  "compilerOptions": {"rootDir":"src","outDir":"dist","declaration":true,"declarationMap":true,"module":"NodeNext","moduleResolution":"NodeNext","lib":["ESNext","DOM"],"types":["node"]},
-  "include":["src/**/*.ts"],"exclude":["dist","src/**/*.test.ts"]
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ESNext", "DOM"],
+    "types": ["node", "bun"],
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"]
 }
