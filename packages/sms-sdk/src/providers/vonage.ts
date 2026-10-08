@@ -95,7 +95,7 @@ export const VONAGE_BASIC_CAPABILITIES: SmsCapabilities = {
 
 /** Notes explaining why Vonage is marked `partial`. */
 export const VONAGE_SUPPORT_NOTES: readonly string[] = [
-  "Vonage does not document the HTTP status for each Messages API error code; rejections are classified from the documented 401/402/422/429 statuses and the error code in the problem `type`/`title`.",
+  "Vonage does not document the HTTP status for each Messages API error code; rejections are classified from the documented 401/402/422 statuses and the error code in the problem `type`/`title`; a 429 is a rate limit only with a documented throttling code.",
   "Short codes and MMS (a separate Messages API channel) are not supported by this adapter.",
 ];
 
@@ -207,6 +207,11 @@ export function interpretVonageResponse(status: number, text: string, headers: H
     const code = isRecord(body) ? vonageErrorCode(body) : undefined;
     const message = isRecord(body) ? (readString(body, "detail") ?? readString(body, "title")) : undefined;
     const category = vonageRejectionCategory(status, code);
+    if (status === 429 && category !== "rate_limited") {
+      // Only a documented rate-limit error proves the message was not created.
+      // A bare 429, for example from a proxy, is unknown.
+      return unknownForStatus("vonage", status, requestId);
+    }
     const retryAfterMs = category === "rate_limited" ? parseRetryAfter(headers.get("retry-after")) : undefined;
     return {
       kind: "rejected",
@@ -221,12 +226,14 @@ export function interpretVonageResponse(status: number, text: string, headers: H
 
 /**
  * Rejection category for a Vonage 4xx, from the HTTP status and the Messages
- * API error code. Unlisted codes are `request`.
+ * API error code. Unlisted codes are `request`. Only codes 1000, 1241, and
+ * `throttled` are `rate_limited`; the HTTP status alone proves nothing.
  */
 export function vonageRejectionCategory(status: number, code: string | undefined): RejectionCategory {
   switch (code) {
     case "1000":
     case "1241":
+    case "throttled":
       return "rate_limited";
     case "1170":
     case "1430":
@@ -252,13 +259,16 @@ export function vonageRejectionCategory(status: number, code: string | undefined
   if (status === 402) {
     return "account";
   }
-  return status === 429 ? "rate_limited" : "request";
+  return "request";
 }
 
-/** Extracts a numeric error code from the problem `type` fragment (`...#1420`) or `title`. */
+/**
+ * Extracts the error code from the problem `type` fragment (`...#1420`, or
+ * `...#throttled` from Vonage's generic error list) or a numeric `title`.
+ */
 function vonageErrorCode(body: Record<string, unknown>): string | undefined {
   const type = readString(body, "type");
-  const fragment = type?.match(/#(\d+)$/)?.[1];
+  const fragment = type?.match(/#(\d+|throttled)$/)?.[1];
   if (fragment !== undefined) {
     return fragment;
   }

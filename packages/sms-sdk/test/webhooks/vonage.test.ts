@@ -91,10 +91,35 @@ describe("parse Vonage Messages API webhooks", () => {
     expect(event).toMatchObject({ type: "message.received", body: "Thanks!", mediaUrls: [] });
   });
 
-  test("accepts payload_hash computed over compact JSON when the body is pretty-printed", async () => {
+  test("payload_hash must match the delivered bytes, not a re-serialization", async () => {
     const pretty = JSON.stringify(status, null, 2);
     const request = await jwtRequest(
       { iat: Math.floor(Date.now() / 1000), jti: "j1", iss: "Vonage", payload_hash: await sha256Hex(JSON.stringify(status)) },
+      pretty,
+    );
+    const error = await rejection(parse(request));
+    expect(error).toBeInstanceOf(WebhookSignatureError);
+    expect(error).toMatchObject({ reason: "body_hash_mismatch" });
+  });
+
+  test("a duplicate-key body that parses to the signed value is rejected", async () => {
+    const compact = JSON.stringify(status);
+    // JSON.parse keeps the first key's position and the last value, so this
+    // re-serializes to `compact` while a first-wins parser reads "forged".
+    const firstKey = Object.keys(status)[0] ?? "";
+    const smuggled = `{${JSON.stringify(firstKey)}:"forged",${compact.slice(1)}`;
+    expect(JSON.stringify(JSON.parse(smuggled))).toBe(compact);
+    const request = await jwtRequest(
+      { iat: Math.floor(Date.now() / 1000), jti: "j1", iss: "Vonage", payload_hash: await sha256Hex(compact) },
+      smuggled,
+    );
+    expect(await rejection(parse(request))).toMatchObject({ reason: "body_hash_mismatch" });
+  });
+
+  test("payload_hash over the exact pretty-printed bytes is accepted", async () => {
+    const pretty = JSON.stringify(status, null, 2);
+    const request = await jwtRequest(
+      { iat: Math.floor(Date.now() / 1000), jti: "j1", iss: "Vonage", payload_hash: await sha256Hex(pretty) },
       pretty,
     );
     await expect(parse(request)).resolves.toMatchObject({ type: "message.delivered" });

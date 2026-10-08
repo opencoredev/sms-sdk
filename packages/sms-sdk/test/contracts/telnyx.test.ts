@@ -5,6 +5,7 @@ import { mockFetch } from "../../src/testing/fetch.js";
 import { smsAdapterContractCases, type AdapterContractFixtures } from "../../src/testing/contracts.js";
 import { generateTelnyxKeyPair, signedTelnyxRequest } from "../../src/testing/webhooks.js";
 import { parseSmsWebhook } from "../../src/webhooks/index.js";
+import { describeRateLimitProof } from "../helpers.js";
 
 const telnyxKeys = await generateTelnyxKeyPair();
 const finalized = {
@@ -97,6 +98,19 @@ describe("telnyx adapter contract", () => {
   }
 });
 
+describeRateLimitProof({
+  provider: "telnyx",
+  adapter: (fetch) => telnyx({ apiKey: "k", from: "+15005550006", fetch }),
+  to: "+14155550123",
+  documented: { status: 429, body: { errors: [{ code: "10011", title: "Too many requests" }] } },
+  bare: [
+    ["HTML page", { status: 429, body: "<html><body>429 Too Many Requests</body></html>", headers: { "retry-after": "1" } }],
+    ["empty body", { status: 429 }],
+    ["foreign JSON", { status: 429, body: { message: "rate limit exceeded" } }],
+    ["Telnyx body with another code", { status: 429, body: { errors: [{ code: "10015", title: "Bad request" }] } }],
+  ],
+});
+
 describe("telnyx request building", () => {
   test("a messaging service sender uses messaging_profile_id without from", () => {
     expect(
@@ -162,7 +176,7 @@ describe("telnyx response mapping", () => {
     [400, "40316", "request"],
     [400, undefined, "request"],
     [401, undefined, "auth"],
-    [429, undefined, "rate_limited"],
+    [429, undefined, "request"],
   ] as const)("HTTP %i code %s is %s", (status, code, category) => {
     expect(telnyxRejectionCategory(status, code)).toBe(category);
   });

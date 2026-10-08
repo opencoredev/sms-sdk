@@ -210,6 +210,28 @@ describe("send: fallback", () => {
     expect(secondary.sent).toHaveLength(0);
   });
 
+  test("a beforeSend reason stays out of the message, toJSON, and hooks", async () => {
+    const reason = "Jane Doe at +14155550123 is on the suppression list";
+    const failures: unknown[] = [];
+    const sms = createSmsClient({
+      adapters: [memory()],
+      beforeSend: () => ({ kind: "reject", reason }),
+      hooks: {
+        onFailure: (event) => {
+          failures.push(event);
+        },
+      },
+    });
+    const error = await rejection(sms.send(message));
+    expect(error).toBeInstanceOf(PolicyRejectedError);
+    expect(error).toMatchObject({ reason, message: "Send blocked by the beforeSend policy." });
+    const serialized = JSON.stringify([error, failures, String(error)]);
+    expect(serialized).not.toContain("Jane");
+    expect(serialized).not.toContain("4155550123");
+    expect(serialized).toContain("policy_rejected");
+    expect(failures).toHaveLength(1);
+  });
+
   test("beforeSend receives the message and segment estimate", async () => {
     const seen: unknown[] = [];
     const sms = createSmsClient({

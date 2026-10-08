@@ -251,6 +251,30 @@ describe("Twilio JSON bodies (bodySHA256)", () => {
     expect(error).toMatchObject({ reason: "body_hash_mismatch" });
   });
 
+  test("checks the signature before parsing malformed JSON", async () => {
+    const malformed = '{"MessageSid":';
+    const signed = await jsonRequest(malformed);
+    const forged = new Request(signed.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-twilio-signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+      body: malformed,
+    });
+    const error = await rejection(parse(forged));
+    expect(error).toBeInstanceOf(WebhookSignatureError);
+    expect(error).toMatchObject({ reason: "invalid_signature" });
+  });
+
+  test("checks the body hash before parsing malformed JSON", async () => {
+    const error = await rejection(parse(await jsonRequest('{"MessageSid":', body)));
+    expect(error).toBeInstanceOf(WebhookSignatureError);
+    expect(error).toMatchObject({ reason: "body_hash_mismatch" });
+  });
+
+  test("reports malformed JSON only after verification passes", async () => {
+    const error = await rejection(parse(await jsonRequest('{"MessageSid":')));
+    expect(error).toBeInstanceOf(WebhookPayloadError);
+  });
+
   test("matches Twilio's published body hash example", async () => {
     const digest = new Uint8Array(
       await crypto.subtle.digest("SHA-256", new TextEncoder().encode('{"CallSid":"CA1234567890ABCDE","Caller":"+12349013030"}')),

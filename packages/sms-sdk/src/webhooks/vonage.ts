@@ -27,8 +27,10 @@ export type VonageWebhookOptions = WebhookCommonOptions & {
  * `Authorization: Bearer`, signed with the signature secret, with a fresh
  * `iat` and, when present, a `payload_hash` equal to the SHA-256 hex of the body.
  *
- * Vonage describes `payload_hash` as a hash of the compact JSON payload. The
- * raw body is checked first, then its compact re-serialization.
+ * The hash is checked against the exact delivered bytes, as Vonage documents
+ * ("a SHA-256 hash of the payload"). A re-serialized body is never accepted:
+ * different bytes can parse to the same value, so it would not prove the body
+ * is the one Vonage signed.
  */
 export async function verifyVonageSignature(input: {
   readonly signatureSecret: string;
@@ -67,7 +69,7 @@ export async function verifyVonageSignature(input: {
   }
 
   const payloadHash = readString(claims, "payload_hash")?.toLowerCase();
-  if (payloadHash !== undefined && !(await bodyMatchesHash(input.rawBody, payloadHash))) {
+  if (payloadHash !== undefined && !timingSafeEqual(await sha256Hex(input.rawBody), payloadHash)) {
     return { valid: false, reason: "body_hash_mismatch" };
   }
   return { valid: true };
@@ -192,15 +194,4 @@ function decodeJsonPart(part: string): unknown {
   }
 }
 
-async function bodyMatchesHash(rawBody: string, payloadHash: string): Promise<boolean> {
-  if (timingSafeEqual(await sha256Hex(rawBody), payloadHash)) {
-    return true;
-  }
-  try {
-    const compact = JSON.stringify(JSON.parse(rawBody));
-    return compact !== rawBody && timingSafeEqual(await sha256Hex(compact), payloadHash);
-  } catch {
-    return false;
-  }
-}
 

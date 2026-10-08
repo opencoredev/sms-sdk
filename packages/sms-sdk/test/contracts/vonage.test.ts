@@ -13,6 +13,7 @@ import { mockFetch } from "../../src/testing/fetch.js";
 import { smsAdapterContractCases, type AdapterContractFixtures } from "../../src/testing/contracts.js";
 import { signedVonageRequest } from "../../src/testing/webhooks.js";
 import { parseSmsWebhook } from "../../src/webhooks/index.js";
+import { describeRateLimitProof } from "../helpers.js";
 
 const UUID = "aaaaaaaa-bbbb-4ccc-8ddd-0123456789ab";
 const SECRET = "vonage-signature-secret";
@@ -148,6 +149,19 @@ describe("vonage JWT auth", () => {
   });
 });
 
+describeRateLimitProof({
+  provider: "vonage",
+  adapter: (fetch) => vonage({ apiKey: "k", apiSecret: "s", from: "+447700900001", fetch }),
+  to: "+447700900000",
+  documented: { status: 429, body: { type: "https://developer.vonage.com/api-errors/messages#1000", title: "1000", detail: "Throttled" } },
+  bare: [
+    ["HTML page", { status: 429, body: "<html><body>429 Too Many Requests</body></html>", headers: { "retry-after": "1" } }],
+    ["empty body", { status: 429 }],
+    ["foreign JSON", { status: 429, body: { message: "rate limit exceeded" } }],
+    ["problem JSON with another code", { status: 429, body: { type: "https://developer.vonage.com/api-errors/messages#1020", title: "Invalid params" } }],
+  ],
+});
+
 describe("vonage specifics", () => {
   test("strips + from numbers, keeps alphanumeric senders, and sets webhook_url", () => {
     expect(
@@ -171,7 +185,9 @@ describe("vonage specifics", () => {
   test.each([
     [401, undefined, "auth"],
     [402, undefined, "account"],
-    [429, undefined, "rate_limited"],
+    [429, undefined, "request"],
+    [429, "throttled", "rate_limited"],
+    [422, "1241", "rate_limited"],
     [422, "1000", "rate_limited"],
     [422, "1420", "sender"],
     [422, "1120", "sender"],

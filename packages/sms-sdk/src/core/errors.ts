@@ -137,12 +137,16 @@ export class UnsupportedFieldError extends SmsError {
 /**
  * The client's `beforeSend` policy refused the message. Nothing was sent and
  * no fallback runs. `retrySafe: true`.
+ *
+ * `message` is fixed. The caller's `reason` may name a person or number, so it
+ * stays out of `message`, `toJSON()`, and hook payloads.
  */
 export class PolicyRejectedError extends SmsError {
+  /** The reason `beforeSend` returned, unredacted. Not serialized. */
   readonly reason: string;
 
   constructor(reason: string) {
-    super(`Send blocked by beforeSend policy: ${reason}`, { code: "policy_rejected", retrySafe: true });
+    super("Send blocked by the beforeSend policy.", { code: "policy_rejected", retrySafe: true });
     this.name = "PolicyRejectedError";
     this.reason = reason;
   }

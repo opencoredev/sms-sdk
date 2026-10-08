@@ -163,6 +163,11 @@ export function interpretPlivoResponse(status: number, text: string, headers: He
   }
 
   if (status >= 400 && status < 500) {
+    if (status === 429 && requestId === undefined) {
+      // Plivo documents an api_id on every response. A 429 without one did
+      // not come from Plivo (a proxy, for example), so it proves nothing.
+      return unknownForStatus("plivo", status, requestId);
+    }
     const message = isRecord(body) ? readString(body, "error") : undefined;
     const category = plivoRejectionCategory(status);
     const retryAfterMs = category === "rate_limited" ? parseRetryAfter(headers.get("retry-after")) : undefined;
@@ -177,7 +182,11 @@ export function interpretPlivoResponse(status: number, text: string, headers: He
   return unknownForStatus("plivo", status, requestId);
 }
 
-/** Rejection category for a Plivo 4xx, from the HTTP status codes Plivo documents. */
+/**
+ * Rejection category for a Plivo 4xx, from the HTTP status codes Plivo
+ * documents. Pass only responses that carry Plivo's `api_id`; a 429 without
+ * one is unknown, not `rate_limited`.
+ */
 export function plivoRejectionCategory(status: number): RejectionCategory {
   if (status === 401) {
     return "auth";

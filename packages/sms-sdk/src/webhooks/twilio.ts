@@ -78,7 +78,9 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
   const isJson = (request.headers.get("content-type") ?? "").toLowerCase().includes("application/json");
   const jsonMode = isJson && bodyHash !== null;
 
-  const params = jsonMode ? jsonParams(rawBody) : readFormParams(request, rawBody);
+  // JSON signatures cover the URL alone, so the body is parsed only after the
+  // signature and body hash pass. Form parameters are part of the signature.
+  const formParams = jsonMode ? [] : readFormParams(request, rawBody);
 
   if (options.unsafeSkipVerification !== true) {
     const signature = request.headers.get("x-twilio-signature");
@@ -91,7 +93,7 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
         provider: "twilio",
       });
     }
-    const signedParams = jsonMode || request.method.toUpperCase() === "GET" ? [] : params;
+    const signedParams = request.method.toUpperCase() === "GET" ? [] : formParams;
     const valid = await verifyTwilioSignature({
       authToken: options.credentials.authToken,
       url,
@@ -106,6 +108,7 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
     }
   }
 
+  const params = jsonMode ? jsonParams(rawBody) : formParams;
   return interpretTwilioParams(paramsToRecord(params), options.detectKeywords ?? true);
 }
 

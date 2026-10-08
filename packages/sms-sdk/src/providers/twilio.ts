@@ -202,6 +202,11 @@ export function interpretTwilioResponse(status: number, text: string, headers: H
     const code = isRecord(body) ? readCode(body, "code") : undefined;
     const message = isRecord(body) ? readString(body, "message") : undefined;
     const category = twilioRejectionCategory(status, code);
+    if (status === 429 && category !== "rate_limited") {
+      // Only a documented rate-limit error proves the message was not created.
+      // A bare 429, for example from a proxy, is unknown.
+      return unknownForStatus("twilio", status, requestId);
+    }
     const retryAfterMs = category === "rate_limited" ? parseRetryAfter(headers.get("retry-after")) : undefined;
     return {
       kind: "rejected",
@@ -217,12 +222,14 @@ export function interpretTwilioResponse(status: number, text: string, headers: H
 /**
  * Rejection category for a Twilio 4xx. Codes come from Twilio's error
  * dictionary; unlisted 4xx codes are `request` (not fallback-eligible).
+ * Only code 20429 is `rate_limited`: Twilio documents that 429 responses with
+ * it were not processed. The HTTP status alone proves nothing.
  */
 export function twilioRejectionCategory(status: number, code: string | undefined): RejectionCategory {
   if (status === 401 || code === "20003") {
     return "auth";
   }
-  if (status === 429 || code === "20429") {
+  if (code === "20429") {
     return "rate_limited";
   }
   switch (code) {

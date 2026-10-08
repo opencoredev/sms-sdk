@@ -180,6 +180,11 @@ export function interpretTelnyxResponse(status: number, text: string, headers: H
     const code = firstError === undefined ? undefined : readCode(firstError, "code");
     const message = firstError === undefined ? undefined : (readString(firstError, "detail") ?? readString(firstError, "title"));
     const category = telnyxRejectionCategory(status, code);
+    if (status === 429 && category !== "rate_limited") {
+      // Only a documented rate-limit error proves the message was not created.
+      // A bare 429, for example from a proxy, is unknown.
+      return unknownForStatus("telnyx", status, requestId);
+    }
     const retryAfterMs = category === "rate_limited" ? parseRetryAfter(headers.get("retry-after")) : undefined;
     return {
       kind: "rejected",
@@ -194,7 +199,8 @@ export function interpretTelnyxResponse(status: number, text: string, headers: H
 
 /**
  * Rejection category for a Telnyx 4xx, from the error codes in Telnyx's
- * published error catalog. Unlisted codes are `request`.
+ * published error catalog. Unlisted codes are `request`. Only codes 10011 and
+ * 40318 are `rate_limited`; the HTTP status alone proves nothing.
  */
 export function telnyxRejectionCategory(status: number, code: string | undefined): RejectionCategory {
   switch (code) {
@@ -239,7 +245,7 @@ export function telnyxRejectionCategory(status: number, code: string | undefined
   if (status === 401 || status === 403) {
     return "auth";
   }
-  return status === 429 ? "rate_limited" : "request";
+  return "request";
 }
 
 /** Delivery value for a Telnyx recipient `status`. */

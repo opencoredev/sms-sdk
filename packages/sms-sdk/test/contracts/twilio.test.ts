@@ -6,7 +6,7 @@ import { mockFetch } from "../../src/testing/fetch.js";
 import { smsAdapterContractCases, runSmsAdapterContract, type AdapterContractFixtures } from "../../src/testing/contracts.js";
 import { signedTwilioRequest } from "../../src/testing/webhooks.js";
 import { parseSmsWebhook } from "../../src/webhooks/index.js";
-import { rejection, TWILIO_MESSAGE_SID, TWILIO_SERVICE_SID, TWILIO_SID } from "../helpers.js";
+import { describeRateLimitProof, rejection, TWILIO_MESSAGE_SID, TWILIO_SERVICE_SID, TWILIO_SID } from "../helpers.js";
 
 const AUTH = `Basic ${btoa(`${TWILIO_SID}:test-token`)}`;
 
@@ -158,6 +158,19 @@ describe("twilio request building", () => {
   });
 });
 
+describeRateLimitProof({
+  provider: "twilio",
+  adapter: (fetch) => twilio({ accountSid: TWILIO_SID, authToken: "t", from: "+15005550006", fetch }),
+  to: "+14155550123",
+  documented: { status: 429, body: { code: 20429, message: "Too Many Requests", status: 429 } },
+  bare: [
+    ["HTML page", { status: 429, body: "<html><body>429 Too Many Requests</body></html>", headers: { "retry-after": "1" } }],
+    ["empty body", { status: 429 }],
+    ["foreign JSON", { status: 429, body: { message: "rate limit exceeded" } }],
+    ["Twilio body with another code", { status: 429, body: { code: 21211, message: "Invalid 'To'", status: 429 } }],
+  ],
+});
+
 describe("twilio response mapping", () => {
   test.each([
     [401, 20003, "auth"],
@@ -171,6 +184,7 @@ describe("twilio response mapping", () => {
     [400, 21659, "sender"],
     [400, 21660, "sender"],
     [400, 21703, "sender"],
+    [429, undefined, "request"],
     [400, 21408, "account"],
     [400, 21608, "account"],
     [400, 21602, "request"],

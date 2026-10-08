@@ -5,6 +5,7 @@ import { mockFetch } from "../../src/testing/fetch.js";
 import { smsAdapterContractCases, type AdapterContractFixtures } from "../../src/testing/contracts.js";
 import { signedPlivoRequest } from "../../src/testing/webhooks.js";
 import { parseSmsWebhook } from "../../src/webhooks/index.js";
+import { describeRateLimitProof } from "../helpers.js";
 
 const AUTH_ID = "MAXXXXXXXXXXXXXXXXXX";
 const AUTH_TOKEN = "plivo-token";
@@ -91,6 +92,19 @@ describe("plivo adapter contract", () => {
   for (const check of smsAdapterContractCases(factory, plivoFixtures)) {
     test(check.name, check.run);
   }
+});
+
+describeRateLimitProof({
+  provider: "plivo",
+  adapter: (fetch) => plivo({ authId: AUTH_ID, authToken: AUTH_TOKEN, from: "+15005550006", fetch }),
+  to: "+14155550123",
+  documented: { status: 429, body: { api_id: "a3", error: "too many requests" } },
+  bare: [
+    ["HTML page", { status: 429, body: "<html><body>429 Too Many Requests</body></html>", headers: { "retry-after": "1" } }],
+    ["empty body", { status: 429 }],
+    ["foreign JSON", { status: 429, body: { message: "rate limit exceeded" } }],
+    ["error without api_id", { status: 429, body: { error: "too many requests" } }],
+  ],
 });
 
 describe("plivo specifics", () => {

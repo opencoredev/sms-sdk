@@ -7,6 +7,7 @@ Rules applied to every adapter:
 - A 2xx response is accepted only when it contains the documented message ID. Otherwise the outcome is unknown.
 - A 4xx response is a rejection (the message was not created). The error code picks the category; unlisted codes are `request`, which never falls back.
 - 5xx, 1xx/3xx, network errors, timeouts, and aborts after the request starts are unknown. They are never retried or failed over.
+- An HTTP 429 is `rate_limited` (retried, then fallback-eligible) only when the body carries the provider's documented rate-limit error, listed per provider below. Any other 429, such as a proxy or CDN page, an empty body, or JSON the provider did not produce, is unknown: nothing proves the message was not created.
 - No provider documents send idempotency for its SMS endpoint, so no adapter sends an idempotency key and `nativeIdempotency` is `false` everywhere.
 
 ## Twilio: supported
@@ -34,7 +35,7 @@ Error classification (Twilio code → category):
 | Category | Codes / status |
 |---|---|
 | auth | HTTP 401, 20003 (Permission Denied), HTTP 403 without a listed code |
-| rate_limited | HTTP 429, 20429 (Too many concurrent requests). Twilio documents 429 as "You have reached the Twilio API concurrency limit". |
+| rate_limited | 20429 (Too many requests). The error dictionary says "Requests that receive 429 responses aren't processed and are safe to retry after backing off." A 429 without code 20429 is unknown. |
 | recipient | 21211 (Invalid 'To'), 21614 ('To' not a valid mobile number) |
 | compliance | 21610 (Attempt to send to unsubscribed recipient) |
 | sender | 21212, 21606, 21612, 21659, 21660, 21703 |
@@ -77,7 +78,7 @@ Error classification:
 | Category | Codes |
 |---|---|
 | auth | 10009, 10010, 20001, 20002, 20003, 20006, 20008; HTTP 401/403 without a listed code |
-| rate_limited | 10011 (Too many requests), 40318 (Message queue full, "Wait before resending"); HTTP 429 |
+| rate_limited | 10011 (Too many requests, "You have exceeded the maximum number of allowed requests"), 40318 (Message queue full, "Wait before resending"). A 429 without one of these codes is unknown. |
 | compliance | 40300 (Blocked due to STOP message), 40322 (Blocked due to content) |
 | recipient | 40310 (Invalid 'to'), 40301, 40319 |
 | sender | 40305, 40306, 40308, 40315, 40320, 40321, 40329, 40330 |
@@ -116,6 +117,7 @@ Sending:
 Why partial:
 
 - Plivo does not document its error response body. Only 401 (`auth`) and 429 (`rate_limited`) are classified; every other 4xx is `request` and does not fall back, even when the real cause is a sender problem.
+- The API overview says "All responses are JSON with an api_id for request tracking" and "If you exceed the limit, you'll receive a 429 response. Implement exponential backoff for retries." Plivo documents no rate-limit error code, so a 429 is `rate_limited` only when its JSON body has a non-empty `api_id`, which shows Plivo produced it. A 429 without `api_id` is unknown. This is weaker proof than the other providers' error codes.
 - Messaging callbacks are signed with V2 only: `X-Plivo-Signature-V2` (or `X-Plivo-Signature-Ma-V2` for the main account) = Base64(HMAC-SHA256(Auth Token, callback URL without query string + `X-Plivo-Signature-V2-Nonce`)). Plivo documents V3 (which signs parameters) for Voice only. V2 does not sign the body and has no timestamp, so a captured callback could be replayed or its body altered without detection. Use HTTPS and deduplicate on `dedupeKey`.
 
 Webhooks:
@@ -147,8 +149,8 @@ Sending:
 
 Why partial:
 
-- Vonage does not document which HTTP status each Messages API error code uses. Classification uses the documented statuses (401 auth, 402 low balance, 422 invalid parameters, 429 over the API limit) plus these codes: 1000/1241 rate_limited; 1170/1430 recipient; 1240/1476 compliance; 1120/1420 sender; 1060/1080/1160/1290/1460 account.
-- `payload_hash` is described only as "a SHA-256 hash of the request payload". A Vonage blog post and support article describe it as the hex SHA-256 of the compact JSON payload. The verifier accepts a hash of the raw body or of its compact re-serialization, and checks it only when the claim is present.
+- Vonage does not document which HTTP status each Messages API error code uses. Classification uses the documented statuses (401 auth, 402 low balance, 422 invalid parameters) plus these codes: 1000 (Throttled, "Please wait and retry"), 1241 (Too many send requests), and the generic `throttled` problem type ("You have hit the rate limit for the API") are rate_limited; 1170/1430 recipient; 1240/1476 compliance; 1120/1420 sender; 1060/1080/1160/1290/1460 account. The Messages OpenAPI spec (https://developer.vonage.com/api/v1/developer/api/file/messages?format=json) defines the 429 response as `application/problem+json`; a 429 without one of the rate-limit codes in `type` or `title` is unknown.
+- `payload_hash` is described only as "a SHA-256 hash of the payload". The verifier hashes the exact delivered bytes and checks the claim only when present. Vonage's official sample (https://github.com/Nexmo/nexmo-node-code-snippets/blob/master/messages/signed-webhooks/verify-signed-webhook.js) and blog post hash `JSON.stringify` of the parsed body instead; that matches the delivered bytes when Vonage sends compact JSON, and nothing shows that it sends anything else. Earlier builds also accepted a compact re-serialization of the body. That was removed: different bytes can parse to the same value (duplicate keys, whitespace, escapes), so it did not prove the delivered body was the one Vonage signed. If a real capture ever shows Vonage's hash differing from the delivered bytes, revisit this.
 - Vonage does not document a freshness window for `iat`; the SDK uses 300 seconds (configurable).
 - Short codes and MMS (a separate Messages API channel) are not supported.
 
