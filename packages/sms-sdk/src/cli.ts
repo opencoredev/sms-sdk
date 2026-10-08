@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import { previewEncoding } from "./encoding.js";
+const args=process.argv.slice(2);const live=args.includes("--live");const to=args.find((_,i)=>args[i-1]==="--to");const from=args.find((_,i)=>args[i-1]==="--from");const confirmTo=args.find((_,i)=>args[i-1]==="--confirm-to");const confirmFrom=args.find((_,i)=>args[i-1]==="--confirm-from");if(live&&(!to||!from||to!==confirmTo||from!==confirmFrom)){console.error("--live requires --to, --from, and matching --confirm-to/--confirm-from");process.exitCode=1;}else {console.log(live?"Live checks require provider credentials and are not verified by this CLI.":"Dry run: configuration and non-billable checks only.");if(to)console.log(previewEncoding("doctor preview"));}
