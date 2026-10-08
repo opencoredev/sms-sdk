@@ -78,7 +78,20 @@ Telnyx uses one API v2 key per request, sent as `Authorization: Bearer <apiKey>`
 | Alphanumeric sender ID | `{ senderId: "Acme" }` | `from`, plus `messaging_profile_id` from the adapter |
 | Messaging profile number pool | `{ messagingService: "<profile id>" }` | `messaging_profile_id`, with no `from` |
 
-An alphanumeric sender without `messagingProfileId` on the adapter fails local validation before any request. Numbers must be assigned to a messaging profile in Telnyx before they can send. US long codes need 10DLC registration and toll-free numbers need verification.
+An alphanumeric sender without `messagingProfileId` on the adapter fails local validation before any request. Numbers must be assigned to a messaging profile in Telnyx before they can send.
+
+## Regions and countries
+
+Telnyx documents these rules in [Choosing a sender type](https://developers.telnyx.com/docs/messaging/getting-started/choosing-your-sender-type):
+
+- 10DLC brand and campaign registration is required for A2P messaging to US mobile numbers.
+- Toll-free numbers need verification, and they work for both US and Canada destinations.
+- Short codes need carrier approval and are country-specific: a US short code does not reach Canada.
+- [Alphanumeric senders](https://developers.telnyx.com/docs/messaging/messages/alphanumeric-sender-id) can't send to the US, Canada, or Puerto Rico. They are one-way, so recipients can't reply.
+
+Some countries require alphanumeric sender ID pre-registration, such as the UK and France. Telnyx's [international SMS compliance guide](https://developers.telnyx.com/docs/messaging/messages/international-sms-compliance) covers country rules.
+
+SMS SDK does not check country rules before sending, and these rules have not been verified against live accounts.
 
 ## Capabilities
 

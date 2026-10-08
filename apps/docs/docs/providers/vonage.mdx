@@ -115,7 +115,19 @@ With JWT auth, the adapter signs a fresh RS256 token for each request with the c
 | Short code | not supported | |
 | Messaging service | not supported | |
 
-US long codes need 10DLC registration and toll-free numbers need verification through Vonage. Alphanumeric sender IDs work only where the destination country allows them.
+Which senders work depends on the destination country.
+
+## Regions and countries
+
+Vonage documents these rules for the United States and Canada:
+
+- Sending from a US 10-digit long code needs [10DLC](https://developer.vonage.com/en/blog/what-you-need-to-know-about-10dlc) brand and campaign registration.
+- Toll-free numbers must be [registered](https://developer.vonage.com/en/tfn-registration/guides/register-a-tfn), or carriers block their messages. US toll-free numbers cover both the US and Canada.
+- [Alphanumeric sender IDs are not allowed](https://api.support.vonage.com/hc/en-us/articles/204017023-United-States-SMS-Features-and-Restrictions) in the US.
+
+Elsewhere, sender ID rules vary by country, and some countries require registration through Vonage's [Global Sender ID portal](https://api.support.vonage.com/hc/en-us/articles/6791919802652-Global-Sender-ID-Registration-Guide). Vonage's [country-specific features and restrictions](https://api.support.vonage.com/hc/en-us/sections/200622473-Country-Specific-Features-and-Restrictions) list the rules for each country.
+
+SMS SDK does not check country rules before sending, and these rules have not been verified against live accounts.
 
 ## Capabilities
 

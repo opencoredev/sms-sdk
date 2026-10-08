@@ -101,7 +101,20 @@ Twilio recommends API keys for production because you can revoke them one at a t
 | Alphanumeric sender ID | `{ senderId: "Acme" }` | `From` |
 | Messaging Service | `{ messagingService: "MG…" }` | `MessagingServiceSid` |
 
-US long codes need A2P 10DLC registration and toll-free numbers need verification before carriers accept traffic. Alphanumeric sender IDs work only in countries that allow them, and some require registration. Twilio decides; a refused sender is a `sender` rejection.
+Which senders work depends on the destination country. Twilio decides; a refused sender is a `sender` rejection.
+
+## Regions and countries
+
+Twilio documents these rules for the United States and Canada:
+
+- US long codes need [A2P 10DLC registration](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc) before they send to the US.
+- Toll-free numbers can't send to the US or Canada until [toll-free verification](https://www.twilio.com/docs/messaging/compliance/toll-free/console-onboarding) is approved.
+- US short codes are supported, with a provisioning time of 6 to 10 weeks.
+- [Alphanumeric sender IDs are not supported](https://www.twilio.com/en-us/guidelines/us/sms) in the US.
+
+Elsewhere, alphanumeric sender IDs work only in [supported countries](https://help.twilio.com/hc/en-us/articles/223133767), and some countries require you to [register the sender ID](https://www.twilio.com/docs/glossary/what-alphanumeric-sender-id). Twilio's [SMS guidelines](https://www.twilio.com/en-us/guidelines/sms) list sender types and registration rules for each country.
+
+SMS SDK does not check country rules before sending, and these rules have not been verified against live accounts.
 
 ## Capabilities
 

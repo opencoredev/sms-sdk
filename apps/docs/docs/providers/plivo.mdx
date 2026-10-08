@@ -89,7 +89,20 @@ Plivo uses HTTP Basic auth with the account's (or a subaccount's) Auth ID and Au
 | Alphanumeric sender ID | `{ senderId: "Acme" }` | `src` |
 | Powerpack | `{ messagingService: "<powerpack uuid>" }` | `powerpack_uuid` |
 
-US long codes need 10DLC registration and toll-free numbers need verification. Alphanumeric sender IDs work only where the destination country allows them.
+Which senders work depends on the destination country.
+
+## Regions and countries
+
+Plivo documents these rules in [US and Canada messaging](https://www.plivo.com/docs/messaging/concepts/us-ca-messaging):
+
+- US long codes need 10DLC registration, which can take up to a week.
+- Sending from unverified toll-free numbers is prohibited in both the US and Canada.
+- Short codes must be preapproved by the carriers, and provisioning can take 8 to 12 weeks.
+- [Alphanumeric sender IDs](https://www.plivo.com/docs/messaging/concepts/sender-id-usage) can't send to the US or Canada. Use an SMS-enabled Plivo number instead.
+
+In some other countries, alphanumeric sender IDs must be preregistered with a local carrier. Plivo's [sender ID usage page](https://www.plivo.com/docs/messaging/concepts/sender-id-usage) explains registration and links the list of country requirements.
+
+SMS SDK does not check country rules before sending, and these rules have not been verified against live accounts.
 
 ## Capabilities
 
