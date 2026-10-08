@@ -5,7 +5,7 @@ sidebar:
   label: "Overview"
 ---
 
-Pick a provider by what you need to send and where. Every adapter uses the same `send()` call and the same webhook events, so the choice comes down to capabilities, the provider's own coverage and pricing, and where your senders are already provisioned.
+Every adapter uses the same `send()` call and the same webhook events. Pick a provider by the capabilities below, the provider's own coverage and pricing, and where your senders are already provisioned.
 
 ## Support status
 
@@ -16,7 +16,7 @@ Pick a provider by what you need to send and where. Every adapter uses the same 
 | [Plivo](/providers/plivo) | Message API, `POST /v1/Account/{auth_id}/Message/` | Partial | Plivo does not document its API error body, so only 401 (auth) and 429 with Plivo's `api_id` (rate limit) are told apart. Other 4xx responses are `request` rejections and never fall back. |
 | [Vonage](/providers/vonage) | Messages API v1, `POST /v1/messages`, channel `sms` | Partial | Vonage does not document the HTTP status for each error code. Classification uses the documented 401, 402, and 422 statuses and the error code in the response. No short codes, no MMS. |
 
-**Supported** means requests, responses, error mapping, and webhooks are implemented from official documentation and pass the adapter contract tests. **Partial** means the adapter works and passes the same tests, but some provider behavior could not be confirmed from official documentation. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
+Supported adapters implement requests, responses, error mapping, and webhooks from official documentation and pass the adapter contract tests. Partial adapters pass the same tests, but some provider behavior could not be confirmed from official documentation. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
 
 None of the four providers documents send idempotency for SMS, so no adapter has native idempotency. See [Idempotency](/sending/idempotency).
 
@@ -44,7 +44,7 @@ None of the four providers documents send idempotency for SMS, so no adapter has
 | Alphanumeric sender ID | ✅ | ✅ needs `messagingProfileId` | ✅ | ✅ |
 | `{ messagingService }` | Messaging Service SID | Messaging profile ID | Powerpack UUID | ❌ |
 
-The adapter can send from a sender type. Whether your account may use it in a given country is decided by the provider. Each provider page has a Regions and countries section with the provider's rules, and [Senders and E.164 numbers](/sending/senders-and-e164) covers the general idea.
+This table says what the adapter can send from. The provider decides whether your account may use that sender in a given country. Each provider page lists the provider's rules under Regions and countries, and [Senders and E.164 numbers](/sending/senders-and-e164) covers the general idea.
 
 ## Choosing
 
@@ -59,7 +59,7 @@ The adapter can send from a sender type. Whether your account may use it in a gi
 
 ## Switching providers
 
-Changing the adapter is one line of code. Moving the account work is not:
+Changing the adapter is one line of code. The account work takes longer:
 
 - Provision and register a sender with the new provider. Numbers, short codes, 10DLC campaigns, and toll-free verifications belong to one provider account.
 - Configure webhook URLs and webhook credentials on the new provider.
@@ -69,4 +69,4 @@ See [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx) for the full c
 
 ## Another provider
 
-Need a provider that is not listed? Implement the adapter contract and check it with the contract harness. See [Build a provider adapter](/providers/writing-an-adapter).
+For a provider that is not listed, implement the adapter contract and check it with the contract harness. See [Build a provider adapter](/providers/writing-an-adapter).

@@ -3,10 +3,10 @@ title: "Retries and fallback"
 description: "Configure rate-limit retries and safe fallback to a second provider. SMS SDK never retries or fails over after an unknown outcome."
 ---
 
-You want a message to get through when a provider is rate limiting you or refuses your sender, without texting anyone twice. SMS SDK retries and fails over only when the provider proved it did not accept the message.
+Get a message through when a provider rate limits you or refuses your sender, without texting anyone twice. SMS SDK retries and fails over only when the provider definitely did not accept the message.
 
 :::warning[Unknown outcomes are never retried]
-A timeout, network error, 5xx, or malformed success response may mean the provider accepted the message. SMS SDK throws `HandoffUnknownError` and does not retry it or send it through another provider. No option changes this. Reconcile with the provider before you send again.
+After a timeout, network error, 5xx, or malformed success response, the provider may have accepted the message. SMS SDK throws `HandoffUnknownError` and does not retry or fail over. No option changes this. See [Idempotency](/sending/idempotency#reconcile-an-unknown-outcome) to reconcile.
 :::
 
 ## Retries on the same provider
@@ -37,11 +37,11 @@ With this client, a rate-limited send is tried up to 3 times on Twilio before it
 | `baseDelayMs` | `500` | Base for exponential backoff with full jitter: a random wait up to `baseDelayMs * 2^(attempt - 1)`. |
 | `maxDelayMs` | `10000` | Longest wait. If the provider's `Retry-After` is longer, SMS SDK stops retrying that adapter instead of waiting. |
 
-A provider's `Retry-After` header is used as the wait when it fits within `maxDelayMs`. Aborting the send's signal during the wait throws `SendAbortedError`, which is retry safe.
+When the provider's `Retry-After` fits within `maxDelayMs`, SMS SDK waits that long. Aborting the signal during the wait throws `SendAbortedError`, which is retry safe.
 
-5xx responses are not retried, even when a provider says "try again later". A 5xx can come after the provider created the message.
+5xx responses are not retried, even when the provider says "try again later", because a 5xx can come after the provider created the message.
 
-A 429 counts as a rate limit only when its body carries the provider's documented rate-limit error, such as Twilio error 20429. A bare 429, for example from a proxy in front of the provider, proves nothing about the message, so it is an unknown outcome: no retry, no fallback.
+A 429 counts as a rate limit only when its body carries the provider's documented rate-limit error, such as Twilio 20429. A bare 429, from a proxy for example, says nothing about the message. It is an unknown outcome, with no retry and no fallback.
 
 ## Fallback to another provider
 
@@ -68,9 +68,9 @@ const result = await sms.send({ to: "+14155550123", body: "Your code is 482913" 
 console.log(result.provider, result.attemptedProviders); // "telnyx" ["twilio", "telnyx"] if Twilio refused
 ```
 
-Twilio sends first. If Twilio proves it did not accept the message for a reason specific to that account, Telnyx sends next. `attemptedProviders` and `attempts` show what happened.
+Twilio sends first. If Twilio rejects the message for a reason specific to that account, Telnyx sends next. `attemptedProviders` and `attempts` record what happened.
 
-Each adapter sends from its own `from`. Do not pass `from` on the message when you use fallback, unless every adapter can send from that exact sender.
+Each adapter sends from its own `from`. With fallback, leave `from` off the message unless every adapter can send from that exact sender.
 
 ### Which rejections fall back
 
@@ -97,11 +97,11 @@ When every attempted adapter rejects, `send()` throws `AllProvidersRejectedError
 
 ## Before you turn fallback on
 
-Fallback moves a message to a different provider account. Make sure that account is ready:
+Fallback moves a message to a different provider account. Each account needs:
 
-- A provisioned, registered sender on each provider. A US 10DLC number on Twilio does not make your Telnyx number registered.
-- Webhook URLs configured on each provider, so delivery receipts and inbound replies arrive from both. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
-- Opt-out records shared in your app. A STOP sent to your Twilio number is recorded by Twilio, not Telnyx. Use `beforeSend` to check your own suppression list. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+- A provisioned, registered sender. A 10DLC registration on Twilio does not cover your Telnyx number.
+- Webhook URLs, so status updates and inbound replies arrive from both. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
+- Your app's shared opt-out list. Twilio records a STOP sent to your Twilio number, and Telnyx never sees it. Check your own suppression list in `beforeSend`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
 
 ## Next steps
 

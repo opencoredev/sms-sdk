@@ -3,10 +3,10 @@ title: "STOP, HELP, and opt-outs"
 description: "Record opt-outs from STOP replies, answer HELP, and block sends to suppressed recipients. SMS SDK helps; compliance stays your app's job."
 ---
 
-When someone replies STOP, you must stop texting them, on every provider you use. SMS SDK turns opt-out and help replies into events and lets you block sends with `beforeSend`. Keeping the suppression list, getting consent, and following local rules is your app's job.
+When someone replies STOP, you must stop texting them on every provider you use. SMS SDK turns opt-out and help replies into events and lets you block sends with `beforeSend`.
 
 :::warning[No compliance guarantee]
-SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also block STOP replies on their side with their own rules. Treat these events as inputs to your own records.
+SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also act on STOP replies with their own rules. Treat these events as inputs to your own records. See [Sender registration and consent](/guides/sender-registration-and-consent).
 :::
 
 ## Opt-out and help events
@@ -19,12 +19,12 @@ An inbound message becomes one of these instead of `message.received`:
 | `recipient.opted_in` | Twilio `OptOutType=START` only |
 | `recipient.help` | Twilio `OptOutType=HELP`, or a whole-message keyword: `HELP`, `INFO` |
 
-Each event has `from` (the person), `to` (your number), the original `body`, `keyword`, `providerId`, and `source`:
+Each event has `from`, the person who texted, `to`, your number, plus the original `body`, `keyword`, `providerId`, and `source`. The `source` tells you who detected it:
 
-- `source: "provider"`: the provider flagged it. Only Twilio sends this signal, in the `OptOutType` field, and only when Advanced Opt-Out is enabled on the Messaging Service.
-- `source: "keyword"`: SMS SDK matched the whole message, trimmed, ignoring case and trailing `.`, `!`, or `?`. "stop" and "Stop!" match. "Please stop texting me" does not.
+- `"provider"` means the provider flagged it. Only Twilio sends this signal, in `OptOutType`, and only when Advanced Opt-Out is enabled on the Messaging Service.
+- `"keyword"` means SMS SDK matched the whole message after trimming, ignoring case and a trailing `.`, `!`, or `?`. "stop" and "Stop!" match. "Please stop texting me" does not.
 
-Keyword matching is a convenience. Carriers and providers may treat other words, or other languages, as opt-outs. Set `detectKeywords: false` to receive every inbound message as `message.received` and apply your own rules with `detectKeyword()` or your own matcher.
+Keyword matching is a convenience. Carriers and providers may treat other words or languages as opt-outs. Set `detectKeywords: false` to receive every inbound message as `message.received` and apply your own rules with `detectKeyword()` or your own matcher.
 
 ## Record opt-outs
 
@@ -83,7 +83,7 @@ export const sms = createSmsClient({
 
 A suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
 
-Provider-side blocks are covered too. When a provider refuses a message because the recipient opted out with it (Twilio 21610, Telnyx 40300, Vonage 1240), the rejection has `category: "compliance"`. Compliance rejections are never retried and never sent through another provider. Add the number to your suppression list when you see one:
+A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or sends it through another provider. See [Retries and fallback](/sending/retries-and-fallback). Add the number to your suppression list when you see one:
 
 ```ts
 import { ProviderRejectedError } from "@opencoredev/sms-sdk";
@@ -103,7 +103,7 @@ try {
 
 ## Answer HELP
 
-SMS SDK never replies on its own. Some providers answer HELP and STOP automatically for some sender types; check your provider settings so the person does not get two replies. To reply yourself:
+SMS SDK never replies on its own. Some providers answer HELP and STOP automatically for some sender types, so check your provider settings to avoid sending two replies. To reply yourself:
 
 ```ts
 import { isE164 } from "@opencoredev/sms-sdk";
@@ -123,11 +123,7 @@ export async function answerHelp(event: SmsEvent): Promise<void> {
 
 ## What else you are responsible for
 
-- Collecting and storing consent before you text someone.
-- Registering senders: US A2P 10DLC campaigns, toll-free verification, short code approval, sender ID registration where required.
-- Quiet hours, message content rules, and country-specific requirements.
-
-See [Sender registration and consent](/guides/sender-registration-and-consent) for links to each provider's rules. They change, so check them directly.
+Your app also has to collect and store consent before texting anyone, register senders, and follow quiet hours, content rules, and country requirements. Sender registration covers US A2P 10DLC campaigns, toll-free verification, short code approval, and sender ID registration where required. [Sender registration and consent](/guides/sender-registration-and-consent) links to each provider's rules. They change, so check them directly.
 
 ## Next steps
 

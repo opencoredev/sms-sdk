@@ -5,15 +5,17 @@ sidebar:
   label: "Overview"
 ---
 
-Providers tell you what happened after a send, and what people text back, by calling a webhook on your server. Each provider uses its own payload and signature. `parseSmsWebhook()` verifies the request and returns one `SmsEvent` shape for all four.
+Providers report delivery status and incoming texts by calling a webhook on your server. Each provider has its own payload and signature. `parseSmsWebhook()` verifies the request and returns one `SmsEvent` shape for all four.
+
+A successful `send()` only means the provider accepted the message. Whether it reached the phone arrives later as a status webhook. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
 
 ## How it works
 
-1. You configure a webhook URL in the provider's console, or pass `webhookUrl` per message.
-2. The provider sends an HTTP request to that URL when a status changes or a message arrives.
-3. Your handler passes the `Request` to `parseSmsWebhook()` with the provider name and its credentials.
-4. SMS SDK reads the raw body once, checks the signature, and only then reads any field.
-5. You get an `SmsEvent`, or a `WebhookSignatureError` when the request is not authentic.
+1. You set a webhook URL in the provider's console, or pass `webhookUrl` per message.
+2. The provider calls that URL when a status changes or a message arrives.
+3. Your handler passes the `Request`, provider name, and credentials to `parseSmsWebhook()`.
+4. SMS SDK checks the signature over the raw body before reading any field.
+5. You get an `SmsEvent`, or a `WebhookSignatureError` if the request is not authentic.
 
 ```mermaid
 sequenceDiagram
@@ -71,7 +73,7 @@ export async function handleTelnyxWebhook(request: Request): Promise<Response> {
 }
 ```
 
-The handler answers 401 to forged requests, ignores repeats, and records the events it cares about. Framework versions are in [Next.js](/guides/nextjs) and [Hono and Bun](/guides/hono-and-bun).
+The handler answers 401 to forged requests, acknowledges repeats without reprocessing them, and records the events it cares about. Framework versions are in [Next.js](/guides/nextjs) and [Hono and Bun](/guides/hono-and-bun).
 
 ## Event types
 
@@ -82,7 +84,7 @@ The handler answers 401 to forged requests, ignores repeats, and records the eve
 | `recipient.opted_out`, `recipient.opted_in`, `recipient.help` | An inbound STOP, START, or HELP. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs). |
 | `unrecognized` | A verified event SMS SDK does not map, such as a new status. `raw` holds the payload. |
 
-Every event has `provider`, `dedupeKey`, `raw`, and `occurredAt` when the payload includes a time. The full shapes are in [Webhook events](/reference/webhook-events).
+Every event has `provider`, `dedupeKey`, and `raw`, plus `occurredAt` when the payload includes a time. The full shapes are in [Webhook events](/reference/webhook-events).
 
 ## Choose a page
 
@@ -96,7 +98,6 @@ Every event has `provider`, `dedupeKey`, `raw`, and `occurredAt` when the payloa
 
 ## Best practices
 
-- **Verify every request.** Never set `unsafeSkipVerification` outside tests.
-- **Respond fast.** Store the event and do slow work in a background job. Providers retry webhooks that time out, which creates duplicates.
-- **Deduplicate on `dedupeKey`.** Providers deliver the same event more than once.
-- **Do not trust order.** A `message.sent` can arrive after `message.delivered`.
+- Verify every request. Never set `unsafeSkipVerification` outside tests. See [Webhook security](/receiving/webhook-security).
+- Respond fast. Store the event and do slow work in a background job. Providers retry webhooks that time out, which creates duplicates.
+- Deduplicate on `dedupeKey`, and do not trust order. A `message.sent` can arrive after `message.delivered`. See [Duplicates and ordering](/receiving/duplicates-and-ordering).

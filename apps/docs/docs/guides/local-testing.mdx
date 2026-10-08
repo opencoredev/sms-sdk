@@ -3,9 +3,7 @@ title: "Local testing"
 description: "Test SMS code without a provider account or network: the memory() adapter, scripted failures, mockFetch, and signed webhook requests."
 ---
 
-Your tests and CI should never send a real text. SMS SDK ships test helpers in `@opencoredev/sms-sdk/testing`: an in-memory adapter for app code, a recording fake `fetch` for adapter-level tests, and builders for correctly signed webhook requests.
-
-The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
+Tests and CI should never send a real text. `@opencoredev/sms-sdk/testing` has an in-memory adapter for app code, a recording fake `fetch` for adapter tests, and builders for signed webhook requests. The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
 
 ## Use the memory adapter
 
@@ -16,10 +14,11 @@ import { memory } from "@opencoredev/sms-sdk/testing";
 const sms = createSmsClient({ adapters: [memory()] });
 
 await sms.send({ to: "+14155550123", body: "Test message" });
-// No network calls. The adapter records every send.
 ```
 
-`memory()` accepts every send and makes no network calls. Its defaults: name `"memory"`, sender `+15005550006`, every send field and sender type supported, inbound and delivery receipts off. Accepted sends get provider IDs `memory_1`, `memory_2`, and so on.
+`memory()` makes no network calls, records every send, and accepts it unless you script a failure. By default its name is `"memory"`, its sender is `+15005550006`, it supports every send field and sender type, and inbound and delivery receipts are off. Accepted sends get provider IDs `memory_1`, `memory_2`, and so on, numbered by send count.
+
+To test it, your app code should take an `SmsClient` as an argument or import it from one module you can swap.
 
 ## Assert what was sent
 
@@ -48,13 +47,11 @@ test("sends the login code", async () => {
 });
 ```
 
-Each entry in `sent` has the `message` the adapter received (with the resolved sender), the `attempt` number, the `idempotencyKey`, and the `outcome` returned. Call `adapter.reset()` between tests to clear it.
-
-Your app code should accept an `SmsClient` (or import one module you can swap), so tests can pass a client built on `memory()`.
+Each entry in `sent` holds the `message` the adapter received, with its resolved sender, plus the `attempt` number, the `idempotencyKey`, and the returned `outcome`. Rejected and unknown sends are recorded too. Call `adapter.reset()` between tests to clear recorded sends and queued outcomes.
 
 ## Script failures
 
-Pass `outcomes`, or call `enqueue()`, to make the next sends fail. Outcomes are used in order; after they run out, sends are accepted.
+Pass `outcomes`, or call `enqueue()`, to make the next sends fail. The adapter uses them in order, one per send, then goes back to accepting.
 
 ```ts
 import { expect, test } from "bun:test";
@@ -74,12 +71,7 @@ test("handles an opt-out rejection and a timeout", async () => {
 });
 ```
 
-| Helper | Returns |
-| --- | --- |
-| `acceptedOutcome(providerId, delivery = "queued")` | An accepted outcome. |
-| `rejectedOutcome(category, { provider?, retryAfterMs?, code? })` | A rejection in that category. |
-| `unknownOutcome(reason = "network")` | An unknown outcome. |
-| a function `(message, context) => outcome` | Any outcome, computed per send. |
+Besides `rejectedOutcome()` and `unknownOutcome()`, there is `acceptedOutcome(providerId, delivery)`. Any entry can also be a function `(message, context) => outcome` that computes the outcome per send. See the [testing reference](/reference/testing) for every signature.
 
 ### Test fallback
 
@@ -104,7 +96,7 @@ test("falls back after a sender rejection", async () => {
 
 ### Test capability errors
 
-Turn capabilities off to check that your code handles `UnsupportedFieldError`:
+Turn a capability off to check how your code handles `UnsupportedFieldError`:
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -118,7 +110,7 @@ console.log(check.supported, check.issues[0]?.code); // false "unsupported_field
 
 ## Test a real adapter without the network
 
-`mockFetch()` returns a fake `fetch` that records each request and answers with what you specify. Pass it to any adapter's `fetch` option:
+`mockFetch()` returns a fake `fetch` that records each request and replies with what you give it. Pass it to any adapter's `fetch` option:
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -134,11 +126,11 @@ await sms.send({ to: "+14155550123", body: "Hello" });
 console.log(fake.calls[0]?.url, fake.calls[0]?.headers["content-type"]);
 ```
 
-The responder can be a fixed reply or a function of the recorded request. `{ throws: error }` simulates a network failure, and `{ hangUntilAborted: true }` waits until the request is aborted, which is how you test `timeoutMs`.
+The responder is a fixed reply or a function of the recorded request. `{ throws: error }` simulates a network failure. `{ hangUntilAborted: true }` waits for the abort, which lets you test `timeoutMs`.
 
 ## Test webhook handlers
 
-Build requests signed exactly as the provider would sign them, so your handler runs the real verification path:
+These builders sign requests the way each provider does, so your handler runs the real verification path:
 
 ```ts
 import { expect, test } from "bun:test";
@@ -176,19 +168,13 @@ test("parses a signed Telnyx inbound message", async () => {
 });
 ```
 
-| Builder | Produces |
-| --- | --- |
-| `signedTwilioRequest({ authToken, url, params })` | A form POST with `X-Twilio-Signature`. |
-| `generateTelnyxKeyPair()` | `{ privateKey, publicKey }`. Pass `publicKey` as the credential. |
-| `signedTelnyxRequest({ privateKey, url, body, timestamp? })` | A JSON POST with Telnyx Ed25519 headers. |
-| `signedPlivoRequest({ authToken, url, params, nonce? })` | A form POST with Plivo V2 signature headers. |
-| `signedVonageRequest({ signatureSecret, url, body, iat?, apiKey? })` | A JSON POST with a Vonage HS256 JWT. |
+For Plivo, `signedPlivoRequest({ authToken, url, params })` builds a form POST with V2 signature headers. For Vonage, `signedVonageRequest({ signatureSecret, url, body })` builds a JSON POST with an HS256 JWT. The [testing reference](/reference/testing) lists optional fields such as a fixed timestamp or nonce.
 
-Prefer these over `unsafeSkipVerification: true`, which skips the code you most need to test.
+Use these instead of `unsafeSkipVerification: true`, which skips the code you most need to test.
 
 ## Check configuration without sending
 
-Before a first live send, run the doctor in dry-run mode. It makes no network calls:
+Before the first live send, run the doctor in dry-run mode. It makes no network calls:
 
 ```bash
 npx @opencoredev/sms-sdk doctor --adapter telnyx --body "Your package is ready 📦"
@@ -198,8 +184,7 @@ See [Doctor CLI](/reference/doctor-cli).
 
 ## Keep live sends out of CI
 
-- Build test clients on `memory()` or `mockFetch`, never on real credentials.
-- Do not put provider credentials in CI unless a job is explicitly meant to send. The SMS SDK repository's own live test runs only with `LIVE_SMS_TESTS=true` and an allowlisted recipient.
+Build test clients on `memory()` or `mockFetch()`, never on real credentials, and keep provider credentials out of CI unless a job exists to send. The SMS SDK repository's own live test runs only with `LIVE_SMS_TESTS=true` and an allowlisted recipient.
 
 ## Next steps
 

@@ -3,9 +3,7 @@ title: "Use with Hono and Bun"
 description: "Send SMS and receive verified webhooks from a Hono app or a plain Bun.serve server."
 ---
 
-You run a Hono app, or a plain `Bun.serve` server, and want routes that send SMS and receive provider webhooks. Both hand you a web `Request`, which is what `parseSmsWebhook()` takes, so no adapter code is needed.
-
-The repository's [`examples/webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) has a framework-free handler that works the same way.
+This guide adds routes that send SMS and receive provider webhooks to a Hono app or a plain `Bun.serve` server. Both hand you a web `Request`, which `parseSmsWebhook()` takes directly, so you need no glue code. The repository's [`examples/webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) has a framework-free handler that works the same way.
 
 ## Hono
 
@@ -70,9 +68,9 @@ export default app;
 
 Run it with `bun run server.ts`. Bun serves the default export on port 3000.
 
-Pass `c.req.raw`, the untouched web `Request`. Do not call `c.req.json()`, `c.req.text()`, or `c.req.parseBody()` on a webhook route first, because the body can only be read once and the signature covers the raw bytes.
+Pass `c.req.raw`, the untouched web `Request`. Do not call `c.req.json()`, `c.req.text()`, or `c.req.parseBody()` on a webhook route first. The body can be read only once, and the signature covers the raw bytes.
 
-The same app runs on Node.js with `@hono/node-server`, and on other Hono targets, as long as the runtime has `fetch` and Web Crypto. Only Node.js and Bun are tested.
+The same app runs on Node.js with `@hono/node-server` and on any other Hono target that has `fetch` and Web Crypto. Only Node.js and Bun are tested.
 
 ## Plain Bun.serve
 
@@ -105,11 +103,11 @@ Bun.serve({
 });
 ```
 
-Bun loads `.env` automatically, so `process.env.TELNYX_PUBLIC_KEY` is set from your `.env` file in development.
+Bun loads `.env` automatically, so in development `process.env.TELNYX_PUBLIC_KEY` comes from your `.env` file.
 
 ## Behind a proxy
 
-Bun and Hono see the URL of the local listener, such as `http://localhost:3000/webhooks/sms/twilio`. Twilio and Plivo sign the public URL, so always pass `publicUrl` for them, or `trustProxy: true` when your own proxy sets `X-Forwarded-Proto` and `X-Forwarded-Host`. Telnyx and Vonage do not sign the URL. See [Webhook security](/receiving/webhook-security).
+Bun and Hono see the local listener's URL, such as `http://localhost:3000/webhooks/sms/twilio`, but Twilio and Plivo sign the public one. For those two, pass `publicUrl`, or `trustProxy: true` when your own proxy sets `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Webhook security](/receiving/webhook-security).
 
 ## Next steps
 

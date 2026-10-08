@@ -3,7 +3,7 @@ title: "Overview"
 description: "SMS SDK sends and receives transactional SMS through Twilio, Telnyx, Plivo, or Vonage with one typed TypeScript API."
 ---
 
-SMS SDK (`@opencoredev/sms-sdk`) is a TypeScript library for sending transactional SMS through Twilio, Telnyx, Plivo, or Vonage with one API, and for reading their delivery and inbound webhooks as one event shape.
+SMS SDK (`@opencoredev/sms-sdk`) sends transactional SMS through Twilio, Telnyx, Plivo, or Vonage with one TypeScript API, and turns their delivery and inbound webhooks into one event shape.
 
 - New here? Send a message in the [Quick start](/getting-started/quick-start).
 - Already on the Twilio SDK? Read [Migrate from the Twilio SDK](/migration/migrate-from-twilio).
@@ -12,14 +12,14 @@ SMS SDK (`@opencoredev/sms-sdk`) is a TypeScript library for sending transaction
 
 ## What it solves
 
-Each SMS provider has its own request format, error codes, status names, and webhook signature scheme. Code written against one provider's SDK is hard to move to another, and it is easy to get the failure cases wrong:
+Each provider has its own request format, error codes, status names, and webhook signatures. Code written for one is hard to move, and the failure cases are easy to get wrong:
 
-- **Duplicate sends.** A timeout does not tell you whether the provider created the message. Retrying it, or sending it through a second provider, can text the recipient twice.
-- **Accepted is not delivered.** A `201` from the provider means it queued the message. Delivery arrives later, by webhook.
-- **Silent option loss.** A provider that cannot schedule or send MMS may ignore the field or fail in its own way.
-- **Webhook trust.** Each provider signs callbacks differently, and the URL behind a proxy often breaks verification.
+- A timeout does not tell you whether the provider created the message. Retrying it, or failing over to a second provider, can text the recipient twice.
+- A `201` means the provider queued the message. Delivery is reported later, by webhook.
+- A provider that cannot schedule or send MMS may ignore the field or fail in its own way.
+- Each provider signs callbacks differently, and a proxy in front of your app often breaks verification.
 
-SMS SDK puts these behind one client. Sends either resolve with an accepted result or throw a typed error that says whether a retry is safe. Unsupported fields throw before any request. Webhooks are verified before any field is read.
+With SMS SDK, a send either resolves with an accepted result or throws a typed error that says whether a retry is safe. Unsupported fields throw before any request. Webhooks are verified before any field is read.
 
 ## The core idea
 
@@ -46,11 +46,11 @@ try {
 }
 ```
 
-Swapping `telnyx(...)` for `twilio(...)`, `plivo(...)`, or `vonage(...)` changes the provider. The `send()` call stays the same. Runnable versions live in the [examples folder](/examples/overview).
+Replace `telnyx(...)` with `twilio(...)`, `plivo(...)`, or `vonage(...)` to change provider. The `send()` call stays the same. Runnable versions are in the [examples](/examples/overview).
 
 ## Packages
 
-SMS SDK is one npm package with no runtime or peer dependencies. Each part is a subpath import, and importing one adapter never loads another.
+One npm package, no runtime or peer dependencies. Each part is a subpath import, and importing one adapter never loads another.
 
 | Import | What it gives you |
 | --- | --- |
@@ -63,7 +63,7 @@ SMS SDK is one npm package with no runtime or peer dependencies. Each part is a 
 | `@opencoredev/sms-sdk/testing` | The `memory()` adapter, `mockFetch()`, signed webhook builders, the adapter contract harness |
 | `@opencoredev/sms-sdk/encoding` | `estimateSegments`, `isGsm7`, GSM-7 tables, `SEGMENT_LIMITS` |
 
-The package also ships a `sms-sdk doctor` command that checks your configuration without sending. See [Doctor CLI](/reference/doctor-cli).
+The `sms-sdk doctor` command checks your configuration without sending. See [Doctor CLI](/reference/doctor-cli).
 
 ## Providers
 
@@ -72,7 +72,7 @@ The package also ships a `sms-sdk doctor` command that checks your configuration
 - [Plivo](/providers/plivo): Message API. Partial: most rejections cannot be classified.
 - [Vonage](/providers/vonage): Messages API v1, SMS channel. Partial: error classification is inferred, no short codes or MMS.
 
-The [Providers overview](/providers/overview) compares what each one can do.
+[Providers overview](/providers/overview) compares them.
 
 ## Scope and limits
 
@@ -80,10 +80,10 @@ SMS SDK is a transport library. It does not include:
 
 - Conversation threads, an inbox, chatbots, WhatsApp, RCS, or iMessage.
 - An OTP verification service, a hosted API, a dashboard, or number purchasing.
-- 10DLC, toll-free, or sender ID registration. You provision senders with each provider. See [Sender registration and consent](/guides/sender-registration-and-consent).
-- Exactly-once delivery. No SMS library can promise it, because none of the four providers offer send idempotency. SMS SDK reports an unknown outcome instead of guessing. See [Idempotency](/sending/idempotency).
+- 10DLC, toll-free, or sender ID registration. You do that with each provider. See [Sender registration and consent](/guides/sender-registration-and-consent).
+- Exactly-once delivery. None of the four providers offer send idempotency, so no SMS library can promise it. SMS SDK reports an unknown outcome instead of guessing. See [Idempotency](/sending/idempotency).
 
-It runs on the server only, on Node.js 20 or newer and Bun 1.1 or newer. Never ship provider credentials to a browser.
+It runs on the server only, on Node.js 20+ or Bun 1.1+. See [Installation](/getting-started/installation).
 
 ## Next steps
 

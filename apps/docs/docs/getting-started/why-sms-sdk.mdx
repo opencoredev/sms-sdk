@@ -3,13 +3,13 @@ title: "Why SMS SDK"
 description: "SMS SDK vs the Twilio, Telnyx, Plivo, and Vonage SDKs: when each is the better fit, with a feature comparison and code."
 ---
 
-You can send SMS with a provider's own SDK, or with SMS SDK in front of one or more providers. This page helps you choose.
+You can send SMS with a provider's own SDK, or put SMS SDK in front of one or more providers.
 
-**A provider SDK is a good fit** when you use one provider, need features beyond SMS (voice, verification, number lookup, number purchasing, TwiML), or want new API parameters typed on the day they ship.
+A provider SDK fits when you use one provider, need more than SMS (voice, verification, number lookup, number purchasing, TwiML), or want new API parameters typed the day they ship.
 
-**SMS SDK is a good fit** when you only send and receive SMS, want to change or add providers without touching call sites, and want timeouts and ambiguous responses handled conservatively by default.
+SMS SDK fits when you only send and receive SMS, want to change or add providers without touching call sites, and want timeouts and ambiguous responses handled conservatively by default.
 
-Compared on 2026-10-08: `@opencoredev/sms-sdk` 0.1.0, `twilio` 6.1.2, `telnyx` 7.25.0, `plivo` 4.79.0, and `@vonage/server-sdk` 3.30.1. Provider SDKs change often. If a row is wrong or out of date, [open an issue](https://github.com/opencoredev/sms-sdk/issues) with a link to the evidence and we will fix it.
+Compared on 2026-10-08: `@opencoredev/sms-sdk` 0.1.0, `twilio` 6.1.2, `telnyx` 7.25.0, `plivo` 4.79.0, and `@vonage/server-sdk` 3.30.1. Provider SDKs change often. If a row is wrong, [open an issue](https://github.com/opencoredev/sms-sdk/issues) with a link to the evidence.
 
 ## Feature comparison
 
@@ -29,24 +29,24 @@ Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
 | In-memory test adapter and signed webhook builders | ✅ | 🟡 |
 | Runtime dependencies | 0 | `twilio` 7, `plivo` 15, `telnyx` 0, `@vonage/server-sdk` 17 (Vonage packages) [4] |
 
-1. Through [`providerOptions`](/reference/send#provideroptions): typed options for the documented optional SMS parameters of each provider's send request, such as Twilio's `ShortenUrls` or Telnyx's `auto_detect`, plus an `extra` passthrough for any other parameter, including ones added later. Parameters that would replace a portable field stay blocked, such as Twilio's `ContentSid`, because a Content Template replaces `body`. Each provider page lists its options.
-2. Provider SDKs throw their own error types with HTTP status and error codes. Deciding which ones are safe to retry is left to your code.
-3. Provider APIs validate fields on their side, so you learn about an unsupported field from a failed (sometimes billed) request.
+1. Through [`providerOptions`](/reference/send#provideroptions): typed options for each provider's documented optional SMS parameters, such as Twilio's `ShortenUrls` or Telnyx's `auto_detect`, plus an `extra` passthrough for anything else, including parameters added later. Parameters that would replace a portable field stay blocked. Twilio's `ContentSid` is one, because a Content Template replaces `body`. Each provider page lists its options.
+2. Provider SDKs throw their own error types with HTTP status and error codes. Your code decides which are safe to retry.
+3. The provider API validates fields, so you learn about an unsupported field from a failed, sometimes billed, request.
 4. Direct `dependencies` in each package's `package.json` on the comparison date. Transitive counts are higher.
 
 ## Where SMS SDK is stronger
 
-- **Portability.** `sms.send({ to, body })` is the same call for Twilio, Telnyx, Plivo, and Vonage. Webhooks parse to the same `SmsEvent` union.
-- **Conservative failure handling.** Each send ends as accepted, rejected, or unknown. Unknown outcomes throw `HandoffUnknownError` and are never retried or sent through another provider, so a timeout cannot quietly become a duplicate text.
-- **Preflight.** `sms.validate()` reports encoding, segment estimate, and capability problems with no network call.
-- **Small footprint.** No runtime dependencies. Each adapter is a separate subpath import.
+- **Portability.** `sms.send({ to, body })` is the same call for all four providers. Webhooks parse to the same `SmsEvent` union.
+- **Failure handling.** Each send ends as accepted, rejected, or unknown. An unknown outcome throws `HandoffUnknownError` and is never retried or sent through another provider, so a timeout cannot quietly become a duplicate text.
+- **Preflight.** `sms.validate()` reports encoding, segment estimate, and capability problems without a network call.
+- **Footprint.** No runtime dependencies. Each adapter is its own subpath import.
 
 ## Where provider SDKs are stronger
 
-- **Coverage.** They expose the whole platform: voice, verification, number lookup, number purchasing, and account management. SMS SDK sends and receives SMS only, on purpose, and has no equivalent for the rest.
-- **New parameters.** A provider SDK types a new API parameter when it ships. In SMS SDK it goes through `extra`, unvalidated, until a release adds a typed option. Twilio Content Templates are not supported.
-- **Maturity.** They have years of production use and the provider's own support behind them. SMS SDK is at 0.1.0.
-- **Status.** Two of the four SMS SDK adapters are marked partial, because Plivo and Vonage do not document parts of their error behavior. See the [Providers overview](/providers/overview).
+- **Coverage.** They expose the whole platform: voice, verification, number lookup, number purchasing, and account management. SMS SDK only sends and receives SMS.
+- **New parameters.** A provider SDK types a new API parameter when it ships. SMS SDK passes it through `extra`, unvalidated, until a release adds a typed option. Twilio Content Templates are not supported.
+- **Maturity.** They have years of production use and the provider's support behind them. SMS SDK is at 0.1.0.
+- **Status.** Two of the four adapters are partial, because Plivo and Vonage do not document parts of their error behavior. See the [Providers overview](/providers/overview).
 
 ## Side by side
 
@@ -89,7 +89,7 @@ console.log(result.providerId);
 
 ### Handle a timeout
 
-A provider SDK leaves the decision to you. With SMS SDK, the error tells you:
+A provider SDK leaves the retry decision to you. SMS SDK's error tells you:
 
 ```ts
 import { createSmsClient, HandoffUnknownError, isSmsError } from "@opencoredev/sms-sdk";
@@ -113,7 +113,7 @@ try {
 ## When to choose SMS SDK
 
 - You send transactional SMS and may change providers or run two.
-- You want duplicate-safe error handling and webhook verification without writing it per provider.
+- You want duplicate-safe error handling and webhook verification without writing them per provider.
 - You want tests that never touch a carrier.
 
 ## When to choose a provider SDK

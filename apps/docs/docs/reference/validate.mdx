@@ -1,11 +1,11 @@
 ---
 title: "validate()"
-description: "Reference for sms.validate(input): the SmsValidationResult fields, ValidationIssue codes, and what local validation cannot check."
+description: "sms.validate(input): SmsValidationResult fields, ValidationIssue codes, and what local validation cannot check."
 ---
 
 ## `sms.validate(input)`
 
-Checks a message locally and estimates its segments. Synchronous, free, and never contacts a provider. It never claims an account or sender is approved.
+Checks a message locally and estimates its segments. It is synchronous and free, and it never contacts a provider or claims that an account or sender is approved.
 
 ```ts
 import { sms } from "./sms";
@@ -18,7 +18,7 @@ if (!check.supported) {
 console.log(check.encoding, check.segments, check.adapterCandidates);
 ```
 
-A guide is at [Validation and encoding](/sending/validation-and-encoding).
+Guide: [Validation and encoding](/sending/validation-and-encoding).
 
 ### Parameters
 
@@ -26,13 +26,14 @@ A guide is at [Validation and encoding](/sending/validation-and-encoding).
 
 ### Returns: `SmsValidationResult`
 
-`SegmentPreview` plus three fields:
+`SegmentPreview` plus four fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `supported` | `boolean` | `true` when the primary adapter can send the message and the message has no issues. |
 | `issues` | `readonly ValidationIssue[]` | Every problem found, across the message and every adapter. |
 | `adapterCandidates` | `readonly string[]` | Adapters that could send it, in configured order. Empty when the message itself is invalid. |
+| `providerOptionsFor` | `readonly string[]` | The candidates in `adapterCandidates` that have an entry in `providerOptions`, in configured order. Each of these sends its own entry if it ends up sending. Empty when the message itself is invalid or no candidate has an entry. |
 | `encoding` | `"gsm7" \| "ucs2"` | |
 | `segments` | `number` | Estimated segments, `0` for an empty body. |
 | `units` | `number` | Septets (GSM-7) or UTF-16 code units (UCS-2). |
@@ -41,7 +42,9 @@ A guide is at [Validation and encoding](/sending/validation-and-encoding).
 | `containsUnicode` | `boolean` | At least one character forces UCS-2. |
 | `nonGsmCharacters` | `readonly string[]` | Distinct characters that forced UCS-2. |
 
-`supported` matches what `send()` would do before any request: when `supported` is `false` because of the primary adapter, `send()` throws even with fallback on. Message-level issues (recipient, body, field formats) are checked first; when there are any, adapters are not checked.
+`supported` matches what `send()` does before any request. When the primary adapter makes `supported` false, `send()` throws even with fallback on.
+
+Message-level issues come first: recipient, body, field formats, and `providerOptions` checked against every configured adapter. When there are any, adapters are not checked, and `adapterCandidates` and `providerOptionsFor` are empty.
 
 ## `ValidationIssue`
 
@@ -60,10 +63,10 @@ type ValidationIssue = {
 | `invalid_sender` | `InvalidSenderError` | The sender is malformed, such as a sender ID over 11 characters, a short code that is not 3 to 8 digits, a Twilio Messaging Service SID that is not `MG` plus 32 hex, or a Telnyx alphanumeric sender without `messagingProfileId`. |
 | `missing_sender` | `InvalidSenderError` | No `from` and no adapter default. |
 | `empty_body` | `InvalidMessageError` | Empty body without media, or any empty body on Vonage. |
-| `unsupported_field` | `UnsupportedFieldError` | The adapter cannot send this field or sender type, or Twilio `sendAt` without a Messaging Service sender. |
-| `invalid_field` | `InvalidMessageError` | A malformed field or a value outside the adapter's range. |
+| `unsupported_field` | `UnsupportedFieldError` | The adapter cannot send this field or sender type, Twilio `sendAt` without a Messaging Service sender, or a `providerOptions` key the adapter does not accept or that names a parameter the SDK sets. |
+| `invalid_field` | `InvalidMessageError` | A malformed field, a value outside the adapter's range, or a `providerOptions` value of the wrong type. |
 
-`ValidationField` is `"to" | "from" | "body" | "mediaUrls" | "sendAt" | "validityPeriodSec" | "webhookUrl" | "idempotencyKey"`.
+`ValidationField` is `"to" | "from" | "body" | "mediaUrls" | "sendAt" | "validityPeriodSec" | "webhookUrl" | "idempotencyKey" | "providerOptions"`.
 
 ## What it does not check
 
@@ -71,7 +74,7 @@ type ValidationIssue = {
 - Whether the destination accepts your sender type or MMS.
 - Recipient opt-outs held by the provider, account balance, or permissions.
 
-Those are reported by the provider as rejections at send time.
+The provider reports these as rejections at send time.
 
 ## Types
 

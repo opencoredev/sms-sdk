@@ -3,16 +3,16 @@ title: "Duplicates and ordering"
 description: "Providers deliver webhooks more than once and out of order. Deduplicate with dedupeKey and never move a message's status backward."
 ---
 
-Providers retry webhooks that fail or time out, and they send events in parallel. So the same event can arrive twice, and `message.sent` can arrive after `message.delivered`. Your handler must tolerate both.
+Providers retry webhooks that fail or time out, and they send events in parallel. The same event can arrive twice, and `message.sent` can arrive after `message.delivered`. Your handler has to tolerate both.
 
 ## Deduplicate with dedupeKey
 
-Every `SmsEvent` has a `dedupeKey` that is the same each time the provider delivers that event:
+Every `SmsEvent` has a `dedupeKey` that stays the same each time the provider delivers that event:
 
 | Provider | `dedupeKey` |
 | --- | --- |
 | Twilio | `twilio:{MessageSid}:{MessageStatus}` or `twilio:{MessageSid}:received` |
-| Telnyx | `telnyx:{data.id}` (the webhook event ID) |
+| Telnyx | `telnyx:{data.id}`, the webhook event ID |
 | Plivo | `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received` |
 | Vonage | `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received` |
 
@@ -41,13 +41,13 @@ export async function POST(request: Request): Promise<Response> {
 
 Answer repeats with a 2xx. An error response makes the provider retry again.
 
-`insertIfNew` must be atomic, such as `INSERT ... ON CONFLICT DO NOTHING` returning whether a row was inserted. Reading first and inserting second lets two parallel deliveries both pass. Keep keys for at least as long as the provider retries webhooks, typically a day or more.
+`insertIfNew` must be atomic, for example `INSERT ... ON CONFLICT DO NOTHING` returning whether a row was inserted. If you read first and insert second, two parallel deliveries can both pass. Keep keys at least as long as the provider retries webhooks, typically a day or more.
 
-Deduplication also neutralizes replayed requests for Twilio and Plivo, which sign no timestamp.
+Deduplication also makes replayed Twilio and Plivo requests harmless. See [Webhook security](/receiving/webhook-security).
 
 ## Handle out-of-order status
 
-Never let a later-arriving event move a message backward. Rank the statuses and keep the highest:
+Never let a late event move a message backward. Rank the statuses and keep the highest:
 
 ```ts
 import type { MessageStatusType } from "@opencoredev/sms-sdk/webhooks";
@@ -68,15 +68,15 @@ export function nextStatus(current: MessageStatusType | undefined, incoming: Mes
 console.log(nextStatus("message.delivered", "message.sent")); // "message.delivered"
 ```
 
-Final states (`delivered`, `undelivered`, `filtered`) share a rank, so the last one to arrive wins among them. Providers rarely send two different final states, but when they do, `occurredAt` (when present) tells you which happened later.
+The final states `delivered`, `undelivered`, and `filtered` share a rank, so the last one to arrive wins. Providers rarely send two different final states. When they do, `occurredAt`, if present, tells you which happened later.
 
 ## Status before the send result
 
-A status webhook can arrive before your code saves the `send()` result, because the provider calls back while your process is still handling the response. If you look messages up by `providerId`, store unknown IDs briefly and apply them when the send result is saved, or upsert the status row keyed by `providerId`.
+The provider can call back while your process is still handling the `send()` response, so a status webhook may arrive before you save the result. If you look messages up by `providerId`, either hold unknown IDs briefly and apply them once the send result is saved, or upsert the status row keyed by `providerId`.
 
 ## Inbound repeats
 
-An inbound message repeated by the provider has the same `dedupeKey`. If you reply to inbound messages, derive the reply's `idempotencyKey` from the inbound `dedupeKey` so a repeat cannot trigger a second reply. See [Inbound SMS](/receiving/inbound-sms#reply-to-a-message).
+A repeated inbound message has the same `dedupeKey`. If you reply, derive the reply's `idempotencyKey` from it so a repeat cannot trigger a second reply. See [Inbound SMS](/receiving/inbound-sms#reply-to-a-message).
 
 ## Next steps
 

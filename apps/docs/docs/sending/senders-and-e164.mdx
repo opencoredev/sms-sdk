@@ -3,13 +3,13 @@ title: "Senders and E.164 numbers"
 description: "Format recipients as E.164 and choose a sender: phone number, short code, alphanumeric sender ID, or messaging service."
 ---
 
-You need to tell SMS SDK who the message goes to and who it comes from. Recipients are always E.164 numbers. Senders can be one of four kinds, and each provider supports a different set.
+Recipients are always E.164 numbers. Senders come in four kinds, and each provider supports a different set.
 
 ## Recipients are E.164
 
 `to` must match `^\+[1-9]\d{1,14}$`: a `+`, a country code that does not start with 0, and at most 15 digits in total, with no spaces, dashes, or brackets. `+14155550123` is valid. `(415) 555-0123` and `0044 20 7946 0000` are not.
 
-The check runs at runtime before any request, because the `` `+${string}` `` type alone does not prove a string is a valid number. Use `isE164` to narrow user input:
+The check runs before any request, because the `` `+${string}` `` type does not prove a string is a valid number. Use `isE164` to narrow user input:
 
 ```ts
 import { isE164 } from "@opencoredev/sms-sdk";
@@ -24,7 +24,7 @@ if (!isE164(input)) {
 await sms.send({ to: input, body: "Thanks for signing up." });
 ```
 
-`isE164` checks format only. It cannot tell whether the number exists, is a mobile number, or can receive SMS. SMS SDK does not convert national formats to E.164; use a phone number library for that.
+`isE164` checks format only. It cannot tell whether the number exists, is mobile, or can receive SMS. SMS SDK does not convert national formats to E.164. Use a phone number library for that.
 
 ## Senders
 
@@ -62,8 +62,6 @@ await sms.send({ to: "+14155550123", body: "Your code is 123456" });
 await sms.send({ to: "+447700900123", from: { senderId: "Acme" }, body: "Your parcel is out for delivery." });
 ```
 
-The first send uses the adapter's default. The second overrides it for one message.
-
 ## Which provider supports which sender
 
 | Sender type | Twilio | Telnyx | Plivo | Vonage |
@@ -76,16 +74,16 @@ The first send uses the adapter's default. The second overrides it for one messa
 
 1. Telnyx requires a messaging profile for alphanumeric senders. Pass `messagingProfileId` to `telnyx()`.
 
-A sender type the primary adapter does not support throws `UnsupportedFieldError` (`field: "from"`) before any request. With fallback on, adapters that cannot use the sender are skipped.
+A sender type the primary adapter does not support throws `UnsupportedFieldError` (`field: "from"`) before any request. With fallback on, SMS SDK skips adapters that cannot use the sender.
 
 ## The provider decides what is sendable
 
-These checks are format checks. SMS SDK cannot see whether a number belongs to your account, whether it is registered for 10DLC or verified for toll-free use, or whether alphanumeric sender IDs are allowed in the destination country. Many countries, including the United States and Canada, do not accept alphanumeric sender IDs.
+These are format checks. SMS SDK cannot see whether a number belongs to your account, whether it is registered for 10DLC or verified for toll-free, or whether the destination country allows alphanumeric sender IDs. Many do not, including the United States and Canada.
 
-When the provider refuses the sender, `send()` throws a `ProviderRejectedError` with `category: "sender"`. Provision and register senders with each provider first. See [Sender registration and consent](/guides/sender-registration-and-consent).
+When the provider refuses the sender, `send()` throws `ProviderRejectedError` with `category: "sender"`. See [Sender registration and consent](/guides/sender-registration-and-consent).
 
 :::note
-A sender belongs to one provider account. Switching or adding a provider means provisioning a sender there too. A phone number is hosted by one provider at a time, and moving it is a number port that you arrange with the providers.
+A sender belongs to one provider account, so a new provider needs its own sender. One provider hosts a phone number at a time. Moving it is a number port you arrange with the providers.
 :::
 
 ## Next steps

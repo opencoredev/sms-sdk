@@ -3,7 +3,7 @@ title: "Validation and encoding"
 description: "Check a message locally with sms.validate() before you pay for a send: E.164, sender, capabilities, encoding, and segments."
 ---
 
-You want to know whether a message will be refused, and how many segments it costs, before you send it. `sms.validate()` answers both locally. It is synchronous, free, and never contacts a provider.
+`sms.validate()` tells you whether a message would be refused and how many segments it uses, before you send. It is synchronous, free, and never contacts a provider.
 
 ## Validate a message
 
@@ -21,11 +21,11 @@ console.log(check.nonGsmCharacters); // ["📦"]
 console.log(check.issues); // []
 ```
 
-`supported` is `true` when the primary adapter can send the message and nothing is wrong with it. The emoji forces UCS-2 encoding, which you see in `encoding` and `nonGsmCharacters`.
+`supported` is `true` when the primary adapter can send the message and nothing is wrong with it. The emoji forces UCS-2, as `encoding` and `nonGsmCharacters` show.
 
 ## Read the issues
 
-Each problem is a `ValidationIssue` with a stable `code`, the `field` it concerns, a readable `message`, and `provider` when it applies to one adapter only.
+Each problem is a `ValidationIssue` with a stable `code`, the `field` it concerns, a readable `message`, and `provider` when it applies to one adapter.
 
 ```ts
 import { sms } from "./sms";
@@ -41,7 +41,7 @@ for (const issue of check.issues) {
 }
 ```
 
-With an adapter that cannot schedule, you see one `unsupported_field` issue for `sendAt`, and `supported` is `false`.
+With an adapter that cannot schedule, this prints one `unsupported_field` issue for `sendAt`, and `supported` is `false`.
 
 | `code` | Meaning |
 | --- | --- |
@@ -54,7 +54,7 @@ With an adapter that cannot schedule, you see one `unsupported_field` issue for 
 
 ## Check every adapter
 
-With several adapters, `validate()` checks each one. `adapterCandidates` lists the adapters that could send the message, in order, and `issues` collects the problems from the others.
+With several adapters, `validate()` checks each one. `adapterCandidates` lists the adapters that could send the message, in order. `issues` collects the problems from the rest.
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -79,34 +79,17 @@ console.log(check.supported); // false: Vonage cannot send MMS
 console.log(check.adapterCandidates); // ["telnyx"]
 ```
 
-`supported` reflects the primary adapter only, because `send()` throws `UnsupportedFieldError` when the primary cannot send the message, even with fallback on.
+`supported` reflects only the primary adapter, because `send()` throws `UnsupportedFieldError` when the primary cannot send the message, even with fallback on.
 
 ## What validate() cannot know
 
-Validation checks format and declared capabilities. It never claims an account, sender, or route is approved. It cannot see:
-
-- whether the sender is provisioned in your account or registered for 10DLC or toll-free use,
-- whether the destination country accepts your sender type,
-- whether the recipient opted out with the provider,
-- your account balance, trial status, or geographic permissions.
-
-The provider reports those as rejections when you send.
+Validation checks format and declared capabilities. It cannot see whether your sender is provisioned or registered for 10DLC or toll-free, whether the destination country accepts your sender type, whether the recipient opted out with the provider, or your balance, trial status, and geographic permissions. The provider reports those as rejections when you send.
 
 ## Encoding
 
-Every result includes the segment estimate from `estimateSegments()`:
+Every result includes the `estimateSegments()` fields: `encoding`, `units`, `segments`, `unitsPerSegment`, `remainingInSegment`, `containsUnicode`, and `nonGsmCharacters`. The [validate() reference](/reference/validate) describes each one.
 
-| Field | Meaning |
-| --- | --- |
-| `encoding` | `"gsm7"` when every character is in the GSM-7 alphabet or its extension table, otherwise `"ucs2"`. |
-| `units` | GSM-7 septets (extension characters such as `€`, `[`, `{` count 2) or UTF-16 code units. |
-| `segments` | Estimated segments. `0` for an empty body. |
-| `unitsPerSegment` | 160 or 153 for GSM-7, 70 or 67 for UCS-2. |
-| `remainingInSegment` | Units left before another segment starts. |
-| `containsUnicode` | `true` when at least one character forces UCS-2. |
-| `nonGsmCharacters` | The distinct characters that forced UCS-2, in order. |
-
-SMS SDK never rewrites your text. A curly quote or an emoji keeps the whole message in UCS-2. If you want GSM-7, replace those characters yourself before sending. [Segments and billing](/sending/segments-and-billing) covers the counting rules.
+SMS SDK never rewrites your text. One curly quote or emoji puts the whole message in UCS-2. For GSM-7, replace those characters yourself. [Segments and billing](/sending/segments-and-billing) covers the counting rules.
 
 ## Next steps
 

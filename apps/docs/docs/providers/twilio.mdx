@@ -5,11 +5,11 @@ description: "Send and receive SMS and MMS through Twilio Programmable Messaging
 
 The `twilio()` adapter sends SMS and MMS through Twilio Programmable Messaging and parses Twilio's status and inbound webhooks.
 
-Comparing providers? See the [Providers overview](/providers/overview).
+To compare providers, see the [Providers overview](/providers/overview).
 
 ## Support status
 
-**Supported.** Request fields, responses, error codes, status values, and webhook signing come from Twilio's official documentation, and Twilio's published signature example is used as a test vector. The adapter passes the shared contract tests.
+**Supported.** Request fields, responses, error codes, status values, and webhook signing follow Twilio's official documentation. Twilio's published signature example is a test vector, and the adapter passes the shared contract tests.
 
 ## Installation
 
@@ -31,7 +31,7 @@ import { twilio } from "@opencoredev/sms-sdk/twilio";
 | `TWILIO_FROM` | One sender variable | Default sender: a Twilio number, short code, or alphanumeric sender ID. |
 | `TWILIO_MESSAGING_SERVICE_SID` | One sender variable | Default sender: a Messaging Service, `MG` plus 32 hex characters. |
 
-These names are used by the examples and the doctor CLI. The adapter reads nothing from the environment itself. Keep the token on the server.
+The examples and the doctor CLI use these names. The adapter itself reads no environment variables. Keep the token on the server.
 
 ## Basic usage
 
@@ -72,7 +72,7 @@ const withApiKey = twilio({
 console.log(withApiKey.name); // "twilio"
 ```
 
-Twilio recommends API keys for production because you can revoke them one at a time. Webhook verification still needs the account's Auth Token: Twilio signs webhooks with it, not with an API key.
+Twilio recommends API keys for production because you can revoke each one on its own. Webhook verification still needs the account's Auth Token, because Twilio signs webhooks with it and not with an API key.
 
 ## Configuration
 
@@ -101,7 +101,7 @@ Twilio recommends API keys for production because you can revoke them one at a t
 | Alphanumeric sender ID | `{ senderId: "Acme" }` | `From` |
 | Messaging Service | `{ messagingService: "MG…" }` | `MessagingServiceSid` |
 
-Which senders work depends on the destination country. Twilio decides; a refused sender is a `sender` rejection.
+Which senders work depends on the destination country. Twilio decides, and a refused sender is a `sender` rejection.
 
 ## Regions and countries
 
@@ -114,7 +114,7 @@ Twilio documents these rules for the United States and Canada:
 
 Elsewhere, alphanumeric sender IDs work only in [supported countries](https://help.twilio.com/hc/en-us/articles/223133767), and some countries require you to [register the sender ID](https://www.twilio.com/docs/glossary/what-alphanumeric-sender-id). Twilio's [SMS guidelines](https://www.twilio.com/en-us/guidelines/sms) list sender types and registration rules for each country.
 
-SMS SDK does not check country rules before sending, and these rules have not been verified against live accounts.
+SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/guides/sender-registration-and-consent).
 
 ## Capabilities
 
@@ -170,13 +170,13 @@ await sms.send({
 | `riskCheck` | `RiskCheck` | `"enable" \| "disable"` |
 | `extra` | any other parameter | `Record<string, string \| number \| boolean>`, sent as is |
 
-Each option maps to one Twilio form parameter. Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. Options apply only when the `twilio` adapter sends; see [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency behavior.
+Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. The options go out only when the `twilio` adapter sends. See [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency.
 
 SMS SDK sets these parameters itself, so `extra` cannot: `To`, `From`, `MessagingServiceSid`, `Body`, `MediaUrl`, `StatusCallback`, `ValidityPeriod`, `SendAt`, and `ScheduleType`. `ContentSid` and `ContentVariables` are blocked too, because a Content Template replaces `Body`, which SMS SDK uses for segment estimates, policy checks, and idempotency. `MaxPrice` (obsolete), `ForceDelivery` (reserved by Twilio), and `TrafficType` (undocumented) have no typed option; send them through `extra` if you need them.
 
 ## Example: send and track delivery
 
-This standalone script sends one message with a status callback. It is based on [`examples/twilio`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/twilio), which runs against a mocked Twilio API unless you opt into a live send.
+This script sends one message with a status callback. It is based on [`examples/twilio`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/twilio), which runs against a mocked Twilio API unless you opt into a live send.
 
 ```ts send-with-status.ts
 import { createSmsClient, isE164, isSmsError } from "@opencoredev/sms-sdk";
@@ -212,7 +212,7 @@ try {
 }
 ```
 
-You see `Twilio accepted SM… (queued)`. Twilio then posts status updates to the `webhookUrl`.
+You see `Twilio accepted SM… (queued)`. Acceptance is not delivery. Twilio posts status updates to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/delivery-status-webhooks).
 
 ## Delivery and inbound webhooks
 
@@ -251,9 +251,9 @@ With Advanced Opt-Out enabled on a Messaging Service, Twilio adds `OptOutType` (
 
 ## Signature verification
 
-Twilio signs each webhook with `X-Twilio-Signature`: Base64 HMAC-SHA1, keyed with the Auth Token, over the full URL followed by each form parameter name and value, sorted by name. For JSON bodies, Twilio adds a `bodySHA256` query parameter, signs only the URL, and SMS SDK checks the hash against the raw body.
+Twilio signs each webhook with `X-Twilio-Signature`. The signature is a Base64 HMAC-SHA1, keyed with the Auth Token, over the full URL followed by each form parameter name and value, sorted by name. For JSON bodies, Twilio adds a `bodySHA256` query parameter and signs only the URL. SMS SDK then checks that hash against the raw body.
 
-- Pass `publicUrl` with the exact URL configured in Twilio, or verification fails behind a proxy. SMS SDK tries the URL with and without `:443`/`:80`.
+- Pass `publicUrl` with the exact URL configured in Twilio, or verification fails behind a proxy. SMS SDK tries the URL with and without `:443` or `:80`. See [Webhook security](/receiving/webhook-security).
 - Twilio signs no timestamp, so there is no replay window. Deduplicate on `dedupeKey`.
 - The Auth Token must belong to the account that owns the number. A subaccount number is signed with the subaccount's token.
 
@@ -272,14 +272,13 @@ Twilio signs each webhook with `X-Twilio-Signature`: Base64 HMAC-SHA1, keyed wit
 | 429 without error 20429 | unknown | Never |
 | 5xx, network error, timeout, 2xx without a valid SID | unknown | Never |
 
-Twilio documents that 429 responses with error 20429 were not processed. A 429 without that code may come from a proxy or load balancer, so SMS SDK treats it as unknown. `error.provider.code` holds Twilio's error code and `error.provider.requestId` the `Twilio-Request-Id` header.
+Twilio documents that a 429 with error 20429 was not processed. A 429 without that code may come from a proxy or load balancer, so SMS SDK treats it as unknown. `error.provider.code` holds Twilio's error code, and `error.provider.requestId` holds the `Twilio-Request-Id` header.
 
 ## Limitations
 
-- Scheduling requires a Messaging Service sender. Use Telnyx if you need to schedule from a plain number.
-- Content Templates (`ContentSid`) are not supported, because a template replaces `body`.
-- Twilio's own scheduling window and MMS country coverage are enforced by Twilio as rejections.
-- Content Templates, WhatsApp, and Conversations are out of scope.
+- Scheduling needs a Messaging Service sender. To schedule from a plain number, use Telnyx.
+- Content Templates (`ContentSid`) are not supported, because a template replaces `body`. WhatsApp and Conversations are out of scope.
+- Twilio enforces its own scheduling window and MMS country coverage, and rejects sends outside them.
 
 ## Testing
 
@@ -299,13 +298,13 @@ await sms.send({ to: "+14155550123", body: "Hi" });
 console.log(fake.calls[0]?.body); // "To=%2B14155550123&From=%2B15550100001&Body=Hi"
 ```
 
-The adapter's own fixtures and live test live in the SMS SDK repository. From `packages/sms-sdk`:
+The adapter's own tests live in the SMS SDK repository. From `packages/sms-sdk`:
 
 ```bash
 bun test test/contracts/twilio.test.ts test/webhooks/twilio.test.ts
 ```
 
-The live test sends one real, billable message per configured provider and is skipped unless you opt in:
+The live test sends one real, billable message to each configured provider. It is skipped unless you opt in:
 
 ```bash
 LIVE_SMS_TESTS=true LIVE_SMS_TO=+14155550123 LIVE_SMS_ALLOWLIST=+14155550123 \
@@ -313,7 +312,7 @@ TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_FROM=+15550100001 \
 bun test test/integration/live.test.ts
 ```
 
-`LIVE_SMS_TO` must appear in `LIVE_SMS_ALLOWLIST`. Providers without credentials in the environment are skipped. Check your configuration first with `npx @opencoredev/sms-sdk doctor --adapter twilio`.
+`LIVE_SMS_TO` must appear in `LIVE_SMS_ALLOWLIST`, and providers without credentials in the environment are skipped. Check your configuration first with `npx @opencoredev/sms-sdk doctor --adapter twilio`.
 
 ## API reference
 

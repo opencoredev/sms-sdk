@@ -3,7 +3,7 @@ title: "Switch Twilio to Telnyx"
 description: "Move SMS sending from Twilio to Telnyx with SMS SDK: provision the sender, swap the adapter, move webhooks, and cut over gradually with a rollback path."
 ---
 
-You send through Twilio with SMS SDK and want to send through Telnyx instead. The code change is one adapter. The rest of the work happens in your Telnyx account: a sender, its registration, and webhooks. This page walks through both, in the order that keeps a rollback open.
+This page moves an SMS SDK app from Twilio to Telnyx. The code change is one adapter. Most of the work is in your Telnyx account, where you set up a sender, its registration, and webhooks. The steps run in an order that keeps rollback possible.
 
 Still on the `twilio` npm package? Do [Migrate from the Twilio SDK](/migration/migrate-from-twilio) first.
 
@@ -17,15 +17,15 @@ Still on the `twilio` npm package? Do [Migrate from the Twilio SDK](/migration/m
 | Webhooks | New URLs or routes configured in Telnyx, verified with the Telnyx public key | Your event handling, because events have the same `SmsEvent` shape |
 | Stored message IDs | New sends get Telnyx IDs | Old Twilio IDs keep matching late Twilio webhooks |
 
-SMS SDK does not move numbers, 10DLC campaigns, toll-free verifications, or message history. Those are provider-side tasks.
+SMS SDK does not move numbers, 10DLC campaigns, toll-free verifications, or message history. You handle those with the providers.
 
 ## 1. Prepare Telnyx
 
 1. Create a Telnyx API v2 key.
 2. Get a sender on Telnyx: buy a number, or port your Twilio number. A port moves the number off Twilio, so plan the cutover around it.
 3. Assign the number to a messaging profile.
-4. Register it: A2P 10DLC brand and campaign for US long codes, or toll-free verification. Twilio registrations do not transfer.
-5. Copy the public key from Mission Control, Keys & Credentials, Public Key, for webhook verification.
+4. Register it with an A2P 10DLC brand and campaign for US long codes, or toll-free verification. Twilio registrations do not transfer. See [Sender registration and consent](/guides/sender-registration-and-consent).
+5. Copy the public key from Mission Control, under Keys & Credentials, for webhook verification.
 
 Check the setup without sending:
 
@@ -33,7 +33,7 @@ Check the setup without sending:
 TELNYX_API_KEY=... TELNYX_FROM=+15550100002 npx @opencoredev/sms-sdk doctor --adapter telnyx
 ```
 
-The doctor checks the configuration format and reports registration as "not verified", because only Telnyx can confirm it.
+The doctor checks the configuration format. It reports registration as "not verified" because only Telnyx can confirm it.
 
 ## 2. Swap the adapter
 
@@ -64,16 +64,14 @@ await sms.send({
 });
 ```
 
-Every `sms.send()` call in your app stays as it is.
+Your `sms.send()` calls stay as they are. A few fields behave differently on Telnyx:
 
-Check fields that behave differently before you deploy:
+- Telnyx does not support `validityPeriodSec`. A send that sets it throws `UnsupportedFieldError`, so remove it.
+- `sendAt` works from any Telnyx sender, not only a Messaging Service.
+- A `{ messagingService: "MG…" }` sender must become a Telnyx messaging profile ID or a number.
+- Alphanumeric senders need `messagingProfileId` on the `telnyx()` adapter.
 
-- **`validityPeriodSec`** is not supported by Telnyx. A send that sets it throws `UnsupportedFieldError`. Remove it.
-- **`sendAt`** works from any Telnyx sender, not only a Messaging Service.
-- **`{ messagingService: "MG…" }`** senders must become a Telnyx messaging profile ID or a number.
-- **Alphanumeric senders** need `messagingProfileId` on the `telnyx()` adapter.
-
-Run `sms.validate()` over a sample of real messages to find these before deploying.
+Run `sms.validate()` over a sample of real messages to catch these before you deploy. See the [capability matrix](/providers/overview) for other differences.
 
 ## 3. Move webhooks
 
@@ -120,17 +118,17 @@ export async function twilioWebhook(request: Request): Promise<Response> {
 }
 ```
 
-The same `handle()` serves both providers, because both parse to `SmsEvent`. In Telnyx, set the messaging profile's webhook URL (status and inbound) to the Telnyx route, or pass `webhookUrl` per message.
+One `handle()` serves both providers because both parse to `SmsEvent`. In Telnyx, set the messaging profile's webhook URL to the Telnyx route. It receives both status and inbound events. You can also pass `webhookUrl` per message.
 
-Telnyx event `dedupeKey`s use the event ID, so they never collide with Twilio keys.
+Telnyx `dedupeKey`s start with `telnyx:` and use the event ID, so they never collide with Twilio keys.
 
 ## 4. Carry over opt-outs
 
-People who replied STOP to your Twilio number are recorded by Twilio, not Telnyx. Before the first Telnyx send:
+Twilio, not Telnyx, holds the opt-outs from people who replied STOP to your Twilio number. Before the first Telnyx send:
 
-- Make sure your own suppression list has every opt-out you received from Twilio webhooks.
-- Check it in `beforeSend`, so it applies to Telnyx sends. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
-- If you used Twilio Advanced Opt-Out, export its opt-out list from Twilio and import it into your suppression list.
+- Make sure your suppression list has every opt-out you received from Twilio webhooks.
+- Check the list in `beforeSend` so it applies to Telnyx sends. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs#block-sends-to-suppressed-recipients).
+- If you used Twilio Advanced Opt-Out, export its opt-out list and import it into your suppression list.
 
 ## 5. Cut over gradually
 
@@ -154,19 +152,19 @@ export const sms = createSmsClient({
 });
 ```
 
-With this config, a Telnyx `auth`, `rate_limited`, `sender`, or `account` rejection sends through Twilio instead. Recipient, compliance, and request rejections do not fall back, and an unknown outcome (a timeout or 5xx) never does. Watch `result.attemptedProviders` or the `onAttempt` hook to see how often Twilio is used.
+With this config, a Telnyx `auth`, `rate_limited`, `sender`, or `account` rejection goes through Twilio instead. Other rejections and unknown outcomes never fall back. See [Retries and fallback](/sending/retries-and-fallback). Watch `result.attemptedProviders` or the `onAttempt` hook to see how often Twilio is used.
 
-Each adapter sends from its own number, so recipients may see two different sender numbers during this phase. If that matters, move message types one at a time instead: create a second client for Telnyx and switch call sites gradually.
+Each adapter sends from its own number, so recipients may see two sender numbers during this phase. If that matters, move message types one at a time instead. Create a second client for Telnyx and switch call sites gradually.
 
 ## Rollback
 
-Until you release the Twilio number or close the account, rolling back is a code change: put `twilio(...)` back as the only (or first) adapter and redeploy. Keep the Twilio webhook routes and credentials until you are sure.
+Until you release the Twilio number or close the account, rollback is a code change. Put `twilio(...)` back as the only or first adapter and redeploy. Keep the Twilio webhook routes and credentials until you are sure.
 
 ## After the switch
 
 - Remove the Twilio adapter and credentials when no message uses Twilio and late Twilio webhooks have stopped.
-- Keep old Twilio message IDs in your database. They do not match Telnyx IDs, and they do not need to.
-- Compare delivery rates by provider using your stored `provider` and status events.
+- Keep old Twilio message IDs in your database. They will never match Telnyx IDs, and they don't need to.
+- Compare delivery rates per provider from your stored `provider` and status events.
 
 ## Next steps
 

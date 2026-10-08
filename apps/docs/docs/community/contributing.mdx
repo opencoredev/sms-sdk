@@ -3,18 +3,18 @@ title: "Contributing"
 description: "Report issues, propose providers, and send pull requests to SMS SDK: setup, test commands, and the rules every change follows."
 ---
 
-SMS SDK is MIT licensed and developed on [GitHub](https://github.com/opencoredev/sms-sdk). Bug reports, provider corrections with evidence, docs fixes, and pull requests are welcome.
+SMS SDK is MIT licensed and developed on [GitHub](https://github.com/opencoredev/sms-sdk). We take bug reports, provider corrections with evidence, docs fixes, and pull requests.
 
 ## Report a problem
 
 Open an [issue](https://github.com/opencoredev/sms-sdk/issues) with:
 
-- the SMS SDK version, runtime (Node.js or Bun) and its version,
-- the provider and adapter options (never paste credentials),
-- the error's `toJSON()` output, which is already redacted,
-- what you expected, with a link to the provider documentation if the behavior concerns a provider.
+- the SMS SDK version, and your runtime (Node.js or Bun) and its version
+- the provider and adapter options, without credentials
+- the error's `toJSON()` output, which is already redacted
+- what you expected, with a link to the provider's documentation when the behavior concerns a provider
 
-Corrections to provider behavior need a source: a link to the provider's official documentation, or a reproducible request and response with secrets and numbers removed.
+A correction to provider behavior needs a source. Link the provider's official documentation, or include a reproducible request and response with secrets and numbers removed.
 
 ## Set up the repository
 
@@ -40,7 +40,7 @@ Tests mock `fetch` and never contact a provider. `test/integration/live.test.ts`
 
 ## Add a provider
 
-Follow [Build a provider adapter](/providers/writing-an-adapter), then the checklist in the repository's [CONTRIBUTING.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CONTRIBUTING.md): the adapter file, error mapping, subpath export, contract fixtures from the provider's documented examples, webhook parser and signed request builders, and entries in `PROVIDERS.md`, the README, and the doctor environment table.
+Follow [Build a provider adapter](/providers/writing-an-adapter), then the checklist in the repository's [CONTRIBUTING.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CONTRIBUTING.md). It covers the adapter file and its `providerOptions` spec, error mapping, the subpath export, contract fixtures from the provider's documented examples, the webhook parser and signed request builders, and entries in `PROVIDERS.md`, the README, and the doctor environment table.
 
 ## Improve the docs
 
@@ -53,4 +53,4 @@ bun run check:snippets  # type-check every TypeScript snippet against the SDK so
 bun run build
 ```
 
-Every `ts` snippet must type-check against the SDK. Mark a block that cannot, such as code for another library, with `ignore="reason"` in its fence: ` ```ts ignore="Twilio SDK code" `. Snippets may import the stub modules `./db`, `./sms`, and `./notify` from `apps/docs/scripts/snippet-stubs`.
+Every `ts` snippet must type-check against the SDK. Mark a block that cannot, such as code for another library, with `ignore="reason"` in its fence, as in ` ```ts ignore="Twilio SDK code" `. Snippets may import the stub modules `./db`, `./sms`, and `./notify` from `apps/docs/scripts/snippet-stubs`.

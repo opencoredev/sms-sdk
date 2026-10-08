@@ -3,9 +3,7 @@ title: "Examples"
 description: "Runnable SMS SDK examples in the repository: a Twilio send, provider fallback, a webhook handler, and tests with the memory adapter."
 ---
 
-The repository has runnable examples in [`packages/sms-sdk/examples`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples). Every one runs offline by default, against a mocked provider API or the `memory()` adapter, so cloning and running them never sends a message. The test suite runs each example, so they stay in step with the code.
-
-Listed simplest first:
+The runnable examples live in [`packages/sms-sdk/examples`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples), simplest first below. By default each one runs offline against a mocked provider API or the `memory()` adapter, so running them never sends a message. The test suite runs every example, which keeps them in step with the code.
 
 | Example | Shows | Docs |
 | --- | --- | --- |
@@ -31,7 +29,7 @@ Each prints what happened, such as `twilio accepted SM0123456789abcdef0123456789
 
 ## Send for real
 
-Only the `twilio` example can send a real message, and only when you ask it to. Copy `.env.example` to `.env`, fill in your Twilio credentials, and set:
+Only the `twilio` example can send a real message, and only when you opt in. In `packages/sms-sdk`, copy `.env.example` to `.env`, fill in your Twilio credentials, and run:
 
 ```bash
 SMS_EXAMPLE_LIVE=true SMS_EXAMPLE_TO=+14155550123 bun examples/twilio/index.ts

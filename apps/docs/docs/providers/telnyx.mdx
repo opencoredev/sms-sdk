@@ -5,11 +5,11 @@ description: "Send and receive SMS and MMS through the Telnyx Messaging API v2 w
 
 The `telnyx()` adapter sends SMS and MMS through the Telnyx Messaging API v2 and parses Telnyx's Ed25519-signed messaging webhooks.
 
-Comparing providers? See the [Providers overview](/providers/overview).
+To compare providers, see the [Providers overview](/providers/overview).
 
 ## Support status
 
-**Supported.** Request fields, responses, the error catalog, and Ed25519 webhook signing come from Telnyx's official documentation and its official Node SDK source. The adapter passes the shared contract tests.
+**Supported.** Request fields, responses, the error catalog, and Ed25519 webhook signing follow Telnyx's official documentation and its official Node SDK source. The adapter passes the shared contract tests.
 
 ## Installation
 
@@ -30,7 +30,7 @@ import { telnyx } from "@opencoredev/sms-sdk/telnyx";
 | `TELNYX_MESSAGING_PROFILE_ID` | For alphanumeric senders | Messaging profile ID sent with every message. |
 | `TELNYX_PUBLIC_KEY` | For webhooks | Base64 Ed25519 public key from Mission Control, Keys & Credentials, Public Key. |
 
-These names are used by the examples and the doctor CLI. The adapter reads nothing from the environment itself. Keep the API key on the server.
+The examples and the doctor CLI use these names. The adapter itself reads no environment variables. Keep the API key on the server.
 
 ## Basic usage
 
@@ -50,7 +50,7 @@ console.log(result.providerId); // the Telnyx message ID (data.id)
 
 ## Authentication
 
-Telnyx uses one API v2 key per request, sent as `Authorization: Bearer <apiKey>`. Create keys in Mission Control under API Keys. Webhooks are verified with a separate public key, not the API key.
+Each request carries an API v2 key as `Authorization: Bearer <apiKey>`. Create keys in Mission Control under API Keys. Webhooks are verified with a separate public key, not the API key.
 
 ## Configuration
 
@@ -78,7 +78,7 @@ Telnyx uses one API v2 key per request, sent as `Authorization: Bearer <apiKey>`
 | Alphanumeric sender ID | `{ senderId: "Acme" }` | `from`, plus `messaging_profile_id` from the adapter |
 | Messaging profile number pool | `{ messagingService: "<profile id>" }` | `messaging_profile_id`, with no `from` |
 
-An alphanumeric sender without `messagingProfileId` on the adapter fails local validation before any request. Numbers must be assigned to a messaging profile in Telnyx before they can send.
+An alphanumeric sender without `messagingProfileId` on the adapter fails local validation before any request. In Telnyx, assign each number to a messaging profile before it sends.
 
 ## Regions and countries
 
@@ -86,12 +86,12 @@ Telnyx documents these rules in [Choosing a sender type](https://developers.teln
 
 - 10DLC brand and campaign registration is required for A2P messaging to US mobile numbers.
 - Toll-free numbers need verification, and they work for both US and Canada destinations.
-- Short codes need carrier approval and are country-specific: a US short code does not reach Canada.
+- Short codes need carrier approval and work in one country. A US short code does not reach Canada.
 - [Alphanumeric senders](https://developers.telnyx.com/docs/messaging/messages/alphanumeric-sender-id) can't send to the US, Canada, or Puerto Rico. They are one-way, so recipients can't reply.
 
-Some countries require alphanumeric sender ID pre-registration, such as the UK and France. Telnyx's [international SMS compliance guide](https://developers.telnyx.com/docs/messaging/messages/international-sms-compliance) covers country rules.
+Some countries, such as the UK and France, require alphanumeric sender IDs to be registered in advance. Telnyx's [international SMS compliance guide](https://developers.telnyx.com/docs/messaging/messages/international-sms-compliance) covers country rules.
 
-SMS SDK does not check country rules before sending, and these rules have not been verified against live accounts.
+SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/guides/sender-registration-and-consent).
 
 ## Capabilities
 
@@ -136,7 +136,7 @@ await sms.send({
 | `encoding` | `encoding` | `"auto" \| "gsm7" \| "ucs2"`. With `"gsm7"`, Telnyx answers 400 if a character has no GSM-7 form. |
 | `extra` | any other field | `Record<string, string \| number \| boolean>`, sent as is |
 
-Each option maps to one Telnyx JSON parameter. Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. Options apply only when the `telnyx` adapter sends; see [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency behavior.
+Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. The options go out only when the `telnyx` adapter sends. See [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency.
 
 SMS SDK sets `to`, `from`, `messaging_profile_id`, `text`, `media_urls`, `type`, `webhook_url`, and `send_at` itself, so `extra` cannot.
 
@@ -170,7 +170,7 @@ try {
 }
 ```
 
-You see `Telnyx accepted <uuid> (queued)`. Telnyx then posts `message.sent` and `message.finalized` events to the `webhookUrl`.
+You see `Telnyx accepted <uuid> (queued)`. Acceptance is not delivery. Telnyx posts `message.sent` and `message.finalized` events to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/delivery-status-webhooks).
 
 ## Delivery and inbound webhooks
 
@@ -201,18 +201,18 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-SMS SDK maps Telnyx's `message.received`, `message.sent`, and `message.finalized` events. Status comes from `data.payload.to[0].status`: `queued` and `sending` become `message.queued`; `sent` and `delivery_unconfirmed` become `message.sent`; `delivered` becomes `message.delivered`; `sending_failed`, `delivery_failed`, and `expired` become `message.undelivered`, or `message.filtered` with error 40002, 40003, or 40322. Other event types and statuses (such as `read`) become `unrecognized`.
+SMS SDK maps Telnyx's `message.received`, `message.sent`, and `message.finalized` events. Status comes from `data.payload.to[0].status`: `queued` and `sending` become `message.queued`; `sent` and `delivery_unconfirmed` become `message.sent`; `delivered` becomes `message.delivered`; `sending_failed`, `delivery_failed`, and `expired` become `message.undelivered`, or `message.filtered` with error 40002, 40003, or 40322. Other event types and statuses, such as `read`, become `unrecognized`.
 
-`dedupeKey` is `telnyx:{data.id}`, the webhook event ID. `providerId` is the message ID (`data.payload.id`), which matches `result.providerId`.
+`dedupeKey` is `telnyx:{data.id}`, the webhook event ID. `providerId` is the message ID, `data.payload.id`, which matches `result.providerId`.
 
-Telnyx sends no opt-out flag on inbound messages, so STOP and HELP come from keyword detection (`source: "keyword"`).
+Telnyx sends no opt-out flag on inbound messages, so STOP and HELP come from keyword detection, with `source: "keyword"`.
 
 ## Signature verification
 
-Telnyx signs each webhook with two headers: `telnyx-timestamp` (Unix seconds) and `telnyx-signature-ed25519` (base64). The signature is Ed25519 over `` `${timestamp}|${rawBody}` ``, verified with your account's public key through Web Crypto.
+Telnyx signs each webhook with two headers, `telnyx-timestamp` in Unix seconds and `telnyx-signature-ed25519` in base64. The signature is Ed25519 over `` `${timestamp}|${rawBody}` ``. SMS SDK verifies it with your account's public key through Web Crypto.
 
-- Requests with a timestamp more than 300 seconds from now (either direction) fail with `stale_timestamp`. Change it with `toleranceSec`.
-- The URL is not signed, so proxies do not affect verification. There is no `publicUrl` option.
+- A timestamp more than 300 seconds before or after now fails with `stale_timestamp`. Change the window with `toleranceSec`.
+- The URL is not signed, so proxies do not affect verification and there is no `publicUrl` option.
 - A public key that is not 32 bytes of base64 fails with `invalid_credentials`.
 
 ## Error mapping
@@ -229,11 +229,11 @@ Telnyx signs each webhook with two headers: `telnyx-timestamp` (Unix seconds) an
 | 429 without code 10011 or 40318 | unknown | Never |
 | 5xx, network error, timeout, 2xx without `data.id` | unknown | Never |
 
-The code comes from `errors[0].code` in the response. Telnyx does not document a `Retry-After` header; one is honored if present.
+The code comes from `errors[0].code` in the response. Telnyx does not document a `Retry-After` header, but SMS SDK honors one if present.
 
 ## Limitations
 
-- No `validityPeriodSec`. Use Twilio, Plivo, or Vonage if you need an expiry.
+- No `validityPeriodSec`. For an expiry, use Twilio, Plivo, or Vonage.
 - Alphanumeric senders need a messaging profile ID on the adapter.
 - Error 40008 is not mapped to `message.filtered`, because Telnyx's pages disagree on its meaning. It stays `message.undelivered`.
 
@@ -258,13 +258,13 @@ console.log(result.providerId, JSON.parse(fake.calls[0]?.body ?? "{}")); // the 
 
 Test your webhook handler with real signatures from `generateTelnyxKeyPair()` and `signedTelnyxRequest()`. See [Local testing](/guides/local-testing#test-webhook-handlers).
 
-The adapter's own fixtures and live test live in the SMS SDK repository. From `packages/sms-sdk`:
+The adapter's own tests live in the SMS SDK repository. From `packages/sms-sdk`:
 
 ```bash
 bun test test/contracts/telnyx.test.ts test/webhooks/telnyx.test.ts
 ```
 
-The live test sends one real, billable message per configured provider and is skipped unless you opt in:
+The live test sends one real, billable message to each configured provider. It is skipped unless you opt in:
 
 ```bash
 LIVE_SMS_TESTS=true LIVE_SMS_TO=+14155550123 LIVE_SMS_ALLOWLIST=+14155550123 \

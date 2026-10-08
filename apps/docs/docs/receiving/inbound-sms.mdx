@@ -3,18 +3,18 @@ title: "Inbound SMS"
 description: "Receive replies to your numbers as verified message.received events, with sender, recipient, text, and media URLs."
 ---
 
-People reply to your messages, and you want to read those replies in your app. Point the provider's inbound webhook at your server and parse it with `parseSmsWebhook()`. Each reply becomes a `message.received` event.
+Point the provider's inbound webhook at your server and parse each request with `parseSmsWebhook()`. Every text sent to your number becomes a `message.received` event.
 
 ## 1. Configure the inbound URL
 
-Inbound messages go to the URL set on the receiving number or its group, never to a per-message `webhookUrl`.
+Inbound messages go to the URL set on the receiving number or its group. A per-message `webhookUrl` only affects status events.
 
 | Provider | Where to set it |
 | --- | --- |
 | Twilio | The phone number's "A message comes in" webhook, or the Messaging Service's incoming message setting. |
 | Telnyx | The messaging profile's inbound webhook URL. |
 | Plivo | The message URL of the Plivo application linked to the number. |
-| Vonage | The Inbound URL of the Vonage application linked to the number. Once the number is linked, send from it with JWT auth: Vonage documents that Basic auth fails with 401 for linked numbers. |
+| Vonage | The Inbound URL of the Vonage application linked to the number. Send from a linked number with JWT auth. Vonage documents that Basic auth fails with 401 for linked numbers. |
 
 ## 2. Parse the message
 
@@ -45,6 +45,8 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
+Plivo signs the URL it called, so the example passes `publicUrl`. See [Webhook security](/receiving/webhook-security#fix-url-mismatches-behind-a-proxy).
+
 A `message.received` event has:
 
 | Field | Value |
@@ -53,16 +55,16 @@ A `message.received` event has:
 | `from` | The sender's number. Vonage numbers, which arrive without `+`, are normalized to E.164. |
 | `to` | Your number that received it. |
 | `body` | The text, as sent. |
-| `mediaUrls` | Attached media (Twilio `MediaUrl0…`, Telnyx `media[].url`, Plivo `Media0…`). Empty for Vonage. Fetching these URLs may require provider credentials. |
+| `mediaUrls` | Attached media from Twilio `MediaUrl0…`, Telnyx `media[].url`, or Plivo `Media0…`. Always empty for Vonage. |
 | `dedupeKey`, `raw`, `occurredAt` | See [Webhook events](/reference/webhook-events). |
 
 ## Keywords become opt-out events
 
-When the whole message is a keyword such as `STOP`, `UNSUBSCRIBE`, or `HELP`, the event is `recipient.opted_out` or `recipient.help` instead of `message.received`. Handle those too, or turn detection off with `detectKeywords: false`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+When the whole message is a keyword such as `STOP`, `UNSUBSCRIBE`, or `HELP`, you get `recipient.opted_out` or `recipient.help` instead of `message.received`. Handle those too, or turn detection off with `detectKeywords: false`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
 
 ## Reply to a message
 
-SMS SDK never replies automatically. To answer, send a new message from the number that received the reply:
+SMS SDK never replies automatically. To answer, send a new message from the number that was texted:
 
 ```ts
 import { isE164 } from "@opencoredev/sms-sdk";
@@ -88,14 +90,14 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-The idempotency key is derived from the inbound event, so a repeated webhook does not send a second reply when the client has an idempotency store. A signature failure here throws `WebhookSignatureError`; catch it as in the first example.
+Deriving the idempotency key from the inbound `dedupeKey` means a repeated webhook cannot send a second reply, as long as the client has an [idempotency store](/sending/idempotency). Catch `WebhookSignatureError` here as in the first example.
 
-Twilio also lets you reply by returning TwiML from the webhook. SMS SDK does not build TwiML. If you do not want Twilio to reply, return an empty TwiML document (`<Response></Response>` with `Content-Type: text/xml`).
+Twilio also lets you reply by returning TwiML from the webhook. SMS SDK does not build TwiML. If you do not want Twilio to reply, return an empty `<Response></Response>` document with `Content-Type: text/xml`.
 
 ## Limitations
 
 - SMS SDK is not a conversation store. It does not thread messages, keep history, or manage an inbox.
-- Inbound MMS media URLs point at provider storage and may expire or need authentication.
+- Inbound MMS media URLs point at provider storage. They may expire, and fetching them may need provider credentials.
 - Vonage inbound requires a number linked to a Vonage application. See [Vonage](/providers/vonage).
 
 ## Next steps

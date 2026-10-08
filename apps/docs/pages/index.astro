@@ -90,17 +90,17 @@ const features = [
   },
   {
     title: "Safe handoff and failover",
-    body: "Fallback is off by default. When you turn it on, it only moves to the next provider after a known rejection, never after an unclear outcome.",
+    body: "Fallback is off by default. Turned on, it moves to the next provider only after a known rejection, never after an unknown outcome.",
     code: `fallback: "on-known-rejection"`,
   },
   {
     title: "Segment preview",
-    body: "validate() checks the number, picks GSM-7 or UCS-2, and estimates segments locally. It never sends a message or calls a provider.",
+    body: "validate() checks the number, picks GSM-7 or UCS-2, and estimates segments locally, without calling a provider.",
     code: `sms.validate({ to, body }).segments`,
   },
   {
     title: "Normalized webhooks",
-    body: "Delivery receipts and inbound messages arrive as one event shape, after the provider signature is verified.",
+    body: "Delivery receipts and inbound messages arrive as one event shape, only after the provider signature checks out.",
     code: `import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks"`,
   },
 ];
@@ -281,7 +281,7 @@ const faq = [
         <p>
           All four adapters pass the same contract tests. Supported means requests, errors, and
           webhooks follow the provider's official documentation. Partial means part of the
-          provider's behavior is undocumented, so the SDK treats it conservatively.
+          provider's behavior is undocumented, and the SDK treats that part conservatively.
         </p>
       </div>
       <div class="sms-table-scroll">
@@ -329,8 +329,8 @@ const faq = [
           <code>fetch</code>, and each one is its own import, so you only load the providers you use.
         </p>
         <p>
-          The <code>memory()</code> adapter records sends in process. Use it in unit tests and CI, where
-          real messages should never go out.
+          The <code>memory()</code> adapter records sends in process. Use it in unit tests and CI, so
+          no real message goes out.
         </p>
         <a class="sms-link" href="/guides/local-testing">Local testing guide</a>
       </div>

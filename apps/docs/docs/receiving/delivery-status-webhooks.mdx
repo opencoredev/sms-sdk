@@ -3,11 +3,11 @@ title: "Delivery status webhooks"
 description: "Learn whether an accepted message was delivered: configure status callbacks and map each provider's statuses to SmsEvent types."
 ---
 
-`send()` tells you the provider accepted a message. It does not tell you the phone received it. Delivery arrives later as a status webhook, which `parseSmsWebhook()` turns into a `message.*` event you can match to the send by `providerId`.
+A successful `send()` means the provider accepted the message. It does not mean the phone received it. The result's `handoff` is always `"accepted"`, and `delivery` holds the status the provider reported at that moment, usually `queued`. Delivery arrives later as a status webhook. `parseSmsWebhook()` turns it into a `message.*` event that you match to the send by `providerId`.
 
 ## 1. Point the provider at your endpoint
 
-Status callbacks go to a URL you set per message or in the provider's console:
+Set the status URL per message or in the provider's console:
 
 | Provider | Where the status URL comes from |
 | --- | --- |
@@ -64,7 +64,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Each status event has `providerId`, `providerStatus` (the provider's own word, such as `undelivered`), `errorCode` when the provider sent one, and `from`/`to` when present. Twilio and Plivo sign the public URL, so pass the exact URL configured with the provider as `publicUrl`. See [Webhook security](/receiving/webhook-security).
+Each status event has `providerId` and `providerStatus`, the provider's own status word such as `undelivered`. It also has `errorCode`, `from`, and `to` when the provider sent them. Twilio and Plivo sign the URL they called, which is why the example passes `publicUrl`. See [Webhook security](/receiving/webhook-security#fix-url-mismatches-behind-a-proxy).
 
 ## Status mapping
 
@@ -78,20 +78,20 @@ Each status event has `providerId`, `providerStatus` (the provider's own word, s
 
 Telnyx status events come from its `message.sent` and `message.finalized` webhooks.
 
-Any other status, such as Twilio `read` or `canceled` or Plivo `read`, becomes `{ type: "unrecognized", providerEventType }`. It never throws, so a provider adding a status does not break your handler.
+Any other status, such as Twilio `read` or `canceled` or Plivo `read`, becomes `{ type: "unrecognized", providerEventType }` instead of throwing. A provider adding a status does not break your handler.
 
-`message.filtered` is used only when the provider's error code says the message was filtered as spam or blocked content. A plain failure stays `message.undelivered`. Plivo has no documented filter signal, so its failures are always `message.undelivered`.
+`message.filtered` requires an error code that marks the message as spam or blocked content. A plain failure stays `message.undelivered`. Plivo has no documented filter signal, so its failures are always `message.undelivered`.
 
 ## What "delivered" means
 
-`delivered` means the carrier reported delivery to the handset. Carriers do not report it everywhere. Some routes only reach `sent`, and Telnyx reports `delivery_unconfirmed` (mapped to `message.sent`) when the carrier gives no receipt. Treat `message.sent` with no later event as "probably delivered, not confirmed".
+`delivered` means the carrier reported delivery to the handset. Not every carrier reports it. Some routes stop at `sent`, and Telnyx reports `delivery_unconfirmed`, mapped to `message.sent`, when the carrier gives no receipt. Treat `message.sent` with no later event as probably delivered but unconfirmed.
 
 ## Limitations
 
 - Status webhooks repeat and arrive out of order. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
 - Vonage with Basic auth (`apiKey` and `apiSecret`) does not send status webhooks. Use JWT auth.
-- Switching providers means configuring status URLs and webhook credentials on the new provider too.
-- SMS SDK does not poll providers for status. If a webhook never arrives, look the message up with the provider.
+- When you switch providers, configure status URLs and webhook credentials on the new one too.
+- SMS SDK does not poll for status. If a webhook never arrives, look the message up with the provider.
 
 ## Next steps
 

@@ -3,7 +3,7 @@ title: "Send your first SMS"
 description: "Call sms.send(), read the SmsSendResult, and handle each error by whether a retry is safe."
 ---
 
-You have a client and want to send a message from your app and react correctly when it fails. This page covers the send call, the result, and error handling. If you do not have a client yet, start with the [Quick start](/getting-started/quick-start).
+Send a message, read the result, and handle failures correctly. No client yet? Start with the [Quick start](/getting-started/quick-start).
 
 ## Send
 
@@ -19,9 +19,9 @@ const result = await sms.send({
 console.log(result.id, result.provider, result.providerId, result.delivery);
 ```
 
-`send()` resolves only when a provider accepted the message. You see the library ID (`sms_` plus 32 hex characters), the adapter name such as `twilio`, the provider's message ID, and usually `queued`.
+`send()` resolves only when a provider accepts the message. It logs the library ID (`sms_` plus 32 hex characters), the adapter name such as `twilio`, the provider's message ID, and usually `queued`.
 
-`to` must be an E.164 number: a `+`, the country code, and the number, with no spaces. `from` is optional when the adapter has a default sender. See [Senders and E.164 numbers](/sending/senders-and-e164).
+`to` must be E.164: a `+`, the country code, and the number, with no spaces. `from` is optional when the adapter has a default sender. See [Senders and E.164 numbers](/sending/senders-and-e164).
 
 ## Read the result
 
@@ -31,7 +31,7 @@ console.log(result.id, result.provider, result.providerId, result.delivery);
 | `provider` | Name of the adapter that accepted it. |
 | `providerId` | The provider's message ID: Twilio `SM…`/`MM…`, Telnyx `data.id`, Plivo `message_uuid[0]`, Vonage `message_uuid`. Store it to match status webhooks. |
 | `handoff` | Always `"accepted"`. |
-| `delivery` | Status from the send response, usually `"queued"`. Never `"delivered"` in practice; delivery comes by webhook. |
+| `delivery` | Status from the send response, usually `"queued"`. In practice never `"delivered"`, because delivery comes by webhook. |
 | `encoding`, `segments` | `"gsm7"` or `"ucs2"`, and the estimated segment count. |
 | `attemptedProviders`, `attempts` | Every adapter and request that ran, in order. Safe to log: no body, no full numbers. |
 | `replayed` | `true` when the result came from the idempotency store or a concurrent call with the same key. |
@@ -55,7 +55,7 @@ await db.messages.create({
 
 ## Handle errors
 
-Every error SMS SDK throws extends `SmsError` and has a stable `code` and a `retrySafe` flag. `retrySafe: true` means nothing was accepted, so sending the same message again cannot create a duplicate. It does not mean the retry will succeed.
+Every error SMS SDK throws extends `SmsError`, with a stable `code` and a `retrySafe` flag. `retrySafe: true` means nothing was accepted, so sending again cannot create a duplicate. It does not mean the retry will succeed.
 
 ```ts
 import {
@@ -94,9 +94,9 @@ export async function notifyShipped(orderId: string, to: `+${string}`): Promise<
 }
 ```
 
-`HandoffUnknownError` is the one to get right. It is thrown for timeouts, network errors, 5xx responses, and malformed success responses, where the provider may have created the message. Check the provider console or API, or wait for a delivery webhook with that message, before you send again. With an idempotency store, a later send with the same key throws `HandoffUnknownError` again instead of sending.
+`HandoffUnknownError` is the one to get right. Timeouts, network errors, 5xx responses, and malformed success responses throw it, because the provider may have created the message. Check the provider console or API, or wait for a status webhook, before you send again. With an idempotency store, a later send with the same key throws `HandoffUnknownError` again instead of sending. See [Idempotency](/sending/idempotency).
 
-The full list of error classes, codes, and actions is in [Errors](/reference/errors).
+[Errors](/reference/errors) lists every error class, code, and action.
 
 ## Cancel a send
 
@@ -118,7 +118,7 @@ try {
 }
 ```
 
-An abort before any request, or while waiting to retry a rate limit, throws `SendAbortedError` (`retrySafe: true`). An abort while a request is in flight throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
+Aborting before any request, or while waiting to retry a rate limit, throws `SendAbortedError` with `retrySafe: true`. Aborting while a request is in flight throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
 
 ## Next steps
 

@@ -1,9 +1,9 @@
 ---
 title: "Adapter contract"
-description: "Reference for the SmsAdapter interface and its types: SmsCapabilities, AdapterMessage, SmsSender, SendContext, AdapterSendOutcome, and RejectionCategory."
+description: "The SmsAdapter interface and its types: SmsCapabilities, ProviderOptionsSpec, AdapterMessage, SmsSender, SendContext, AdapterSendOutcome, and RejectionCategory."
 ---
 
-These types define what an adapter is. You need them to [build a provider adapter](/providers/writing-an-adapter), or to read `sms.capabilities()`. All are exported as types from `@opencoredev/sms-sdk`.
+These types define an adapter. You need them to [write a provider adapter](/providers/writing-an-adapter) or to read `sms.capabilities()`. All are exported as types from `@opencoredev/sms-sdk`.
 
 ## `SmsAdapter`
 
@@ -13,6 +13,7 @@ interface SmsAdapter {
   readonly capabilities: SmsCapabilities;
   readonly support: AdapterSupport;
   readonly defaultFrom?: SmsFrom;
+  readonly providerOptions?: ProviderOptionsSpec;
   validate?(message: AdapterMessage): readonly ValidationIssue[];
   send(message: AdapterMessage, context: SendContext): Promise<AdapterSendOutcome>;
 }
@@ -24,8 +25,9 @@ interface SmsAdapter {
 | `capabilities` | What the adapter can send. The client checks every message against it before calling `send`. |
 | `support` | `{ status: "supported" \| "partial"; notes: readonly string[] }`. `notes` explains a partial status. |
 | `defaultFrom` | Sender used when a message has no `from`. |
-| `validate` | Optional provider-specific checks that need no network. Issues make `send()` throw before any request. |
-| `send` | Makes one provider request. Must pass `context.signal` to `fetch`. Must not throw; a thrown error is treated as `unknown` with `reason: "adapter_exception"`. |
+| `providerOptions` | The provider-specific options this adapter accepts under its `name` in `providerOptions`. See [`ProviderOptionsSpec`](#provideroptionsspec). Without it, any entry for this adapter throws `UnsupportedFieldError`. |
+| `validate` | Optional provider-specific checks that need no network, such as sender ID formats or field combinations. Issues make `send()` throw before any request. |
+| `send` | Makes one provider request. Must pass `context.signal` to `fetch`. Must not throw. The client treats a thrown error as `unknown` with `reason: "adapter_exception"`. |
 
 ```ts
 import { createSmsClient, type SmsAdapter } from "@opencoredev/sms-sdk";
@@ -71,6 +73,59 @@ await sms.send({ to: "+14155550123", body: "Hi" });
 
 Built-in values are exported as constants: `TWILIO_CAPABILITIES`, `TELNYX_CAPABILITIES`, `PLIVO_CAPABILITIES`, `VONAGE_JWT_CAPABILITIES`, `VONAGE_BASIC_CAPABILITIES`, each from its adapter's subpath.
 
+## `ProviderOptionsSpec`
+
+Declares an adapter's provider-specific send options. The client parses the caller's entry against it before any request and hands the result to `send` as [`AdapterMessage.providerFields`](#adaptermessage).
+
+```ts ignore="type listing"
+type ProviderOptionsSpec = {
+  readonly options: { readonly [option: string]: ProviderOptionField }; // keyed by camelCase name
+  readonly reserved: readonly string[]; // wire names the adapter sets from portable fields
+};
+
+type ProviderOptionField =
+  | { readonly type: "boolean"; readonly wire: string }
+  | { readonly type: "string"; readonly wire: string; readonly maxLength?: number; readonly pattern?: RegExp }
+  | { readonly type: "integer"; readonly wire: string; readonly min: number; readonly max?: number }
+  | { readonly type: "enum"; readonly wire: string; readonly values: readonly [string, ...string[]] };
+```
+
+| Field | Meaning |
+| --- | --- |
+| `options` | Typed options by camelCase name. `wire` is the provider's own parameter name. Do not name an option `extra`, which is the passthrough. |
+| `reserved` | Wire names the adapter sets itself, such as `To` or `StatusCallback`. Neither a typed option nor `extra` may set them. |
+
+For each adapter that has an entry, the client checks the entry before any request:
+
+- An entry for an adapter without a spec, or an unknown key, is `unsupported_field`.
+- An entry that is not an object, or a typed value of the wrong type, is `invalid_field`. Strings must be non-empty and within `maxLength` and `pattern`. Integers must be within `min` and `max`. Enums must be one of `values`.
+- An `extra` key that matches a `reserved` name or a typed option's `wire`, in any letter case, is `unsupported_field`.
+- An `extra` value that is not a string, finite number, or boolean, or an empty `extra` key, is `invalid_field`.
+
+Every issue has `field: "providerOptions"` and the adapter's `provider`. Messages name option keys, never values.
+
+Declare the spec with `as const satisfies ProviderOptionsSpec`, derive the caller-facing type with `ProviderOptionsOf`, and add it to `SmsProviderOptions` so callers get types for your key:
+
+```ts
+import type { ProviderOptionsOf, ProviderOptionsSpec } from "@opencoredev/sms-sdk";
+
+export const ACME_PROVIDER_OPTIONS = {
+  options: {
+    clientRef: { type: "string", wire: "client_ref", maxLength: 100 },
+    priority: { type: "enum", wire: "priority", values: ["normal", "high"] },
+  },
+  reserved: ["to", "from", "text"],
+} as const satisfies ProviderOptionsSpec;
+
+declare module "@opencoredev/sms-sdk" {
+  interface SmsProviderOptions {
+    readonly acme?: ProviderOptionsOf<typeof ACME_PROVIDER_OPTIONS>;
+  }
+}
+```
+
+Set `providerOptions: ACME_PROVIDER_OPTIONS` on the adapter. `ProviderOptionsOf` makes every typed option optional and adds `extra?: ProviderExtra`, an object of `string | number | boolean` values keyed by wire name. The built-in specs are exported as `TWILIO_PROVIDER_OPTIONS`, `TELNYX_PROVIDER_OPTIONS`, `PLIVO_PROVIDER_OPTIONS`, and `VONAGE_PROVIDER_OPTIONS`.
+
 ## `AdapterMessage`
 
 The validated message the client passes to `send`:
@@ -84,8 +139,13 @@ type AdapterMessage = {
   readonly sendAt?: Date;
   readonly validityPeriodSec?: number;
   readonly webhookUrl?: string;
+  readonly providerFields?: readonly ProviderWireField[];
 };
+
+type ProviderWireField = { readonly wire: string; readonly value: string | number | boolean };
 ```
+
+`providerFields` is this adapter's `providerOptions` entry after parsing: typed options in the order the spec declares them, then `extra` in insertion order. It is absent when the caller passed no entry for this adapter. Send every field as is, applied last when you build the request. The client has already rejected unknown keys, wrong types, and collisions with reserved names.
 
 ## `SmsSender`
 
@@ -122,7 +182,7 @@ type AdapterSendOutcome =
 
 - Return `accepted` only when the response proves the message was created and includes its ID.
 - Return `rejected` only when the response proves it was not created.
-- Return `unknown` for everything else.
+- Return `unknown` for everything else, including any response that does not prove either.
 
 `UnknownReason` is `"network" | "timeout" | "aborted" | "malformed_response" | "server_error" | "unexpected_status" | "adapter_exception"`. The client replaces the reason with `timeout` or `aborted` when its own signal fired.
 
@@ -152,8 +212,8 @@ type ProviderErrorInfo = {
 };
 ```
 
-It ends up in thrown errors and logs. Never put message bodies or credentials in it, and pass provider text through `redactText()` so phone numbers are masked and the message is at most 200 characters. The built-in adapters do this.
+It ends up in thrown errors and logs. Never put message bodies or credentials in it. Pass provider text through `redactText()`, which masks phone numbers and cuts the text to 200 characters. The built-in adapters do this.
 
 ## Check an adapter
 
-Run the contract harness from `@opencoredev/sms-sdk/testing` against your adapter. See [Testing reference](/reference/testing#contract-harness).
+Run the contract harness from `@opencoredev/sms-sdk/testing` against your adapter. See [Testing](/reference/testing#contract-harness).

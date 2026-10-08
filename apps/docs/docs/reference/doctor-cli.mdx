@@ -1,9 +1,9 @@
 ---
 title: "Doctor CLI"
-description: "Reference for sms-sdk doctor: check provider configuration without sending, preview encoding, and send one confirmed live message."
+description: "sms-sdk doctor: check provider configuration without sending, preview encoding, and send one confirmed live message."
 ---
 
-`sms-sdk doctor` checks one provider's configuration from your environment variables and previews a message's encoding. By default it is a dry run: it makes no network calls and sends nothing. A live send happens only with `--live` and explicit confirmation of the recipient and sender.
+`sms-sdk doctor` checks one provider's configuration from your environment variables and previews a message's encoding. By default it is a dry run that makes no network calls and sends nothing. It sends only with `--live` and explicit confirmation of the recipient and sender.
 
 ```bash
 npx @opencoredev/sms-sdk doctor --adapter twilio
@@ -40,10 +40,10 @@ sms-sdk doctor --adapter <twilio|telnyx|plivo|vonage> [options]
 | `--from <sender>` | Sender to validate instead of the configured one. `+…` is a phone number, 3 to 8 digits a short code, anything else an alphanumeric sender ID. |
 | `--live` | Send one real, billable message. Requires `--to`, `--confirm-to`, and `--confirm-from`. |
 | `--confirm-to <+E164>` | Must equal `--to` when `--live` is set. |
-| `--confirm-from <sender>` | Must equal the sender being used (from `--from` or the environment, as printed). |
+| `--confirm-from <sender>` | Must equal the sender in use, as printed, from `--from` or the environment. |
 | `--help` | Show usage. |
 
-The CLI reads variables from the process environment. It does not load `.env` files, so export them first, for example with `set -a; source .env; set +a` in a POSIX shell.
+The CLI reads the process environment and does not load `.env` files. Export them first, for example with `set -a; source .env; set +a` in a POSIX shell.
 
 ## Environment variables
 
@@ -59,13 +59,13 @@ The sender comes from `--from`, else `<PROVIDER>_FROM`, else `TWILIO_MESSAGING_S
 ## What the dry run checks
 
 1. Required environment variables are present.
-2. The adapter can be constructed: Account SID format, non-empty credentials, a PEM private key for Vonage. The adapter's support status and notes are printed.
+2. The adapter can be constructed, which checks the Account SID format, non-empty credentials, and a PEM private key for Vonage. The adapter's support status and notes are printed.
 3. A sender is configured, and its format is valid.
 4. The body's encoding, units, and estimated segments, plus any characters that force UCS-2.
 5. The recipient is E.164, when `--to` is given.
 6. The message passes local validation for this adapter, using a placeholder recipient when `--to` is not given.
 
-It never reports credentials, sender registration, campaign status, or webhook reachability as passing. Those lines always say `[not verified]`, because checking them needs the provider.
+Credentials, sender registration, campaign status, and webhook reachability always print `[not verified]`, because only the provider can check them.
 
 ## Live send
 
@@ -87,13 +87,13 @@ The live send runs only when every dry-run check passed, `--to` is E.164, `--con
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | All checks passed (and the live send, if requested, was accepted). |
+| `0` | All checks passed, and the live send was accepted if requested. |
 | `1` | A check failed, or the live send failed. |
 | `2` | Usage error: unknown flag, missing `--adapter`, or missing or mismatched confirmation for `--live`. |
 
 ## Use it in CI
 
-The dry run is safe in CI: no network calls, no sends. Run it with your production variable names and test values to catch configuration mistakes before deploy:
+The dry run makes no network calls, so it is safe in CI. Run it with your production variable names and test values to catch configuration mistakes before deploy.
 
 ```bash
 npx @opencoredev/sms-sdk doctor --adapter telnyx --body "Your order has shipped." || exit 1

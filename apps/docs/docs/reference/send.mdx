@@ -1,11 +1,11 @@
 ---
 title: "send()"
-description: "Reference for sms.send(input, options): SmsSendInput fields, SmsSendResult fields, SendAttempt, the order of checks, and the errors it throws."
+description: "sms.send(input, options): SmsSendInput and SmsSendResult fields, SendAttempt, the order of checks, and the errors it throws."
 ---
 
 ## `sms.send(input, options?)`
 
-Sends one logical message. Resolves only when a provider accepted it (`handoff: "accepted"`). Every rejection and unknown outcome throws.
+Sends one logical message. It resolves only when a provider accepts the message (`handoff: "accepted"`). Every rejection and unknown outcome throws.
 
 ```ts
 import { sms } from "./sms";
@@ -22,7 +22,7 @@ const result = await sms.send(
 console.log(result.providerId, result.delivery, result.segments);
 ```
 
-A guide with error handling is at [Send your first SMS](/sending/send-your-first-sms).
+Guide with error handling: [Send your first SMS](/sending/send-your-first-sms).
 
 ### Parameters
 
@@ -112,7 +112,7 @@ await sms.send({
 });
 ```
 
-Each entry has typed options in camelCase, which the adapter sends under the provider's own parameter names, and an optional `extra` object for parameters the typed options do not cover yet.
+Each entry has typed options in camelCase, which the adapter sends under the provider's own parameter names. An optional `extra` object holds parameters the typed options do not cover yet.
 
 ```ts ignore="type listing"
 interface SmsProviderOptions {
@@ -130,9 +130,9 @@ type TwilioSendOptions = {
 };
 ```
 
-The options for each provider, with their wire names, are on its page: [Twilio](/providers/twilio#provider-options), [Telnyx](/providers/telnyx#provider-options), [Plivo](/providers/plivo#provider-options), and [Vonage](/providers/vonage#provider-options).
+Each provider page lists its options and wire names: [Twilio](/providers/twilio#provider-options), [Telnyx](/providers/telnyx#provider-options), [Plivo](/providers/plivo#provider-options), and [Vonage](/providers/vonage#provider-options).
 
-How the SDK handles them:
+Rules:
 
 - **Typed by import.** Each adapter subpath adds its key to `SmsProviderOptions`, so you can only write keys for adapters you import. An unknown option key is a type error.
 - **One adapter each.** An entry applies only when that adapter sends. With fallback, each adapter sends its own entry and never another's. Entries for adapters the client does not have are ignored. `sms.validate()` lists the candidates that have an entry in `providerOptionsFor`.
@@ -141,7 +141,7 @@ How the SDK handles them:
 - **Part of the idempotency key.** Reusing an `idempotencyKey` with different options throws `IdempotencyConflictError`. Key order does not matter.
 - **Values stay out of logs.** Error messages name option keys, never their values. Hook events and `SendAttempt` carry no options. `beforeSend` receives the whole input, options included, as it does `body`.
 
-An adapter you write can accept options too: set `providerOptions` on the adapter to a `ProviderOptionsSpec` and add its key to `SmsProviderOptions` with `declare module "@opencoredev/sms-sdk"`.
+An adapter you write can accept options too. Set `providerOptions` on the adapter to a `ProviderOptionsSpec` and add its key to `SmsProviderOptions` with `declare module "@opencoredev/sms-sdk"`. See [Adapter contract](/reference/adapter-contract#provideroptionsspec).
 
 ## Returns: `SmsSendResult`
 
@@ -162,7 +162,7 @@ An adapter you write can accept options too: set `providerOptions` on the adapte
 
 ### `SendAttempt`
 
-Log-safe: no body, no phone numbers.
+Safe to log. It has no body and no phone numbers.
 
 ```ts ignore="type listing"
 type SendAttempt =
@@ -199,7 +199,7 @@ type SendAttempt =
 | `IdempotencyConflictError` | `idempotency_conflict` | false | Key reused with a different payload or sender |
 | `IdempotencyInProgressError` | `idempotency_in_progress` | true | Another process holds a fresh reservation |
 
-Details and actions for each are in [Errors](/reference/errors). An error thrown by your `beforeSend` propagates unchanged.
+[Errors](/reference/errors) has details and the action for each. An error thrown by your `beforeSend` propagates unchanged.
 
 ## Types
 

@@ -3,19 +3,13 @@ title: "Deploy with multiple instances"
 description: "Share idempotency across servers, workers, and serverless functions with an atomic IdempotencyStore, and know what still needs manual reconciliation."
 ---
 
-With one process, `memoryIdempotencyStore()` stops a retried job from sending twice. With two servers, a worker pool, or serverless functions, each process has its own memory, so two of them can send the same message. You need one store they all share, with an atomic reserve.
+In one process, `memoryIdempotencyStore()` stops a retried job from sending twice. With two servers, a worker pool, or serverless functions, each process has its own memory, and two of them can send the same message. They need one shared store with an atomic reserve.
 
 ## Why get-then-set is not enough
 
-Two workers pick up the same job at the same time. Both read the key, both see nothing, both send. Only a single atomic compare-and-set prevents that: `INSERT ... ON CONFLICT` in SQL, `SET NX` in Redis, a conditional write in DynamoDB. The `IdempotencyStore` contract requires it.
+Two workers pick up the same job at the same time. Both read the key, both see nothing, and both send. Only one atomic compare-and-set prevents that, such as `INSERT ... ON CONFLICT` in SQL, `SET NX` in Redis, or a conditional write in DynamoDB. The `IdempotencyStore` contract requires it. `reserve` must claim the key atomically, and only when there is no record, the record has expired, or the record is `rejected` with the same fingerprint. `finalize` must write the final record only if its `reservationId` still owns the key. The store keeps `accepted` and `rejected` records for `ttlSec` and `unknown` records until an operator clears them. The [idempotency store reference](/reference/idempotency-store) has the full contract.
 
-| Method | Must |
-| --- | --- |
-| `get(key)` | Return the record, or `null`. |
-| `reserve({ key, fingerprint, now })` | Atomically claim the key when there is no record, or the record is `rejected` with the same fingerprint. Otherwise return the existing record unchanged. |
-| `finalize({ key, reservationId, record, ttlSec, now })` | Replace the reservation with the final record only if `reservationId` still owns the key. Keep `accepted` and `rejected` records for `ttlSec`. Keep `unknown` records until an operator clears them. |
-
-Reservations must never expire into a claimable state. An abandoned reservation means a process stopped mid-send, so the outcome is unknown. The client turns a reservation older than `staleReservationSec` into `HandoffUnknownError`, never into a resend.
+A reservation must never expire into a claimable state. An abandoned reservation means a process stopped mid-send, so nobody knows the outcome. The client turns a reservation older than `staleReservationSec` into `HandoffUnknownError`, never into a resend.
 
 ## A Postgres store
 
@@ -108,7 +102,7 @@ export function postgresIdempotencyStore(db: SqlClient): IdempotencyStore {
 }
 ```
 
-`reserve` claims the key in one `insert ... on conflict ... where` statement, so two concurrent callers cannot both get `reserved`. Expired `accepted` and `rejected` records count as absent. `unknown` and `reserved` rows have no expiry, so they are never taken over.
+Because `reserve` claims the key in one statement, two concurrent callers cannot both get `reserved`. Expired `accepted` and `rejected` records count as absent. `unknown` and `reserved` rows never expire, so no caller can take them over.
 
 Wire it into the client:
 
@@ -124,20 +118,20 @@ export const sms = createSmsClient({
 });
 ```
 
-Every instance now shares one record per key. A second worker sending `order:123:shipped:v1` gets the stored result (`replayed: true`) or `IdempotencyInProgressError` while the first is still sending.
+Every instance now shares one record per key. A second worker sending `order:123:shipped:v1` gets the stored result with `replayed: true`. If the first worker is still sending, it gets `IdempotencyInProgressError`, which is retry safe. Let the job retry later, and the retry replays the first send's result.
 
-## Choosing the timings
+## Choose the timings
 
-- **`ttlSec`** must be longer than the longest time a job can be retried. If your queue retries for 3 days, keep records at least 3 days, or a late retry sends again.
-- **`staleReservationSec`** (default 300) must be longer than the longest a single send can take: `timeoutMs` times the requests one send can make (retries times adapters), plus backoff waits. With defaults (10 s timeout, 2 attempts, one adapter) a send takes at most about 30 s.
-- **`IdempotencyInProgressError`** is retry safe. Let the job retry later; by then the first send has finished and the retry replays its result.
+`ttlSec` must outlast the longest time a job can be retried. If your queue retries for 3 days, keep records for at least 3 days, or a late retry sends again.
+
+`staleReservationSec` defaults to 300 and must outlast the slowest possible send. That is `timeoutMs` times the number of requests one send can make, which is attempts times adapters, plus backoff waits. With the defaults of a 10 s timeout, 2 attempts, and one adapter, a send takes at most about 30 s.
 
 ## Reconcile unknown outcomes
 
-A process that crashes after sending, or a request that times out, leaves the key `reserved` or `unknown`. SMS SDK will not resend it. Give your operators a way to resolve it:
+A process that crashes after sending, or a request that times out, leaves the key `reserved` or `unknown`. SMS SDK will not resend it, so your operators need a way to resolve it:
 
 1. Find keys in state `unknown`, or `reserved` and older than `staleReservationSec`.
-2. Check each with the provider: its console, its message list API, or the status webhooks you stored.
+2. Check each one with the provider, in its console, its message list API, or the status webhooks you stored.
 3. If the provider has the message, mark it accepted in your own records. If not, delete the row and let the job send again.
 
 ```ts
@@ -153,16 +147,16 @@ if (rows.length > 0) {
 }
 ```
 
-No store can make this step unnecessary. None of the four providers deduplicates SMS sends by key, so an outcome lost in a crash or timeout can only be settled by asking the provider.
+No store removes this step. None of the four providers deduplicates SMS sends by key, so only the provider can settle an outcome lost in a crash or timeout.
 
 ## Webhooks across instances
 
-Webhook deduplication has the same problem. Store `dedupeKey` with a unique constraint in the shared database, not in process memory. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+Webhook deduplication has the same problem. Store `dedupeKey` under a unique constraint in the shared database, not in process memory. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
 
 ## Other state that is per process
 
-- In-flight coalescing (two concurrent `send()` calls with the same key sharing one request) works within one client instance only. The shared store covers the rest.
-- Retry backoff timers live in the process that is sending. A crash during backoff leaves a `reserved` record, which becomes an unknown outcome after `staleReservationSec`.
+- In-flight coalescing, where two concurrent `send()` calls with the same key share one request, works only within one client instance. The shared store covers the rest.
+- Retry backoff timers live in the sending process. A crash during backoff leaves a `reserved` record, which becomes an unknown outcome after `staleReservationSec`.
 
 ## Next steps
 

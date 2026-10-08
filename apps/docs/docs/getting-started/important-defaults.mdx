@@ -3,33 +3,33 @@ title: "Important defaults"
 description: "What SMS SDK does when you pass no options: fallback, retries, timeouts, idempotency, webhooks, and the option that changes each."
 ---
 
-SMS SDK picks the safe option by default, even when that means you see an error instead of an automatic retry. Read this list before you go to production, so nothing below surprises you.
+SMS SDK defaults to the safe option, even when that means an error instead of an automatic retry. Read this list before you go to production.
 
 ## Sending
 
-- **`send()` resolves only on acceptance.** Every rejection and every unclear outcome throws. There is no `{ ok: false }` result to check. See [Send your first SMS](/sending/send-your-first-sms).
-- **Fallback is off.** With several adapters, only the first one is used. Set `fallback: "on-known-rejection"` to try the next adapter after a provider proves it did not accept the message. See [Retries and fallback](/sending/retries-and-fallback).
-- **Only rate limits are retried.** Each adapter gets at most 2 requests per send (`retry.maxAttempts: 2`), and the second happens only after a documented rate-limit rejection. Backoff starts at 500 ms (`retry.baseDelayMs`) and waits at most 10 s (`retry.maxDelayMs`). A `Retry-After` longer than `maxDelayMs` stops retrying instead of waiting. A 429 without the provider's documented rate-limit error is not a rate limit: it is an unknown outcome.
+- **`send()` resolves only on acceptance.** Every rejection and unclear outcome throws. There is no `{ ok: false }` result. See [Send your first SMS](/sending/send-your-first-sms).
+- **Fallback is off.** With several adapters, only the first one is used. Set `fallback: "on-known-rejection"` to try the next adapter when a provider definitely did not accept the message. See [Retries and fallback](/sending/retries-and-fallback).
+- **Only rate limits are retried.** Each adapter gets at most 2 requests per send (`retry.maxAttempts: 2`), and the second follows only a documented rate-limit rejection. Backoff starts at 500 ms (`retry.baseDelayMs`) and caps at 10 s (`retry.maxDelayMs`). A `Retry-After` longer than `maxDelayMs` stops retrying. A 429 without the provider's documented rate-limit error counts as an unknown outcome.
 - **Unknown outcomes are never retried or failed over.** A timeout, network error, 5xx, or malformed success response throws `HandoffUnknownError` with `retrySafe: false`. No option changes this.
 - **Each request times out after 10 seconds** (`timeoutMs: 10000`). A timeout after the request starts is an unknown outcome.
-- **Idempotency keys deduplicate only with a store.** Without `idempotency.store`, an `idempotencyKey` only joins concurrent calls with the same key in the same process. See [Idempotency](/sending/idempotency).
+- **Idempotency keys deduplicate only with a store.** Without `idempotency.store`, an `idempotencyKey` only joins concurrent same-key calls in one process. See [Idempotency](/sending/idempotency).
 - **Stored idempotency records last 24 hours** (`idempotency.ttlSec: 86400`). Unknown outcomes are kept until you delete them. A reservation older than 5 minutes (`idempotency.staleReservationSec: 300`) is treated as an unknown outcome, never as permission to resend.
-- **Unsupported fields throw before any request.** If the primary adapter cannot send `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or your sender type, `send()` throws `UnsupportedFieldError`. Nothing is dropped silently.
+- **Unsupported fields throw before any request.** If the primary adapter cannot handle `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or your sender type, `send()` throws `UnsupportedFieldError`. Nothing is dropped silently.
 - **The sender comes from the adapter.** A message without `from` uses the adapter's configured `from`. With neither, `send()` throws `InvalidSenderError`.
-- **Segment counts are estimates.** `result.segments` and `validate()` follow GSM-7 and UCS-2 rules. Providers decide what they bill. See [Segments and billing](/sending/segments-and-billing).
+- **Segment counts are estimates.** `result.segments` and `validate()` apply GSM-7 and UCS-2 rules. The provider decides what it bills. See [Segments and billing](/sending/segments-and-billing).
 - **Hooks are redacted and cannot break a send.** Phone numbers in hook events are masked, bodies are never included, and a hook that throws is ignored. See [Policy checks and hooks](/sending/policy-and-hooks).
 
 ## Receiving
 
 - **Webhooks are verified before they are read.** `parseSmsWebhook()` throws `WebhookSignatureError` for an unsigned or altered request. `unsafeSkipVerification: true` turns this off for tests only.
-- **Forwarded headers are ignored.** Twilio and Plivo sign the public URL. Behind a proxy, pass `publicUrl`, or set `trustProxy: true` only when a proxy you control sets `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Webhook security](/receiving/webhook-security).
+- **Forwarded headers are ignored.** Twilio and Plivo sign the public URL. Behind a proxy, pass `publicUrl`, or set `trustProxy: true` only if a proxy you control sets `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Webhook security](/receiving/webhook-security).
 - **Signed timestamps must be within 5 minutes** for Telnyx and Vonage (`toleranceSec: 300`). Twilio and Plivo sign no timestamp, so they have no replay window; deduplicate with `dedupeKey`.
-- **STOP and HELP keywords are detected.** An inbound message whose whole text is `STOP`, `UNSUBSCRIBE`, `HELP`, or a similar keyword becomes a `recipient.opted_out` or `recipient.help` event. Set `detectKeywords: false` to get `message.received` instead. SMS SDK never replies on its own. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
-- **New provider statuses do not throw.** A verified event SMS SDK does not map becomes `{ type: "unrecognized" }` with the provider payload in `raw`.
+- **STOP and HELP keywords are detected.** An inbound message whose whole text is `STOP`, `UNSUBSCRIBE`, `HELP`, or a similar keyword becomes a `recipient.opted_out` or `recipient.help` event. Set `detectKeywords: false` to get `message.received` instead. SMS SDK never replies itself. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+- **New provider statuses do not throw.** A verified event that SMS SDK does not map becomes `{ type: "unrecognized" }`, with the provider payload in `raw`.
 
 ## Storage
 
-- **`memoryIdempotencyStore()` protects one process.** It is lost on restart and not shared between instances or serverless invocations. See [Deploy with multiple instances](/guides/multiple-instances).
+- **`memoryIdempotencyStore()` protects one process.** It is lost on restart and not shared across instances or serverless invocations. See [Deploy with multiple instances](/guides/multiple-instances).
 
 ## Next steps
 

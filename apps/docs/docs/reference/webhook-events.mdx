@@ -1,6 +1,6 @@
 ---
 title: "Webhooks and events"
-description: "Reference for @opencoredev/sms-sdk/webhooks: parseSmsWebhook options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
+description: "@opencoredev/sms-sdk/webhooks: parseSmsWebhook options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
 ---
 
 ```ts
@@ -37,11 +37,11 @@ Options are discriminated by `provider`. Every variant accepts the common option
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage"` | required | Which scheme to verify and parse. |
 | `request` | `Request` | required | The incoming web request. Its body must not have been read. |
 | `credentials` | per provider, below | required | Verification secret. |
-| `unsafeSkipVerification` | `boolean` | `false` | Skips signature checks. Tests only; the event is not authenticated. |
+| `unsafeSkipVerification` | `boolean` | `false` | Skips signature checks. For tests only. The event is not authenticated. |
 | `detectKeywords` | `boolean` | `true` | Match STOP/HELP keywords in inbound text when the provider sends no signal. |
 | `now` | `() => number` | `Date.now` | Clock in epoch ms, for timestamp checks. |
 
-Per provider:
+Per-provider options:
 
 | `provider` | `credentials` | Extra options |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ Per provider:
 | `"plivo"` | `{ authToken: string }` | `publicUrl?: string`, `trustProxy?: boolean` |
 | `"vonage"` | `{ signatureSecret: string }` | `toleranceSec?: number` (default 300) |
 
-`publicUrl` is the exact URL configured with the provider. If it has no query string, the request's query string is appended. `trustProxy: true` builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host` when `publicUrl` is not set; otherwise `request.url` is used and forwarded headers are ignored.
+`publicUrl` is the exact URL configured with the provider. If it has no query string, the request's query string is appended. Without `publicUrl`, `trustProxy: true` builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host`. Otherwise `request.url` is used and forwarded headers are ignored. See [Webhook security](/receiving/webhook-security).
 
 ### Returns
 
@@ -63,14 +63,14 @@ Per provider:
 
 ## `SmsEvent`
 
-Every event has these fields:
+Every event has these fields.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage"` | Which provider sent it. |
 | `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
 | `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
-| `raw` | `unknown` | The verified payload: form fields as a string record, or parsed JSON. Unknown extra fields are kept here. |
+| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. |
 
 ### `message.received`
 
@@ -117,7 +117,7 @@ A status update for an outbound message. `MessageStatusType` is the union of the
 { type: "unrecognized"; providerEventType: string }
 ```
 
-A verified event SMS SDK does not map, such as Twilio `read` or a new Telnyx event type. Inspect `raw`. This keeps a provider's new statuses from breaking your handler.
+A verified event SMS SDK does not map, such as Twilio `read` or a new Telnyx event type. Inspect `raw`. A provider's new statuses arrive here instead of breaking your handler.
 
 ### Dedupe keys
 
@@ -155,25 +155,25 @@ Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out"
 
 ## Verify helpers
 
-Use these to check a signature without parsing, for example in middleware.
+These check a signature without parsing, for example in middleware.
 
 ### `verifyTwilioSignature({ authToken, url, params, signature })`
 
-Returns `Promise<boolean>`. `params` is a list of `[name, value]` pairs from the form body (empty for JSON bodies and GET requests). Tries the URL with and without the default port.
+Returns `Promise<boolean>`. `params` is a list of `[name, value]` pairs from the form body, empty for JSON bodies and GET requests. Tries the URL with and without the default port.
 
 `computeTwilioSignature({ authToken, url, params })` returns the expected `X-Twilio-Signature` as `Promise<string>`.
 
 ### `verifyTelnyxSignature({ publicKey, rawBody, signature, timestamp, toleranceSec?, now? })`
 
-Returns `Promise<WebhookVerification>`: `{ valid: true }` or `{ valid: false, reason }`. `signature` and `timestamp` are the `telnyx-signature-ed25519` and `telnyx-timestamp` header values (or `null`). `now` is epoch ms. `TELNYX_DEFAULT_TOLERANCE_SEC` is `300`.
+Returns `Promise<WebhookVerification>`, either `{ valid: true }` or `{ valid: false, reason }`. `signature` and `timestamp` are the `telnyx-signature-ed25519` and `telnyx-timestamp` header values, or `null`. `now` is epoch ms. `TELNYX_DEFAULT_TOLERANCE_SEC` is `300`.
 
 ### `verifyPlivoSignatureV2({ authToken, url, nonce, signature })`
 
-Returns `Promise<boolean>`. `url` may include a query string; it is removed before signing. `computePlivoSignatureV2({ authToken, url, nonce })` returns the expected signature.
+Returns `Promise<boolean>`. `url` may include a query string, which is removed before signing. `computePlivoSignatureV2({ authToken, url, nonce })` returns the expected signature.
 
 ### `verifyVonageSignature({ signatureSecret, authorization, rawBody, toleranceSec?, now? })`
 
-Returns `Promise<WebhookVerification>`. `authorization` is the `Authorization` header value (or `null`). `VONAGE_DEFAULT_TOLERANCE_SEC` is `300`.
+Returns `Promise<WebhookVerification>`. `authorization` is the `Authorization` header value, or `null`. `VONAGE_DEFAULT_TOLERANCE_SEC` is `300`.
 
 ```ts
 import { verifyTelnyxSignature } from "@opencoredev/sms-sdk/webhooks";

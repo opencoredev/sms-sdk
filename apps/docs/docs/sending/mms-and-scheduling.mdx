@@ -3,7 +3,7 @@ title: "MMS, scheduling, and validity"
 description: "Send media, schedule a message, set how long a provider keeps trying, and set a per-message status callback, with each provider's limits."
 ---
 
-Some messages need more than text: an image, a send time in the future, an expiry, or a status callback URL for one message. These fields depend on the provider, so SMS SDK checks them against the adapter's capabilities and throws `UnsupportedFieldError` before any request instead of dropping them.
+Media, scheduling, expiry, and per-message status callbacks depend on the provider. SMS SDK checks each field against the adapter's capabilities and throws `UnsupportedFieldError` before any request instead of dropping it.
 
 ## What each provider supports
 
@@ -28,7 +28,7 @@ await sms.send({
 });
 ```
 
-Each URL must be absolute `http` or `https`, and the provider must be able to fetch it. The body may be empty when `mediaUrls` is set. MMS availability depends on the destination country and the sender; many countries outside the US and Canada do not support it, and the provider reports that as a rejection.
+Each URL must be absolute `http` or `https`, and the provider must be able to fetch it. The body may be empty when `mediaUrls` is set. MMS depends on the destination country and the sender. Many countries outside the US and Canada do not support it, and the provider reports that as a rejection.
 
 ## Schedule a message
 
@@ -45,13 +45,13 @@ await sms.send({
 
 The provider holds the message and sends it at `sendAt`. `send()` resolves when the provider accepts the scheduled message, usually with `delivery: "queued"`.
 
-- Twilio schedules only from a Messaging Service sender. Any other sender with `sendAt` throws `UnsupportedFieldError` (`field: "sendAt"`). Twilio also sets its own minimum and maximum lead times, which it enforces as a rejection.
-- Telnyx accepts `send_at` with any sender type.
-- To cancel a scheduled message, use the provider's API or console. SMS SDK has no cancel call.
+- Twilio schedules only from a Messaging Service sender. Any other sender with `sendAt` throws `UnsupportedFieldError` (`field: "sendAt"`). Twilio rejects send times outside its own minimum and maximum lead times.
+- Telnyx schedules from any sender type.
+- SMS SDK has no cancel call. Cancel a scheduled message in the provider's API or console.
 
 ## Set a validity period
 
-`validityPeriodSec` tells the provider how long it may keep trying to deliver. After that the message expires.
+`validityPeriodSec` sets how long the provider may keep trying to deliver before the message expires.
 
 ```ts
 import { sms } from "./sms";
@@ -77,11 +77,11 @@ await sms.send({
 });
 ```
 
-The provider sends delivery status updates for this message to `webhookUrl` instead of the URL configured on your number or account. Vonage supports this only with JWT auth (`applicationId` and `privateKey`), because Vonage documents that Basic auth does not support webhooks.
+The provider posts status updates for this message to `webhookUrl` instead of the URL configured on your number or account. On Vonage this needs JWT auth (`applicationId` and `privateKey`), because Vonage's Basic auth does not support webhooks.
 
 ## With fallback
 
-Fallback adapters that cannot send a field are left out of the chain for that message. The primary adapter must support every field you set. See [Retries and fallback](/sending/retries-and-fallback).
+Fallback skips adapters that cannot send a field you set. The primary adapter must support every field. See [Retries and fallback](/sending/retries-and-fallback).
 
 ## Next steps
 

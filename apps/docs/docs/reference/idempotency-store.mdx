@@ -1,6 +1,6 @@
 ---
 title: "Idempotency store"
-description: "Reference for the IdempotencyStore interface, its record states, the reserve and finalize contract, and memoryIdempotencyStore()."
+description: "The IdempotencyStore interface, its record states, the reserve and finalize contract, and memoryIdempotencyStore()."
 ---
 
 The client uses an `IdempotencyStore` to remember what happened to each `idempotencyKey`. Use the built-in memory store for one process, or implement the interface on a shared database. Guides: [Idempotency](/sending/idempotency), [Deploy with multiple instances](/guides/multiple-instances).
@@ -18,14 +18,14 @@ await sms.send({ to: "+14155550123", body: "Hi", idempotencyKey: "welcome:42" })
 console.log(store.size, (await store.get("welcome:42"))?.state); // 1 "accepted"
 ```
 
-Returns a `MemoryIdempotencyStore`: an `IdempotencyStore` plus:
+Returns a `MemoryIdempotencyStore`, which is an `IdempotencyStore` with two extra members.
 
 | Member | Meaning |
 | --- | --- |
 | `delete(key): Promise<void>` | Removes a record, for example after you reconcile an unknown outcome. |
 | `size: number` | Number of records, including expired ones not yet removed. |
 
-It is process-local: lost on restart and not shared between instances, workers, or serverless invocations. Accepted and rejected records expire after `ttlSec`. `unknown` and `reserved` records never expire on their own. Exported from both `@opencoredev/sms-sdk` and `@opencoredev/sms-sdk/testing`.
+It lives in one process. Records are lost on restart and not shared between instances, workers, or serverless invocations. Accepted and rejected records expire after `ttlSec`. `unknown` and `reserved` records never expire on their own. Exported from both `@opencoredev/sms-sdk` and `@opencoredev/sms-sdk/testing`.
 
 ## `IdempotencyStore`
 
@@ -43,9 +43,9 @@ Returns the current record, or `null` when there is none or it has expired.
 
 ### `reserve({ key, fingerprint, now })`
 
-Atomically claims the key. Must be one compare-and-set operation, such as `INSERT ... ON CONFLICT` or Redis `SET NX`.
+Claims the key atomically, in one compare-and-set operation such as `INSERT ... ON CONFLICT` or Redis `SET NX`.
 
-- Succeeds, returning `{ kind: "reserved", reservationId }`, only when there is no record (or it has expired), or the record is `rejected` with the same `fingerprint`. The new record is `{ state: "reserved", fingerprint, reservationId, reservedAt: now }`.
+- Succeeds, returning `{ kind: "reserved", reservationId }`, only when there is no record, the record has expired, or the record is `rejected` with the same `fingerprint`. The new record is `{ state: "reserved", fingerprint, reservationId, reservedAt: now }`.
 - Otherwise returns `{ kind: "existing", record }` without changing anything.
 - A reservation must never expire into a claimable state. An abandoned reservation means the outcome is unknown.
 
@@ -59,7 +59,7 @@ Replaces the reservation with a final record, only if `reservationId` still owns
 - Keep `accepted` and `rejected` records for `ttlSec` seconds.
 - Keep `unknown` records until an operator clears them.
 
-If `finalize` throws, the client ignores the error: the send's outcome is already decided. The key stays `reserved`, which later reads as in progress and then as an unknown outcome, so it is never resent.
+If `finalize` throws, the client ignores the error because the send's outcome is already decided. The key stays `reserved`. Later sends read it as in progress, then as an unknown outcome, so the message is never resent.
 
 ## Records
 
@@ -80,11 +80,11 @@ type FinalIdempotencyRecord = Exclude<IdempotencyRecord, { state: "reserved" }>;
 | `rejected` | Every attempt was rejected, or `beforeSend` rejected or threw | Sends again |
 | `unknown` | The outcome was unknown | `HandoffUnknownError` (`replayed_unknown`), never resends |
 
-Records hold no message body: `result` and `error` are the redacted `SmsSendResult` and `SerializedSmsError`. They are plain JSON-serializable objects, so any JSON column or key-value store can hold them.
+Records hold no message body. `result` and `error` are the redacted `SmsSendResult` and `SerializedSmsError`, plain JSON-serializable objects that any JSON column or key-value store can hold.
 
 ### Fingerprint
 
-`fingerprint` is the SHA-256 (hex) of the message's `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`. A different fingerprint for an existing key throws `IdempotencyConflictError`. Store it as an opaque string.
+`fingerprint` is the SHA-256 (hex) of the message's `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, plus `providerOptions` with its keys sorted when the send has it. A different fingerprint for an existing key throws `IdempotencyConflictError`. Store it as an opaque string.
 
 ## Types
 

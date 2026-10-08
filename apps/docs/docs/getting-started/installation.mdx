@@ -3,7 +3,7 @@ title: "Installation"
 description: "Install @opencoredev/sms-sdk, check runtime requirements, and import only the adapters you use."
 ---
 
-Install one package. It has no runtime or peer dependencies, so it adds nothing else to your lockfile.
+Install one package. It has no runtime or peer dependencies.
 
 ```package-install
 npm install @opencoredev/sms-sdk
@@ -18,12 +18,12 @@ npm install @opencoredev/sms-sdk
 | TypeScript (optional) | 5.x with `"moduleResolution"` set to `"bundler"`, `"node16"`, or `"nodenext"` so subpath exports resolve |
 | Module format | ESM only. There is no CommonJS build. |
 
-The package uses only web-standard APIs: `fetch`, `URL`, `URLSearchParams`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto (`crypto.subtle`). Telnyx webhook verification needs Ed25519 in Web Crypto, and Vonage JWT auth needs RSA signing. Node.js 20 and Bun 1.1 have both.
+The package uses only web-standard APIs: `fetch`, `URL`, `URLSearchParams`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto (`crypto.subtle`). Telnyx webhook verification needs Ed25519, and Vonage JWT auth needs RSA signing. Node.js 20 and Bun 1.1 have both.
 
-Edge runtimes such as Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet. Treat them as unverified.
+Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet.
 
 :::warning[Server only]
-SMS SDK holds provider credentials. Run it on your server, in a route handler, a job worker, or a script. Never import it into browser code or expose its environment variables to the client.
+SMS SDK holds provider credentials. Run it in a route handler, job worker, or script on your server. Never import it into browser code or expose its environment variables to the client.
 :::
 
 ## Import what you use
@@ -45,7 +45,7 @@ The full list of subpaths is on the [Overview](/getting-started/overview#package
 
 ## Environment variables
 
-Each provider page lists the variables its examples and the doctor CLI read. Keep them in your server environment or secret manager, not in source control.
+These are the names the examples and the doctor CLI read. Keep them in your server environment or secret manager, not in source control.
 
 | Provider | Variables |
 | --- | --- |
@@ -54,11 +54,11 @@ Each provider page lists the variables its examples and the doctor CLI read. Kee
 | Plivo | `PLIVO_AUTH_ID`, `PLIVO_AUTH_TOKEN`, `PLIVO_FROM` or `PLIVO_POWERPACK_UUID` |
 | Vonage | `VONAGE_API_KEY` and `VONAGE_API_SECRET`, or `VONAGE_APPLICATION_ID` and `VONAGE_PRIVATE_KEY`; `VONAGE_FROM`; `VONAGE_SIGNATURE_SECRET` for webhooks |
 
-The SDK never reads environment variables itself. You pass values to the adapter factory, so the names are a convention, not a requirement.
+The SDK never reads environment variables itself. You pass values to the adapter factory, so these names are only a convention.
 
 ## Check your setup
 
-The package includes a dry-run checker. It reads your environment, validates the adapter configuration and sender, and makes no network calls:
+The doctor command reads your environment and validates the adapter configuration and sender. It makes no network calls:
 
 ```bash
 npx @opencoredev/sms-sdk doctor --adapter twilio
