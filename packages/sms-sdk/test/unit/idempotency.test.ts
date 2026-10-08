@@ -11,10 +11,13 @@ import type { AdapterSendOutcome } from "../../src/core/adapters.js";
 import { memory, rejectedOutcome, unknownOutcome } from "../../src/testing/memory.js";
 import { rejection } from "../helpers.js";
 
-/** An outcome that resolves after a short delay, so concurrent calls overlap. */
+/**
+ * An outcome that resolves after a delay long enough for concurrent calls to
+ * reach the client's in-flight check, even on a loaded machine.
+ */
 function slowAccept(providerId: string): () => Promise<AdapterSendOutcome> {
   return async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 250));
     return { kind: "accepted", providerId, delivery: "queued" };
   };
 }
@@ -99,7 +102,10 @@ describe("idempotent replay", () => {
     const workerB = createSmsClient({ adapters: [other], idempotency: { store } });
 
     const pendingA = workerA.send(message);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Wait until worker A holds the reservation, however long hashing takes.
+    while ((await store.get(message.idempotencyKey)) === null) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
     const errorB = await rejection(workerB.send(message));
     release();
     await pendingA;

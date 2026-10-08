@@ -3,12 +3,48 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ESNext", "DOM"],
-    "types": ["node", "bun"],
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
+    "types": [
+      "node",
+      "bun"
+    ],
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@opencoredev/sms-sdk": [
+        "./src/index.ts"
+      ],
+      "@opencoredev/sms-sdk/twilio": [
+        "./src/providers/twilio.ts"
+      ],
+      "@opencoredev/sms-sdk/telnyx": [
+        "./src/providers/telnyx.ts"
+      ],
+      "@opencoredev/sms-sdk/plivo": [
+        "./src/providers/plivo.ts"
+      ],
+      "@opencoredev/sms-sdk/vonage": [
+        "./src/providers/vonage.ts"
+      ],
+      "@opencoredev/sms-sdk/webhooks": [
+        "./src/webhooks/index.ts"
+      ],
+      "@opencoredev/sms-sdk/testing": [
+        "./src/testing/index.ts"
+      ],
+      "@opencoredev/sms-sdk/encoding": [
+        "./src/core/encoding.ts"
+      ]
+    }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "examples/**/*.ts"
+  ]
 }
