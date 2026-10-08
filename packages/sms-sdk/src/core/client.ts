@@ -13,7 +13,7 @@ import {
 } from "./errors.js";
 import { emitHook, type SmsHookEventBase } from "./events.js";
 import { runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
-import { adaptersWithProviderOptions, validateProviderOptions } from "./provider-options.js";
+import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
 import { resolveRetryOptions } from "./retry.js";
 import type {
@@ -119,7 +119,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       sendAt: input.sendAt?.toISOString() ?? null,
       validityPeriodSec: input.validityPeriodSec ?? null,
       webhookUrl: input.webhookUrl ?? null,
-      providerOptions: input.providerOptions,
+      providerOptions: canonicalProviderOptions(adapters, input.providerOptions),
     });
 
     const running = inFlight.get(key);

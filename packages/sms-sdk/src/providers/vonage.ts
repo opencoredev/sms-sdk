@@ -130,6 +130,7 @@ export const VONAGE_PROVIDER_OPTIONS = {
     poolId: { type: "string", wire: "sms.pool_id" },
   },
   reserved: ["message_type", "channel", "to", "from", "text", "ttl", "webhook_url", "failover", "sms"],
+  nestedPrefixes: ["sms."],
 } as const satisfies ProviderOptionsSpec;
 
 /** Vonage-specific send options: `providerOptions.vonage`. */
@@ -142,7 +143,7 @@ declare module "../core/types.js" {
   }
 }
 
-const SMS_OBJECT_PREFIX = "sms.";
+const [SMS_OBJECT_PREFIX] = VONAGE_PROVIDER_OPTIONS.nestedPrefixes;
 
 /** Request body for `POST /v1/messages` with channel `sms`. Provider options add their own keys. */
 export type VonageMessageRequest = {

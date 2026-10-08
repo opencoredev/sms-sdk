@@ -345,6 +345,37 @@ describe("validate()", () => {
   });
 });
 
+describe("vonage nested sms fields", () => {
+  const typedWires = Object.values(VONAGE_PROVIDER_OPTIONS.options).map((field) => field.wire);
+  const nestedTyped = typedWires.filter((wire) => wire.startsWith("sms.")).map((wire) => wire.slice("sms.".length));
+  const names = [...VONAGE_PROVIDER_OPTIONS.reserved, ...typedWires, ...nestedTyped];
+  const keys = names.flatMap((name) => [name, `sms.${name}`, `SMS.${name.toUpperCase()}`, `sms.sms.${name}`]);
+
+  test.each(keys)("extra %s is rejected before fetch", async (key) => {
+    const fake = mockFetch(vonageAccepted);
+    const sms = createSmsClient({ adapters: [vonage({ apiKey: "k", apiSecret: "s", from: FROM, fetch: fake.fetch })] });
+    const error = await smsRejection(sms.send({ to: TO, body: "Hi", providerOptions: { vonage: { extra: { [key]: "x" } } } }));
+    expect(error).toBeInstanceOf(UnsupportedFieldError);
+    expect(error).toMatchObject({ field: "providerOptions", providerName: "vonage" });
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("an empty nested key is invalid", async () => {
+    const fake = mockFetch(vonageAccepted);
+    const sms = createSmsClient({ adapters: [vonage({ apiKey: "k", apiSecret: "s", from: FROM, fetch: fake.fetch })] });
+    const error = await smsRejection(sms.send({ to: TO, body: "Hi", providerOptions: { vonage: { extra: { "sms.": "x" } } } }));
+    expect(error).toBeInstanceOf(InvalidMessageError);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("an unreserved nested key is still sent inside sms", async () => {
+    const fake = mockFetch(vonageAccepted);
+    const sms = createSmsClient({ adapters: [vonage({ apiKey: "k", apiSecret: "s", from: FROM, fetch: fake.fetch })] });
+    await sms.send({ to: TO, body: "Hi", providerOptions: { vonage: { extra: { "sms.new_field": "x" } } } });
+    expect(jsonBody(fake.calls[0]?.body ?? "")).toMatchObject({ sms: { new_field: "x" } });
+  });
+});
+
 describe("idempotency fingerprint", () => {
   const base = {
     to: TO,
@@ -386,6 +417,52 @@ describe("idempotency fingerprint", () => {
     expect(replay.replayed).toBe(true);
     const error = await smsRejection(
       sms.send({ to: TO, body: "Hi", idempotencyKey: "k1", providerOptions: { twilio: { smartEncoded: false } } }),
+    );
+    expect(error.code).toBe("idempotency_conflict");
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  test("options with no effect replay instead of conflicting", async () => {
+    const fake = mockFetch(twilioAccepted);
+    const sms = createSmsClient({
+      adapters: [twilio({ accountSid: TWILIO_SID, authToken: "t", from: FROM, fetch: fake.fetch })],
+      idempotency: { store: memoryIdempotencyStore() },
+    });
+    const first = await sms.send({ to: TO, body: "Hi", idempotencyKey: "k1" });
+    expect(first.replayed).toBe(false);
+    const equivalent: readonly SmsSendInput["providerOptions"][] = [
+      { twilio: {} },
+      { twilio: { extra: {} } },
+      // A JavaScript caller can pass undefined values that the types forbid.
+      { twilio: { smartEncoded: undefined } } as unknown as SmsSendInput["providerOptions"],
+      { telnyx: { autoDetect: true } },
+      {},
+    ];
+    for (const providerOptions of equivalent) {
+      const replay = await sms.send({ to: TO, body: "Hi", idempotencyKey: "k1", ...(providerOptions === undefined ? {} : { providerOptions }) });
+      expect(replay.replayed).toBe(true);
+    }
+    const error = await smsRejection(sms.send({ to: TO, body: "Hi", idempotencyKey: "k1", providerOptions: { twilio: { smartEncoded: true } } }));
+    expect(error.code).toBe("idempotency_conflict");
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  test("typed and extra options in any key order replay", async () => {
+    const fake = mockFetch(twilioAccepted);
+    const sms = createSmsClient({
+      adapters: [twilio({ accountSid: TWILIO_SID, authToken: "t", from: FROM, fetch: fake.fetch })],
+      idempotency: { store: memoryIdempotencyStore() },
+    });
+    await sms.send({ to: TO, body: "Hi", idempotencyKey: "k1", providerOptions: { twilio: { smartEncoded: true, extra: { A: "1", B: "2" } } } });
+    const replay = await sms.send({
+      to: TO,
+      body: "Hi",
+      idempotencyKey: "k1",
+      providerOptions: { telnyx: {}, twilio: { extra: { B: "2", A: "1" }, smartEncoded: true } },
+    });
+    expect(replay.replayed).toBe(true);
+    const error = await smsRejection(
+      sms.send({ to: TO, body: "Hi", idempotencyKey: "k1", providerOptions: { twilio: { smartEncoded: true, extra: { A: "1", B: "3" } } } }),
     );
     expect(error.code).toBe("idempotency_conflict");
     expect(fake.calls).toHaveLength(1);

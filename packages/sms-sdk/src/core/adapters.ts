@@ -143,6 +143,13 @@ export type ProviderOptionsSpec = {
   readonly options: { readonly [option: string]: ProviderOptionField };
   /** Wire names the adapter sets from portable fields. Neither typed options nor `extra` may set them. */
   readonly reserved: readonly string[];
+  /**
+   * Wire-name prefixes the adapter sends as a nested object, such as `"sms."`
+   * for Vonage's `sms` object. An `extra` key under one of them is also
+   * checked, case-insensitively, with the prefix removed, so it cannot reach a
+   * reserved or typed name through the nested form.
+   */
+  readonly nestedPrefixes?: readonly string[];
 };
 
 type ProviderOptionFieldValue<F extends ProviderOptionField> = F extends { readonly type: "boolean" }

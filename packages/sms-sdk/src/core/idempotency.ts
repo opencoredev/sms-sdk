@@ -145,6 +145,8 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
  *
  * `providerOptions` is included with its object keys sorted, and only when
  * present, so sends without it keep the fingerprint earlier versions stored.
+ * The client passes the canonical form from `canonicalProviderOptions`, so
+ * options with no effect on any configured adapter are left out.
  */
 export async function fingerprintMessage(fields: {
   readonly to: string;

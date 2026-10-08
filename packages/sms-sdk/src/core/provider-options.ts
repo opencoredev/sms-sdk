@@ -42,7 +42,9 @@ export function adaptersWithProviderOptions(adapters: readonly SmsAdapter[], pro
  * Rejects, as `unsupported_field`: an entry for an adapter without a
  * `providerOptions` spec, an unknown typed key, and an `extra` key that
  * matches (case-insensitively) a wire name the adapter sets itself or a typed
- * option's wire name. Rejects wrong value types as `invalid_field`.
+ * option's wire name, either directly or once a nested prefix is removed
+ * (Vonage `extra: { "sms.failover": ... }` is checked as `failover` too).
+ * Rejects wrong value types as `invalid_field`.
  */
 export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): ProviderOptionsParse {
   if (entry === undefined) {
@@ -59,9 +61,12 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
 
   const found: ValidationIssue[] = [];
   const fields: ProviderWireField[] = [];
+  const prefixes = (spec.nestedPrefixes ?? []).map((prefix) => prefix.toLowerCase());
   const typedWires = new Map<string, string>();
   for (const [option, field] of Object.entries(spec.options)) {
-    typedWires.set(field.wire.toLowerCase(), option);
+    for (const name of wireNames(field.wire.toLowerCase(), prefixes)) {
+      typedWires.set(name, option);
+    }
   }
   const reserved = new Set(spec.reserved.map((wire) => wire.toLowerCase()));
 
@@ -89,11 +94,11 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
       found.push(invalid(provider, `providerOptions.${provider}.extra must be an object.`));
     } else {
       for (const [wire, value] of Object.entries(extra)) {
-        const lower = wire.toLowerCase();
-        const typed = typedWires.get(lower);
-        if (wire.length === 0) {
+        const names = wireNames(wire.toLowerCase(), prefixes);
+        const typed = names.map((name) => typedWires.get(name)).find((option) => option !== undefined);
+        if (names.some((name) => name.length === 0)) {
           found.push(invalid(provider, `providerOptions.${provider}.extra keys must be non-empty.`));
-        } else if (reserved.has(lower)) {
+        } else if (names.some((name) => reserved.has(name))) {
           found.push(
             unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}": the SDK sets it from the portable send fields.`),
           );
@@ -111,9 +116,48 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
   return found.length > 0 ? { kind: "issues", issues: found } : { kind: "ok", fields };
 }
 
+/**
+ * The canonical form of `providerOptions` for an idempotency fingerprint: the
+ * parsed wire fields of each configured adapter's entry, keyed by adapter
+ * name. Entries for other adapters and entries that set nothing are dropped,
+ * so options with no effect do not change the fingerprint. Returns
+ * `undefined` when nothing remains. Call after validation; an entry that does
+ * not parse is skipped.
+ */
+export function canonicalProviderOptions(
+  adapters: readonly SmsAdapter[],
+  providerOptions: unknown,
+): Record<string, Record<string, ProviderOptionValue>> | undefined {
+  if (!isRecord(providerOptions)) {
+    return undefined;
+  }
+  const canonical: Record<string, Record<string, ProviderOptionValue>> = {};
+  for (const adapter of adapters) {
+    const parsed = parseProviderOptions(adapter, providerOptions[adapter.name]);
+    if (parsed.kind === "ok" && parsed.fields.length > 0) {
+      canonical[adapter.name] = Object.fromEntries(parsed.fields.map((field) => [field.wire, field.value]));
+    }
+  }
+  return Object.keys(canonical).length > 0 ? canonical : undefined;
+}
+
 /** True when a wire field with this exact name was parsed with value `true`. */
 export function hasTrueField(fields: readonly ProviderWireField[] | undefined, wire: string): boolean {
   return fields?.some((field) => field.wire === wire && field.value === true) ?? false;
+}
+
+/**
+ * A lowercased wire name followed by what remains after each nested prefix is
+ * stripped, repeatedly: `"sms.failover"` gives `["sms.failover", "failover"]`.
+ */
+function wireNames(lower: string, prefixes: readonly string[]): string[] {
+  const names = [lower];
+  let rest = lower;
+  for (let prefix = prefixes.find((p) => rest.startsWith(p)); prefix !== undefined; prefix = prefixes.find((p) => rest.startsWith(p))) {
+    rest = rest.slice(prefix.length);
+    names.push(rest);
+  }
+  return names;
 }
 
 type ValueRead = { readonly kind: "ok"; readonly value: ProviderOptionValue } | { readonly kind: "invalid"; readonly problem: string };
