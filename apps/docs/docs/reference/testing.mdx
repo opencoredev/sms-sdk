@@ -1,0 +1,133 @@
+---
+title: "Testing helpers"
+description: "Reference for @opencoredev/sms-sdk/testing: memory(), outcome helpers, mockFetch(), signed webhook request builders, and the adapter contract harness."
+---
+
+```ts
+import { memory, mockFetch, runSmsAdapterContract } from "@opencoredev/sms-sdk/testing";
+```
+
+Nothing in this subpath sends real messages. The guide is [Local testing](/guides/local-testing).
+
+## `memory(options?)`
+
+An in-memory adapter that records sends and never touches the network.
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { memory, rejectedOutcome } from "@opencoredev/sms-sdk/testing";
+
+const adapter = memory({ name: "memory", outcomes: [rejectedOutcome("sender")] });
+const sms = createSmsClient({ adapters: [adapter] });
+
+await sms.send({ to: "+14155550123", body: "first" }).catch(() => undefined); // rejected
+await sms.send({ to: "+14155550123", body: "second" }); // accepted as "memory_2"
+console.log(adapter.sent.map((entry) => entry.outcome.kind)); // ["rejected", "accepted"]
+```
+
+### Parameters
+
+- `name?: string`. Defaults to `"memory"`.
+- `from?: SmsFrom`. Defaults to `"+15005550006"`.
+- `capabilities?: Partial<SmsCapabilities>`. Overrides the defaults: MMS, scheduling, validity 1 to 604800 s, `webhookUrl`, and all five sender types on; `inbound` and `deliveryReceipts` off.
+- `outcomes?: readonly MemoryOutcome[]`. Used in order, one per send. A `MemoryOutcome` is an `AdapterSendOutcome` or `(message, context) => AdapterSendOutcome | Promise<AdapterSendOutcome>`. After they run out, sends are accepted with provider ID `` `${name}_${n}` ``, where `n` counts every send.
+
+### Returns: `MemoryAdapter`
+
+An `SmsAdapter` with `support.status: "supported"`, plus:
+
+| Member | Meaning |
+| --- | --- |
+| `sent: readonly MemorySentMessage[]` | Every send in order, including rejected and unknown ones: `{ message, attempt, idempotencyKey, outcome }`. |
+| `enqueue(...outcomes)` | Queues more outcomes. |
+| `reset()` | Clears `sent`, queued outcomes, and the ID counter. |
+
+## Outcome helpers
+
+| Function | Returns |
+| --- | --- |
+| `acceptedOutcome(providerId, delivery = "queued")` | `{ kind: "accepted", providerId, delivery }` |
+| `rejectedOutcome(category, { provider?, retryAfterMs?, code? })` | `{ kind: "rejected", category, retryAfterMs?, details }`, with `details.provider` defaulting to `"memory"` |
+| `unknownOutcome(reason = "network")` | `{ kind: "unknown", reason }` |
+
+## `mockFetch(responder)`
+
+A recording fake `fetch` to pass to any adapter's `fetch` option.
+
+```ts
+import { mockFetch } from "@opencoredev/sms-sdk/testing";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+const fake = mockFetch((request) =>
+  request.headers["authorization"] === "Bearer good"
+    ? { status: 200, body: { data: { id: "msg_1", to: [{ status: "queued" }] } } }
+    : { status: 401, body: { errors: [{ code: "10009", title: "Authentication failed" }] } },
+);
+
+const adapter = telnyx({ apiKey: "good", from: "+15550100001", fetch: fake.fetch });
+console.log(adapter.name, fake.calls.length); // "telnyx" 0
+```
+
+### Parameters
+
+`responder` is a `MockReply`, or `(request: RecordedRequest) => MockReply`:
+
+| `MockReply` | Effect |
+| --- | --- |
+| `{ status, body?, headers? }` | A response. Object bodies are sent as JSON. `content-type` defaults to `application/json`. |
+| `{ throws: error }` | The fetch rejects with `error`, like a network failure. |
+| `{ hangUntilAborted: true }` | The fetch waits until the request's signal aborts, then rejects with its reason. Use it to test timeouts. |
+
+### Returns: `MockFetch`
+
+- `fetch: FetchLike`, the fake.
+- `calls: readonly RecordedRequest[]`, each `{ url, method, headers, body, signal }`. Header names are lowercase.
+
+## Signed webhook requests
+
+Builders that return a `Promise<Request>` signed exactly as the provider signs it, for testing handlers through real verification.
+
+| Function | Parameters |
+| --- | --- |
+| `signedTwilioRequest` | `{ authToken, url, params: Record<string, string> }`. Form POST with `X-Twilio-Signature`. |
+| `signedTelnyxRequest` | `{ privateKey: CryptoKey, url, body: unknown, timestamp? }`. JSON POST with `telnyx-timestamp` and `telnyx-signature-ed25519`. `timestamp` is Unix seconds, default now. |
+| `generateTelnyxKeyPair` | none. Returns `Promise<{ privateKey: CryptoKey; publicKey: string }>`; `publicKey` is base64, ready for `credentials.publicKey`. |
+| `signedPlivoRequest` | `{ authToken, url, params, nonce? }`. Form POST with `X-Plivo-Signature-V2` and its nonce. |
+| `signedVonageRequest` | `{ signatureSecret, url, body: unknown, iat?, apiKey? }`. JSON POST with an HS256 JWT in `Authorization` and a matching `payload_hash`. `iat` is Unix seconds, default now. |
+
+## Contract harness
+
+Checks that an adapter follows the contract the built-in adapters pass. See [Build a provider adapter](/providers/writing-an-adapter#4-run-the-contract-harness) for a complete example.
+
+### `smsAdapterContractCases(factory, fixtures)`
+
+Returns `ContractCase[]`, each `{ name: string; run: () => Promise<void> }`. Register them with any test runner: `for (const c of cases) test(c.name, c.run)`. `run` throws a descriptive error on failure.
+
+### `runSmsAdapterContract(factory, fixtures)`
+
+Runs every case and returns `Promise<ContractReport>`: `{ adapter: string; passed: boolean; results: { name, passed, error? }[] }`.
+
+### Parameters
+
+- `factory: (fetch: FetchLike) => SmsAdapter`. Builds the adapter under test around a fake `fetch`.
+- `fixtures: AdapterContractFixtures`:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `message` | `AdapterMessage` | A message the adapter supports. |
+| `request` | `{ url; headers; body: { kind: "form"; params } \| { kind: "json"; value } }` | The exact request the adapter must make. Headers are compared case-insensitively. |
+| `accepted` | `{ response: MockResponse; providerId; delivery }` | A success response and its expected normalization. |
+| `permanentRejection` | `{ response; category }` | A rejection that must not be fallback-eligible. |
+| `eligibleRejection` | `{ response; category }` | A rejection that must be fallback-eligible. |
+| `rateLimited` | `{ response; retryAfterMs? }` | A rate-limit response and the `retryAfterMs` it must produce. |
+| `malformedSuccess` | `MockResponse` | A 2xx that does not prove acceptance. |
+| `serverError` | `MockResponse` | A 5xx. |
+| `webhooks?` | `{ parse; cases: WebhookContractCase[]; tampered }` | Optional webhook checks: `parse(request)` returns an event, each case is `{ name, request: () => Promise<Request>, expected }`, and `tampered()` returns a request that must throw `WebhookSignatureError`. |
+
+### Checks
+
+Consistent capabilities; the exact request; the abort signal passed to `fetch`; accepted normalization; a permanent rejection that is not eligible; an eligible rejection; rate limit with `retryAfterMs`; network error, in-flight abort, malformed 2xx, non-JSON 2xx, and 5xx all mapped to unknown; undeclared capabilities throwing `UnsupportedFieldError` before any request; and the webhook cases when given.
+
+## Types
+
+Exported from `@opencoredev/sms-sdk/testing`: `MemoryAdapter`, `MemoryAdapterOptions`, `MemoryOutcome`, `MemorySentMessage`, `MockFetch`, `MockReply`, `MockResponse`, `RecordedRequest`, `AdapterContractFixtures`, `AdapterFactory`, `ContractCase`, `ContractReport`, `ExpectedBody`, `WebhookContractCase`.

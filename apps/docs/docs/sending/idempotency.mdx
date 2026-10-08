@@ -1,6 +1,102 @@
 ---
 title: "Idempotency"
-description: "Use idempotency keys and a store to avoid duplicate sends across retries and instances."
+description: "Use idempotency keys and a store so a retried job does not send the same SMS twice, and know where exactly-once ends."
 ---
 
-TODO: write this page.
+Your job runner retries failed jobs, and you do not want a retried job to text the customer a second time. Give each logical message an `idempotencyKey` and give the client a store. A repeat send with the same key returns the first result instead of sending again.
+
+:::warning[Exactly once is not possible]
+None of Twilio, Telnyx, Plivo, or Vonage document send idempotency for SMS, so no client can guarantee exactly-once delivery. If a process crashes, or a request times out, after the provider received it, the outcome is unknown. SMS SDK records that and refuses to resend, so you reconcile it by hand.
+:::
+
+## Add a key and a store
+
+```ts
+import { createSmsClient, memoryIdempotencyStore } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+  idempotency: { store: memoryIdempotencyStore() },
+});
+
+const first = await sms.send({ to: "+14155550123", body: "Order 123 shipped.", idempotencyKey: "order:123:shipped:v1" });
+const second = await sms.send({ to: "+14155550123", body: "Order 123 shipped.", idempotencyKey: "order:123:shipped:v1" });
+
+console.log(second.replayed, second.providerId === first.providerId); // true true
+```
+
+The second call makes no request. It returns the stored result with `replayed: true`.
+
+Choose keys that name the message, not the attempt: `order:123:shipped:v1`, `appointment:88:reminder:24h`. Keys are 1 to 255 characters. Bump the version suffix when you deliberately want to send the same event again.
+
+:::note
+`memoryIdempotencyStore()` lives in one process. It is lost on restart and not shared between instances, serverless invocations, or workers. For production, implement `IdempotencyStore` on your database or Redis. See [Deploy with multiple instances](/guides/multiple-instances).
+:::
+
+## What happens on a repeat key
+
+| Stored record | Same payload | Different payload or sender |
+| --- | --- | --- |
+| None | Sends | Sends |
+| `accepted` | Returns the stored result, `replayed: true`, no request | `IdempotencyConflictError` |
+| `rejected` | Sends again | `IdempotencyConflictError` |
+| `unknown` | `HandoffUnknownError` (`reason: "replayed_unknown"`), never resends | `IdempotencyConflictError` |
+| `reserved`, younger than `staleReservationSec` | `IdempotencyInProgressError` (another process is sending) | `IdempotencyConflictError` |
+| `reserved`, older than `staleReservationSec` | `HandoffUnknownError` (`reason: "stale_reservation"`), never resends | `IdempotencyConflictError` |
+
+"Same payload" means the same `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, compared by a SHA-256 fingerprint.
+
+Two concurrent `send()` calls with the same key on the same client share one request, even without a store. The second gets the same result with `replayed: true`. Without a store, nothing is remembered after the first call finishes.
+
+## Options
+
+```ts
+import { createSmsClient, memoryIdempotencyStore } from "@opencoredev/sms-sdk";
+import { memory } from "@opencoredev/sms-sdk/testing";
+
+const sms = createSmsClient({
+  adapters: [memory()],
+  idempotency: {
+    store: memoryIdempotencyStore(),
+    ttlSec: 7 * 24 * 60 * 60, // keep accepted and rejected records for 7 days
+    staleReservationSec: 120, // treat a reservation older than 2 minutes as unknown
+  },
+});
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `store` | required | The `IdempotencyStore`. |
+| `ttlSec` | `86400` (24 hours) | How long accepted and rejected records are kept. Set it longer than your longest job retry window. Unknown records are kept until you delete them. |
+| `staleReservationSec` | `300` | Age after which an unfinished reservation counts as an unknown outcome. Set it longer than `timeoutMs` times the number of requests one send can make. |
+
+## Reconcile an unknown outcome
+
+When a send throws `HandoffUnknownError`, the key is stored as `unknown`, and every later send with that key throws again. To resolve it:
+
+1. Look the message up with the provider: its console, its message list API, or a delivery webhook that arrived for the recipient around that time.
+2. If the provider has the message, do nothing more. The customer got it.
+3. If it does not, delete the record and send again.
+
+```ts
+import { memoryIdempotencyStore } from "@opencoredev/sms-sdk";
+
+const store = memoryIdempotencyStore();
+
+// After confirming with the provider that the message was never created:
+await store.delete("order:123:shipped:v1");
+```
+
+`delete` is part of the memory store. Your own store needs its own way for an operator to clear a key.
+
+## Next steps
+
+- [Deploy with multiple instances](/guides/multiple-instances)
+- [Idempotency store reference](/reference/idempotency-store)

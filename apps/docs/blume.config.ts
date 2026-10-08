@@ -41,6 +41,7 @@ export default defineConfig({
       { href: "/providers/overview", label: "Providers", icon: "plug" },
       { href: "/sending/retries-and-fallback", label: "Retries and fallback" },
       { href: "/receiving/delivery-status-webhooks", label: "Delivery status webhooks" },
+      { href: "/reference/errors", label: "Errors" },
       { href: "/reference/create-sms-client", label: "createSmsClient" },
     ],
   },
@@ -51,6 +52,12 @@ export default defineConfig({
         "Use SMS SDK (`@opencoredev/sms-sdk`) to send transactional SMS from TypeScript through Twilio, Telnyx, Plivo, or Vonage with one API. Install with `npm install @opencoredev/sms-sdk`. It has no runtime dependencies and never retries or falls back after an ambiguous provider outcome.",
     },
   },
+
+  // Migration pages moved out of Guides into their own group.
+  redirects: [
+    { from: "/guides/migrate-from-twilio", to: "/migration/migrate-from-twilio", status: 301 },
+    { from: "/guides/switch-twilio-to-telnyx", to: "/migration/switch-twilio-to-telnyx", status: 301 },
+  ],
 
   // No analytics adapter is configured, so a rating would go nowhere.
   feedback: false,

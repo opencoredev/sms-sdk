@@ -1,6 +1,108 @@
 ---
 title: "Webhook security"
-description: "Verify provider signatures before trusting a webhook."
+description: "How SMS SDK verifies Twilio, Telnyx, Plivo, and Vonage webhook signatures, and how to fix verification behind a proxy."
 ---
 
-TODO: write this page.
+Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature before it reads any field, and throws `WebhookSignatureError` when the request is not authentic. This page explains each scheme and how to fix the most common failure: a URL mismatch behind a proxy.
+
+## Respond to failures
+
+```ts
+import { parseSmsWebhook, WebhookPayloadError, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "vonage",
+      request,
+      credentials: { signatureSecret: process.env.VONAGE_SIGNATURE_SECRET ?? "" },
+    });
+    console.log(event.type);
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) {
+      console.warn("Rejected webhook", error.providerName, error.reason);
+      return new Response("Invalid signature", { status: 401 });
+    }
+    if (error instanceof WebhookPayloadError) {
+      return new Response("Unexpected payload", { status: 400 });
+    }
+    throw error;
+  }
+}
+```
+
+`WebhookSignatureError.reason` says what failed:
+
+| `reason` | Meaning |
+| --- | --- |
+| `missing_signature` | The signature header (or Plivo nonce) is absent. |
+| `invalid_signature` | The signature does not match. Usually a wrong credential or a URL mismatch. |
+| `stale_timestamp` | Telnyx or Vonage signed time is more than `toleranceSec` (default 300) from now. |
+| `body_hash_mismatch` | Twilio `bodySHA256` or Vonage `payload_hash` does not match the body. |
+| `malformed_signature` | The signature or token cannot be decoded. |
+| `invalid_credentials` | The credential you passed is malformed, such as a Telnyx public key that is not 32 bytes of base64. |
+
+`WebhookPayloadError` means the request was authentic but lacks required fields.
+
+## How each provider signs
+
+| Provider | Credential | Scheme | Replay window |
+| --- | --- | --- | --- |
+| Twilio | `{ authToken }` | `X-Twilio-Signature`: Base64 HMAC-SHA1 of the URL plus sorted form parameters. For JSON bodies, the URL carries `bodySHA256` and only the URL is signed. | None. Twilio signs no timestamp. |
+| Telnyx | `{ publicKey }` | `telnyx-signature-ed25519`: Ed25519 over `` `${telnyx-timestamp}|${rawBody}` ``. | `toleranceSec`, default 300 |
+| Plivo | `{ authToken }` | `X-Plivo-Signature-V2` (or `X-Plivo-Signature-Ma-V2`): Base64 HMAC-SHA256 of the URL without its query string plus `X-Plivo-Signature-V2-Nonce`. | None. Plivo signs no timestamp, and the form parameters are not signed. |
+| Vonage | `{ signatureSecret }` | `Authorization: Bearer <JWT>`, HS256 with the signature secret. `payload_hash`, when present, is the SHA-256 of the body. | `toleranceSec` on the JWT `iat`, default 300 |
+
+Where the credentials come from:
+
+- **Twilio:** the Auth Token of the account that owns the number. API keys cannot verify webhooks.
+- **Telnyx:** Mission Control, Keys & Credentials, Public Key (base64).
+- **Plivo:** the Auth Token of the account or subaccount. `X-Plivo-Signature-Ma-V2` is signed with the main account's token.
+- **Vonage:** the signature secret in the dashboard settings for the API key that signs your webhooks.
+
+Plivo and Twilio give no replay protection, because they sign no time. An attacker who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+
+## Fix URL mismatches behind a proxy
+
+Twilio and Plivo sign the exact URL they called, such as `https://example.com/webhooks/sms/twilio`. Behind a load balancer, tunnel, or platform proxy, your app often sees a different URL, such as `http://10.0.0.5:3000/webhooks/sms/twilio`, and verification fails with `invalid_signature`.
+
+Pass the public URL, exactly as configured with the provider:
+
+```ts
+import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";
+
+export async function POST(request: Request): Promise<Response> {
+  const event = await parseSmsWebhook({
+    provider: "twilio",
+    request,
+    publicUrl: "https://example.com/webhooks/sms/twilio",
+    credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+  });
+  console.log(event.type);
+  return new Response(null, { status: 200 });
+}
+```
+
+If `publicUrl` has no query string, the request's query string is appended, so Twilio's `bodySHA256` and any parameters you added still verify. For Twilio, SMS SDK also tries the URL with and without the default port (`:443` or `:80`).
+
+The other option is `trustProxy: true`, which builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host`. Use it only when a proxy you control sets those headers and strips any a client sent. Otherwise anyone can set them. Without `publicUrl` or `trustProxy`, SMS SDK uses `request.url` and ignores forwarded headers.
+
+Telnyx and Vonage do not sign the URL, so these options do not exist for them.
+
+## Skipping verification in tests
+
+`unsafeSkipVerification: true` parses without checking the signature. Use it only in unit tests, and prefer the signed request builders from `@opencoredev/sms-sdk/testing`, which test the real verification path. See [Local testing](/guides/local-testing).
+
+## The raw body
+
+`parseSmsWebhook()` reads the body once with `request.text()`, because signatures are computed over the raw bytes. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
+
+## Lower-level helpers
+
+To verify without parsing, `/webhooks` exports `verifyTwilioSignature`, `verifyTelnyxSignature`, `verifyPlivoSignatureV2`, and `verifyVonageSignature`, plus `computeTwilioSignature` and `computePlivoSignatureV2`. See [Webhook events](/reference/webhook-events#verify-helpers).
+
+## Next steps
+
+- [Duplicates and ordering](/receiving/duplicates-and-ordering)
+- [Local testing](/guides/local-testing)

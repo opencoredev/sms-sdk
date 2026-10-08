@@ -1,6 +1,159 @@
 ---
 title: "Adapter contract"
-description: "The interface every provider adapter implements."
+description: "Reference for the SmsAdapter interface and its types: SmsCapabilities, AdapterMessage, SmsSender, SendContext, AdapterSendOutcome, and RejectionCategory."
 ---
 
-TODO: write this page.
+These types define what an adapter is. You need them to [build a provider adapter](/providers/writing-an-adapter), or to read `sms.capabilities()`. All are exported as types from `@opencoredev/sms-sdk`.
+
+## `SmsAdapter`
+
+```ts ignore="type listing"
+interface SmsAdapter {
+  readonly name: string;
+  readonly capabilities: SmsCapabilities;
+  readonly support: AdapterSupport;
+  readonly defaultFrom?: SmsFrom;
+  validate?(message: AdapterMessage): readonly ValidationIssue[];
+  send(message: AdapterMessage, context: SendContext): Promise<AdapterSendOutcome>;
+}
+```
+
+| Member | Meaning |
+| --- | --- |
+| `name` | Stable lowercase name, such as `"twilio"`. Used in results, errors, and hooks. Must be unique within a client. |
+| `capabilities` | What the adapter can send. The client checks every message against it before calling `send`. |
+| `support` | `{ status: "supported" \| "partial"; notes: readonly string[] }`. `notes` explains a partial status. |
+| `defaultFrom` | Sender used when a message has no `from`. |
+| `validate` | Optional provider-specific checks that need no network. Issues make `send()` throw before any request. |
+| `send` | Makes one provider request. Must pass `context.signal` to `fetch`. Must not throw; a thrown error is treated as `unknown` with `reason: "adapter_exception"`. |
+
+```ts
+import { createSmsClient, type SmsAdapter } from "@opencoredev/sms-sdk";
+
+const echo: SmsAdapter = {
+  name: "echo",
+  capabilities: {
+    sendText: true,
+    mms: false,
+    scheduling: false,
+    validityPeriod: null,
+    webhookUrlOverride: false,
+    inbound: false,
+    deliveryReceipts: false,
+    senderTypes: ["long_code"],
+    nativeIdempotency: false,
+  },
+  support: { status: "partial", notes: ["Example adapter that accepts everything."] },
+  defaultFrom: "+15550100001",
+  async send(message, context) {
+    console.log(`attempt ${context.attempt}: ${message.from.value} -> ${message.to}`);
+    return { kind: "accepted", providerId: `echo_${Date.now()}`, delivery: "queued" };
+  },
+};
+
+const sms = createSmsClient({ adapters: [echo] });
+await sms.send({ to: "+14155550123", body: "Hi" });
+```
+
+## `SmsCapabilities`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `sendText` | `true` | Every adapter sends text. |
+| `mms` | `boolean` | Accepts `mediaUrls`. |
+| `scheduling` | `boolean` | Accepts `sendAt`. The adapter may add sender restrictions in `validate`. |
+| `validityPeriod` | `{ minSec: number; maxSec: number } \| null` | Accepted `validityPeriodSec` range, or `null` when unsupported. |
+| `webhookUrlOverride` | `boolean` | Accepts a per-message `webhookUrl`. |
+| `inbound` | `boolean` | The provider can deliver inbound messages to a webhook this SDK parses. |
+| `deliveryReceipts` | `boolean` | The provider sends status webhooks this SDK parses. |
+| `senderTypes` | `readonly SenderType[]` | `"long_code"`, `"toll_free"`, `"short_code"`, `"alphanumeric"`, `"messaging_service"`. A phone-number sender is allowed when `long_code` or `toll_free` is listed. |
+| `nativeIdempotency` | `boolean` | The provider deduplicates sends by key and the adapter passes `context.idempotencyKey`. `false` for every built-in adapter. |
+
+Built-in values are exported as constants: `TWILIO_CAPABILITIES`, `TELNYX_CAPABILITIES`, `PLIVO_CAPABILITIES`, `VONAGE_JWT_CAPABILITIES`, `VONAGE_BASIC_CAPABILITIES`, each from its adapter's subpath.
+
+## `AdapterMessage`
+
+The validated message the client passes to `send`:
+
+```ts ignore="type listing"
+type AdapterMessage = {
+  readonly to: E164;
+  readonly from: SmsSender;
+  readonly body: string;
+  readonly mediaUrls: readonly string[]; // empty when there is no media
+  readonly sendAt?: Date;
+  readonly validityPeriodSec?: number;
+  readonly webhookUrl?: string;
+};
+```
+
+## `SmsSender`
+
+The resolved sender, with its kind made explicit:
+
+```ts ignore="type listing"
+type SmsSender =
+  | { readonly kind: "phone_number"; readonly value: E164 }
+  | { readonly kind: "short_code"; readonly value: string }
+  | { readonly kind: "alphanumeric"; readonly value: string }
+  | { readonly kind: "messaging_service"; readonly value: string };
+```
+
+`resolveSender(from)` turns an `SmsFrom` into `{ kind: "ok", sender } | { kind: "missing" } | { kind: "invalid", message }`, and `supportsSender(capabilities, sender)` tells whether an adapter can use it. Both are exported from `@opencoredev/sms-sdk`.
+
+## `SendContext`
+
+```ts ignore="type listing"
+type SendContext = {
+  readonly signal: AbortSignal; // aborts on caller cancellation or timeoutMs
+  readonly attempt: number; // 1-based, per adapter, within one logical send
+  readonly idempotencyKey?: string;
+};
+```
+
+## `AdapterSendOutcome`
+
+```ts ignore="type listing"
+type AdapterSendOutcome =
+  | { readonly kind: "accepted"; readonly providerId: string; readonly delivery: Delivery }
+  | { readonly kind: "rejected"; readonly category: RejectionCategory; readonly retryAfterMs?: number; readonly details: ProviderErrorInfo }
+  | { readonly kind: "unknown"; readonly reason: UnknownReason; readonly details?: ProviderErrorInfo; readonly cause?: unknown };
+```
+
+- Return `accepted` only when the response proves the message was created and includes its ID.
+- Return `rejected` only when the response proves it was not created.
+- Return `unknown` for everything else.
+
+`UnknownReason` is `"network" | "timeout" | "aborted" | "malformed_response" | "server_error" | "unexpected_status" | "adapter_exception"`. The client replaces the reason with `timeout` or `aborted` when its own signal fired.
+
+## `RejectionCategory`
+
+| Category | Fallback-eligible | Meaning |
+| --- | --- | --- |
+| `auth` | Yes | Credentials missing, invalid, or forbidden. |
+| `rate_limited` | Yes, after same-adapter retries | A documented rate or queue limit refused the request. |
+| `sender` | Yes | The sender is invalid, not provisioned, or not usable for this destination. |
+| `account` | Yes | Balance, trial, region permission, spend limit, or a disabled account. |
+| `recipient` | No | The destination is invalid or unreachable for this route. |
+| `compliance` | Never | Opt-out, block list, or content block. |
+| `request` | No | Malformed request or invalid field; any unlisted 4xx. |
+
+`isFallbackEligible(category)` returns the second column.
+
+## `ProviderErrorInfo`
+
+```ts ignore="type listing"
+type ProviderErrorInfo = {
+  readonly provider: string;
+  readonly httpStatus?: number;
+  readonly code?: string;
+  readonly message?: string;
+  readonly requestId?: string;
+};
+```
+
+It ends up in thrown errors and logs. Never put message bodies or credentials in it, and pass provider text through `redactText()` so phone numbers are masked and the message is at most 200 characters. The built-in adapters do this.
+
+## Check an adapter
+
+Run the contract harness from `@opencoredev/sms-sdk/testing` against your adapter. See [Testing reference](/reference/testing#contract-harness).

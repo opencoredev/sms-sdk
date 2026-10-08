@@ -1,6 +1,142 @@
 ---
-title: "send input and result"
-description: "The send input, the result, and the errors send can throw."
+title: "send()"
+description: "Reference for sms.send(input, options): SmsSendInput fields, SmsSendResult fields, SendAttempt, the order of checks, and the errors it throws."
 ---
 
-TODO: write this page.
+## `sms.send(input, options?)`
+
+Sends one logical message. Resolves only when a provider accepted it (`handoff: "accepted"`). Every rejection and unknown outcome throws.
+
+```ts
+import { sms } from "./sms";
+
+const result = await sms.send(
+  {
+    to: "+14155550123",
+    body: "Your order has shipped.",
+    idempotencyKey: "order:123:shipped:v1",
+  },
+  { signal: AbortSignal.timeout(30_000) },
+);
+
+console.log(result.providerId, result.delivery, result.segments);
+```
+
+A guide with error handling is at [Send your first SMS](/sending/send-your-first-sms).
+
+### Parameters
+
+- `input: SmsSendInput`, the message. Fields below.
+- `options?: { signal?: AbortSignal }`. Aborting before any request, or during a rate-limit backoff, throws `SendAbortedError`. Aborting while a request is in flight throws `HandoffUnknownError` with `reason: "aborted"`.
+
+## `SmsSendInput`
+
+### `to`
+
+- Type: `` `+${string}` `` (`E164`)
+- Required
+- Recipient. Checked at runtime against `^\+[1-9]\d{1,14}$`. See [Senders and E.164 numbers](/sending/senders-and-e164).
+
+### `from`
+
+- Type: `SmsFrom` (`E164 | { senderId } | { shortCode } | { messagingService }`)
+- Optional
+- Defaults to the adapter's configured `from`. With fallback, each adapter uses its own default when `from` is omitted.
+
+### `body`
+
+- Type: `string`
+- Required
+- Message text. May be empty only when `mediaUrls` is non-empty, and never for Vonage. Twilio limits it to 1600 characters.
+
+### `idempotencyKey`
+
+- Type: `string`, 1 to 255 characters
+- Optional
+- Names the logical message, such as `order:123:shipped:v1`. Deduplicates only when the client has `idempotency.store`. Without a store, only concurrent calls with the same key on the same client share one send. See [Idempotency](/sending/idempotency).
+
+### `mediaUrls`
+
+- Type: `readonly string[]`, absolute `http` or `https` URLs
+- Optional
+- MMS media. Needs `capabilities.mms`.
+
+### `sendAt`
+
+- Type: `Date`
+- Optional
+- Provider-side scheduled send. Needs `capabilities.scheduling`. Twilio also needs a Messaging Service sender.
+
+### `validityPeriodSec`
+
+- Type: positive integer
+- Optional
+- How long the provider may keep trying. Needs `capabilities.validityPeriod`, and must be within its range.
+
+### `webhookUrl`
+
+- Type: absolute `http` or `https` URL
+- Optional
+- Per-message status callback. Needs `capabilities.webhookUrlOverride`.
+
+## Returns: `SmsSendResult`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `string` | `sms_` plus 32 hex characters. The SDK's ID for this logical send. Stable across idempotent replays. |
+| `provider` | `string` | Name of the adapter that accepted. |
+| `providerId` | `string` | The provider's message ID: Twilio `SM…`/`MM…`, Telnyx `data.id`, Plivo `message_uuid[0]`, Vonage `message_uuid`. |
+| `handoff` | `"accepted"` | Always `"accepted"`. |
+| `delivery` | `Delivery` | Status from the response, usually `"queued"`. Not handset delivery. |
+| `encoding` | `"gsm7" \| "ucs2"` | Encoding of the estimate. |
+| `segments` | `number` | Estimated segments. Not a billing figure. |
+| `attemptedProviders` | `readonly string[]` | Adapters tried, in order, without duplicates. |
+| `attempts` | `readonly SendAttempt[]` | Every provider request, in order. |
+| `replayed` | `boolean` | `true` when returned from the idempotency store or a concurrent in-flight call with the same key. |
+
+`Delivery` is `"unknown" | "queued" | "sent" | "delivered" | "undelivered" | "filtered"`. `Handoff` is `"accepted" | "rejected" | "unknown"`.
+
+### `SendAttempt`
+
+Log-safe: no body, no phone numbers.
+
+```ts ignore="type listing"
+type SendAttempt =
+  | { provider: string; attempt: number; outcome: "accepted"; providerId: string; delivery: Delivery; durationMs: number }
+  | { provider: string; attempt: number; outcome: "rejected"; category: RejectionCategory; httpStatus?: number; providerCode?: string; retryAfterMs?: number; durationMs: number }
+  | { provider: string; attempt: number; outcome: "unknown"; reason: UnknownReason; httpStatus?: number; durationMs: number };
+```
+
+`attempt` counts from 1 per adapter within one send.
+
+## Order of checks
+
+1. Local validation: recipient, body, field formats, then the primary adapter's sender and capabilities. Failures throw before any request.
+2. Abort check: an already-aborted `signal` throws `SendAbortedError`.
+3. Idempotency: replay, conflict, in-progress, or unknown, when a key and store are set.
+4. `beforeSend`.
+5. Provider requests, with rate-limit retries and, if enabled, fallback.
+
+## Errors
+
+| Error | `code` | `retrySafe` | When |
+| --- | --- | --- | --- |
+| `InvalidRecipientError` | `invalid_recipient` | true | `to` is not E.164 |
+| `InvalidSenderError` | `invalid_sender` | true | No sender, or a malformed one |
+| `InvalidMessageError` | `invalid_message` | true | Empty body without media, bad URL, date, or number field, a provider limit |
+| `UnsupportedFieldError` | `unsupported_field` | true | The primary adapter cannot send a field or sender type |
+| `PolicyRejectedError` | `policy_rejected` | true | `beforeSend` rejected |
+| `ProviderRejectedError` | `provider_rejected` | true | The provider proved non-acceptance |
+| `ProviderAuthError` | `provider_auth` | true | Category `auth` |
+| `ProviderRateLimitedError` | `provider_rate_limited` | true | Rate limited after retries |
+| `AllProvidersRejectedError` | `all_providers_rejected` | true | Fallback ran and every attempted adapter rejected |
+| `HandoffUnknownError` | `handoff_unknown` | **false** | Acceptance cannot be determined |
+| `SendAbortedError` | `aborted` | true | Aborted before any request could have been processed |
+| `IdempotencyConflictError` | `idempotency_conflict` | false | Key reused with a different payload or sender |
+| `IdempotencyInProgressError` | `idempotency_in_progress` | true | Another process holds a fresh reservation |
+
+Details and actions for each are in [Errors](/reference/errors). An error thrown by your `beforeSend` propagates unchanged.
+
+## Types
+
+`SmsSendInput`, `SmsSendOptions`, `SmsSendResult`, `SmsFrom`, `Delivery`, `Handoff`, `SendAttempt`, `RejectionCategory`, and `UnknownReason` are exported as types from `@opencoredev/sms-sdk`. `E164` is exported from the same path.

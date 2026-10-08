@@ -1,6 +1,42 @@
 ---
 title: "Support"
-description: "Where to ask questions and report bugs."
+description: "Where to ask questions about SMS SDK, report bugs, and report security issues, and which questions belong with your SMS provider."
 ---
 
-TODO: write this page.
+SMS SDK is an open source project maintained on GitHub. There is no paid support plan.
+
+## Ask a question or report a bug
+
+| You have | Go to |
+| --- | --- |
+| A bug, or behavior that contradicts these docs | [GitHub issues](https://github.com/opencoredev/sms-sdk/issues) |
+| A question about using SMS SDK | [GitHub issues](https://github.com/opencoredev/sms-sdk/issues), with the `question` label |
+| A provider fact that looks wrong | An issue with a link to the provider's official documentation |
+| A docs mistake | An issue, or a pull request against `apps/docs` (see [Contributing](/community/contributing)) |
+
+Include the SMS SDK version, your runtime, the adapter, and the error's `toJSON()` output. It is redacted, so it is safe to paste. Never post credentials, full phone numbers, or message contents.
+
+## Security issues
+
+Do not open a public issue for a vulnerability, such as a way to bypass webhook signature verification. Use GitHub's [private vulnerability reporting](https://github.com/opencoredev/sms-sdk/security/advisories/new) for the repository.
+
+## Questions for your provider
+
+SMS SDK cannot see or change your provider account. Contact your provider's support for:
+
+- sender provisioning, number porting, 10DLC, toll-free verification, or short code approval,
+- messages accepted but not delivered, filtered, or blocked by carriers,
+- account limits, balance, trial restrictions, or geographic permissions,
+- pricing and invoices.
+
+Before you contact them, collect the message's `providerId` from the send result or status webhook. Providers look messages up by their own ID.
+
+## Check your setup first
+
+Many problems show up in a dry run of the doctor CLI, which makes no network calls:
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter telnyx --to +14155550123
+```
+
+See [Doctor CLI](/reference/doctor-cli).

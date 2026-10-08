@@ -1,6 +1,194 @@
 ---
-title: "Webhook events"
-description: "Normalized delivery status and inbound message event types."
+title: "Webhooks and events"
+description: "Reference for @opencoredev/sms-sdk/webhooks: parseSmsWebhook options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
 ---
 
-TODO: write this page.
+```ts
+import { parseSmsWebhook, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+```
+
+## `parseSmsWebhook(options)`
+
+Reads the request body once, verifies the provider's signature, and returns a normalized `SmsEvent`. No field is interpreted before verification succeeds.
+
+```ts
+import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";
+
+export async function POST(request: Request): Promise<Response> {
+  const event = await parseSmsWebhook({
+    provider: "twilio",
+    request,
+    publicUrl: "https://example.com/webhooks/sms/twilio",
+    credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+  });
+  console.log(event.type, event.dedupeKey);
+  return new Response(null, { status: 200 });
+}
+```
+
+Guides: [Receiving overview](/receiving/overview), [Webhook security](/receiving/webhook-security).
+
+### Parameters
+
+Options are discriminated by `provider`. Every variant accepts the common options.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage"` | required | Which scheme to verify and parse. |
+| `request` | `Request` | required | The incoming web request. Its body must not have been read. |
+| `credentials` | per provider, below | required | Verification secret. |
+| `unsafeSkipVerification` | `boolean` | `false` | Skips signature checks. Tests only; the event is not authenticated. |
+| `detectKeywords` | `boolean` | `true` | Match STOP/HELP keywords in inbound text when the provider sends no signal. |
+| `now` | `() => number` | `Date.now` | Clock in epoch ms, for timestamp checks. |
+
+Per provider:
+
+| `provider` | `credentials` | Extra options |
+| --- | --- | --- |
+| `"twilio"` | `{ authToken: string }` | `publicUrl?: string`, `trustProxy?: boolean` |
+| `"telnyx"` | `{ publicKey: string }` (base64, 32-byte Ed25519) | `toleranceSec?: number` (default 300) |
+| `"plivo"` | `{ authToken: string }` | `publicUrl?: string`, `trustProxy?: boolean` |
+| `"vonage"` | `{ signatureSecret: string }` | `toleranceSec?: number` (default 300) |
+
+`publicUrl` is the exact URL configured with the provider. If it has no query string, the request's query string is appended. `trustProxy: true` builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host` when `publicUrl` is not set; otherwise `request.url` is used and forwarded headers are ignored.
+
+### Returns
+
+`Promise<SmsEvent>`.
+
+### Throws
+
+- `WebhookSignatureError` (`code: "webhook_signature"`) when the request is not authentic. `reason` is `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, or `invalid_credentials`. Respond 401 or 403.
+- `WebhookPayloadError` (`code: "webhook_payload"`) when an authentic payload lacks required fields.
+
+## `SmsEvent`
+
+Every event has these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage"` | Which provider sent it. |
+| `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
+| `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
+| `raw` | `unknown` | The verified payload: form fields as a string record, or parsed JSON. Unknown extra fields are kept here. |
+
+### `message.received`
+
+```ts ignore="type listing"
+{ type: "message.received"; providerId: string; from: string; to: string; body: string; mediaUrls: readonly string[] }
+```
+
+An inbound message. See [Inbound SMS](/receiving/inbound-sms).
+
+### Status events
+
+```ts ignore="type listing"
+{
+  type: "message.queued" | "message.sent" | "message.delivered" | "message.undelivered" | "message.filtered";
+  providerId: string;
+  providerStatus: string; // the provider's own status value
+  errorCode?: string;
+  from?: string;
+  to?: string;
+}
+```
+
+A status update for an outbound message. `MessageStatusType` is the union of these five types. The mapping per provider is in [Delivery status webhooks](/receiving/delivery-status-webhooks#status-mapping).
+
+### Opt-out and help events
+
+```ts ignore="type listing"
+{
+  type: "recipient.opted_out" | "recipient.opted_in" | "recipient.help";
+  providerId: string;
+  from: string;
+  to: string;
+  body: string; // the original inbound text
+  source: "provider" | "keyword";
+  keyword: string;
+}
+```
+
+`source: "provider"` comes from Twilio's `OptOutType`. `source: "keyword"` comes from whole-message keyword matching. `recipient.opted_in` comes only from Twilio `OptOutType=START`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+
+### `unrecognized`
+
+```ts ignore="type listing"
+{ type: "unrecognized"; providerEventType: string }
+```
+
+A verified event SMS SDK does not map, such as Twilio `read` or a new Telnyx event type. Inspect `raw`. This keeps a provider's new statuses from breaking your handler.
+
+### Dedupe keys
+
+| Provider | `dedupeKey` |
+| --- | --- |
+| Twilio | `twilio:{MessageSid}:{MessageStatus}` or `twilio:{MessageSid}:received` |
+| Telnyx | `telnyx:{data.id}` |
+| Plivo | `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received` |
+| Vonage | `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received` |
+
+## Keyword helpers
+
+### `detectKeyword(body)`
+
+Matches a whole message against the keyword lists, ignoring case, surrounding whitespace, and trailing `.`, `!`, or `?`.
+
+```ts
+import { detectKeyword } from "@opencoredev/sms-sdk/webhooks";
+
+console.log(detectKeyword("Stop!")); // { kind: "opted_out", keyword: "STOP" }
+console.log(detectKeyword("help")); // { kind: "help", keyword: "HELP" }
+console.log(detectKeyword("Please stop texting me")); // undefined
+```
+
+Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out" | "help"; keyword: string }`.
+
+### `OPT_OUT_KEYWORDS` and `HELP_KEYWORDS`
+
+- `OPT_OUT_KEYWORDS`: `["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]`
+- `HELP_KEYWORDS`: `["HELP", "INFO"]`
+
+## Per-provider parsers
+
+`parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, and `parseVonageWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, and `VonageWebhookOptions`.
+
+## Verify helpers
+
+Use these to check a signature without parsing, for example in middleware.
+
+### `verifyTwilioSignature({ authToken, url, params, signature })`
+
+Returns `Promise<boolean>`. `params` is a list of `[name, value]` pairs from the form body (empty for JSON bodies and GET requests). Tries the URL with and without the default port.
+
+`computeTwilioSignature({ authToken, url, params })` returns the expected `X-Twilio-Signature` as `Promise<string>`.
+
+### `verifyTelnyxSignature({ publicKey, rawBody, signature, timestamp, toleranceSec?, now? })`
+
+Returns `Promise<WebhookVerification>`: `{ valid: true }` or `{ valid: false, reason }`. `signature` and `timestamp` are the `telnyx-signature-ed25519` and `telnyx-timestamp` header values (or `null`). `now` is epoch ms. `TELNYX_DEFAULT_TOLERANCE_SEC` is `300`.
+
+### `verifyPlivoSignatureV2({ authToken, url, nonce, signature })`
+
+Returns `Promise<boolean>`. `url` may include a query string; it is removed before signing. `computePlivoSignatureV2({ authToken, url, nonce })` returns the expected signature.
+
+### `verifyVonageSignature({ signatureSecret, authorization, rawBody, toleranceSec?, now? })`
+
+Returns `Promise<WebhookVerification>`. `authorization` is the `Authorization` header value (or `null`). `VONAGE_DEFAULT_TOLERANCE_SEC` is `300`.
+
+```ts
+import { verifyTelnyxSignature } from "@opencoredev/sms-sdk/webhooks";
+
+export async function isAuthentic(request: Request): Promise<boolean> {
+  const result = await verifyTelnyxSignature({
+    publicKey: process.env.TELNYX_PUBLIC_KEY ?? "",
+    rawBody: await request.clone().text(),
+    signature: request.headers.get("telnyx-signature-ed25519"),
+    timestamp: request.headers.get("telnyx-timestamp"),
+  });
+  return result.valid;
+}
+```
+
+## Types
+
+Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, the four per-provider option types, and `WebhookFailureReason`.

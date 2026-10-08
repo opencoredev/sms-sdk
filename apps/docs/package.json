@@ -8,9 +8,16 @@
     "build": "blume build",
     "preview": "blume preview",
     "check": "blume check",
-    "doctor": "blume doctor"
+    "doctor": "blume doctor",
+    "check:snippets": "bun scripts/check-snippets.ts"
   },
   "dependencies": {
     "blume": "2.2.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "@types/node": "^25.9.4",
+    "hono": "^4.13.5",
+    "typescript": "^5.9.3"
   }
 }

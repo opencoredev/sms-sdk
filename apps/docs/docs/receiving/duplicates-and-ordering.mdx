@@ -1,6 +1,84 @@
 ---
 title: "Duplicates and ordering"
-description: "Handle repeated and out-of-order webhook deliveries."
+description: "Providers deliver webhooks more than once and out of order. Deduplicate with dedupeKey and never move a message's status backward."
 ---
 
-TODO: write this page.
+Providers retry webhooks that fail or time out, and they send events in parallel. So the same event can arrive twice, and `message.sent` can arrive after `message.delivered`. Your handler must tolerate both.
+
+## Deduplicate with dedupeKey
+
+Every `SmsEvent` has a `dedupeKey` that is the same each time the provider delivers that event:
+
+| Provider | `dedupeKey` |
+| --- | --- |
+| Twilio | `twilio:{MessageSid}:{MessageStatus}` or `twilio:{MessageSid}:received` |
+| Telnyx | `telnyx:{data.id}` (the webhook event ID) |
+| Plivo | `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received` |
+| Vonage | `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received` |
+
+Store each key with a unique constraint and skip events you have seen:
+
+```ts
+import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  const event = await parseSmsWebhook({
+    provider: "telnyx",
+    request,
+    credentials: { publicKey: process.env.TELNYX_PUBLIC_KEY ?? "" },
+  });
+
+  const isNew = await db.webhookEvents.insertIfNew(event.dedupeKey);
+  if (!isNew) {
+    return new Response(null, { status: 200 }); // a repeat: acknowledge and stop
+  }
+
+  // Handle the event once.
+  return new Response(null, { status: 200 });
+}
+```
+
+Answer repeats with a 2xx. An error response makes the provider retry again.
+
+`insertIfNew` must be atomic, such as `INSERT ... ON CONFLICT DO NOTHING` returning whether a row was inserted. Reading first and inserting second lets two parallel deliveries both pass. Keep keys for at least as long as the provider retries webhooks, typically a day or more.
+
+Deduplication also neutralizes replayed requests for Twilio and Plivo, which sign no timestamp.
+
+## Handle out-of-order status
+
+Never let a later-arriving event move a message backward. Rank the statuses and keep the highest:
+
+```ts
+import type { MessageStatusType } from "@opencoredev/sms-sdk/webhooks";
+
+const rank: Record<MessageStatusType, number> = {
+  "message.queued": 0,
+  "message.sent": 1,
+  "message.delivered": 2,
+  "message.undelivered": 2,
+  "message.filtered": 2,
+};
+
+export function nextStatus(current: MessageStatusType | undefined, incoming: MessageStatusType): MessageStatusType {
+  if (current === undefined) return incoming;
+  return rank[incoming] >= rank[current] ? incoming : current;
+}
+
+console.log(nextStatus("message.delivered", "message.sent")); // "message.delivered"
+```
+
+Final states (`delivered`, `undelivered`, `filtered`) share a rank, so the last one to arrive wins among them. Providers rarely send two different final states, but when they do, `occurredAt` (when present) tells you which happened later.
+
+## Status before the send result
+
+A status webhook can arrive before your code saves the `send()` result, because the provider calls back while your process is still handling the response. If you look messages up by `providerId`, store unknown IDs briefly and apply them when the send result is saved, or upsert the status row keyed by `providerId`.
+
+## Inbound repeats
+
+An inbound message repeated by the provider has the same `dedupeKey`. If you reply to inbound messages, derive the reply's `idempotencyKey` from the inbound `dedupeKey` so a repeat cannot trigger a second reply. See [Inbound SMS](/receiving/inbound-sms#reply-to-a-message).
+
+## Next steps
+
+- [Webhook events reference](/reference/webhook-events)
+- [Deploy with multiple instances](/guides/multiple-instances)

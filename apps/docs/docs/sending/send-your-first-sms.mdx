@@ -1,6 +1,127 @@
 ---
 title: "Send your first SMS"
-description: "Create a client, send a message, and read the result."
+description: "Call sms.send(), read the SmsSendResult, and handle each error by whether a retry is safe."
 ---
 
-TODO: write this page.
+You have a client and want to send a message from your app and react correctly when it fails. This page covers the send call, the result, and error handling. If you do not have a client yet, start with the [Quick start](/getting-started/quick-start).
+
+## Send
+
+```ts
+import { sms } from "./sms";
+
+const result = await sms.send({
+  to: "+14155550123",
+  body: "Your order #123 has shipped.",
+  idempotencyKey: "order:123:shipped:v1",
+});
+
+console.log(result.id, result.provider, result.providerId, result.delivery);
+```
+
+`send()` resolves only when a provider accepted the message. You see the library ID (`sms_` plus 32 hex characters), the adapter name such as `twilio`, the provider's message ID, and usually `queued`.
+
+`to` must be an E.164 number: a `+`, the country code, and the number, with no spaces. `from` is optional when the adapter has a default sender. See [Senders and E.164 numbers](/sending/senders-and-e164).
+
+## Read the result
+
+| Field | What it holds |
+| --- | --- |
+| `id` | The SDK's ID for this logical message. Stable across idempotent replays. |
+| `provider` | Name of the adapter that accepted it. |
+| `providerId` | The provider's message ID: Twilio `SM…`/`MM…`, Telnyx `data.id`, Plivo `message_uuid[0]`, Vonage `message_uuid`. Store it to match status webhooks. |
+| `handoff` | Always `"accepted"`. |
+| `delivery` | Status from the send response, usually `"queued"`. Never `"delivered"` in practice; delivery comes by webhook. |
+| `encoding`, `segments` | `"gsm7"` or `"ucs2"`, and the estimated segment count. |
+| `attemptedProviders`, `attempts` | Every adapter and request that ran, in order. Safe to log: no body, no full numbers. |
+| `replayed` | `true` when the result came from the idempotency store or a concurrent call with the same key. |
+
+Save what you need to match later webhooks:
+
+```ts
+import { db } from "./db";
+import { sms } from "./sms";
+
+const result = await sms.send({ to: "+14155550123", body: "Your table is ready." });
+
+await db.messages.create({
+  id: result.id,
+  provider: result.provider,
+  providerId: result.providerId,
+  to: "+14155550123",
+  status: result.delivery,
+});
+```
+
+## Handle errors
+
+Every error SMS SDK throws extends `SmsError` and has a stable `code` and a `retrySafe` flag. `retrySafe: true` means nothing was accepted, so sending the same message again cannot create a duplicate. It does not mean the retry will succeed.
+
+```ts
+import {
+  HandoffUnknownError,
+  InvalidRecipientError,
+  isSmsError,
+  PolicyRejectedError,
+  ProviderRejectedError,
+} from "@opencoredev/sms-sdk";
+import { db } from "./db";
+import { sms } from "./sms";
+
+export async function notifyShipped(orderId: string, to: `+${string}`): Promise<void> {
+  const idempotencyKey = `order:${orderId}:shipped:v1`;
+  try {
+    await sms.send({ to, body: `Order ${orderId} has shipped.`, idempotencyKey });
+  } catch (error) {
+    if (error instanceof HandoffUnknownError) {
+      // The provider may have accepted it. Do not resend automatically.
+      await db.messages.markNeedsReview(idempotencyKey, error.reason);
+      return;
+    }
+    if (error instanceof InvalidRecipientError || error instanceof PolicyRejectedError) {
+      return; // Nothing to retry: fix the data or respect the policy.
+    }
+    if (error instanceof ProviderRejectedError && error.category === "compliance") {
+      await db.suppressions.add(to); // The recipient opted out with the provider.
+      return;
+    }
+    if (isSmsError(error) && !error.retrySafe) {
+      await db.messages.markNeedsReview(idempotencyKey, error.code);
+      return;
+    }
+    throw error; // retrySafe: let your job queue retry later.
+  }
+}
+```
+
+`HandoffUnknownError` is the one to get right. It is thrown for timeouts, network errors, 5xx responses, and malformed success responses, where the provider may have created the message. Check the provider console or API, or wait for a delivery webhook with that message, before you send again. With an idempotency store, a later send with the same key throws `HandoffUnknownError` again instead of sending.
+
+The full list of error classes, codes, and actions is in [Errors](/reference/errors).
+
+## Cancel a send
+
+Pass an `AbortSignal` to stop waiting:
+
+```ts
+import { SendAbortedError } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 2_000);
+
+try {
+  await sms.send({ to: "+14155550123", body: "Reminder" }, { signal: controller.signal });
+} catch (error) {
+  if (error instanceof SendAbortedError) {
+    console.log("Aborted before any request went out. Safe to send later.");
+  }
+}
+```
+
+An abort before any request, or while waiting to retry a rate limit, throws `SendAbortedError` (`retrySafe: true`). An abort while a request is in flight throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
+
+## Next steps
+
+- [Retries and fallback](/sending/retries-and-fallback)
+- [Idempotency](/sending/idempotency)
+- [send() reference](/reference/send)

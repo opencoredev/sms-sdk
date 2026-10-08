@@ -1,6 +1,96 @@
 ---
 title: "Sender registration and consent"
-description: "What 10DLC, toll-free verification, and consent mean for your sender."
+description: "What you must set up with providers and carriers before sending: 10DLC, toll-free verification, short codes, sender IDs, consent, and opt-out records."
 ---
 
-TODO: write this page.
+Before your messages reach phones, carriers want to know who is sending, what kind of messages, and that recipients agreed to receive them. That setup happens with your provider and is outside SMS SDK. This page lists what to arrange and where to find each provider's current rules.
+
+:::warning[Rules change]
+Registration rules, fees, and review times change often and differ by country and sender type. This page is a checklist, not legal advice. Check each provider's documentation and your own counsel before you send at scale.
+:::
+
+## What SMS SDK does and does not do
+
+SMS SDK does:
+
+- validate number and sender formats locally,
+- report a provider's refusal of your sender as a `ProviderRejectedError` with `category: "sender"` or `"account"`,
+- turn STOP, START, and HELP replies into events,
+- let you block sends with `beforeSend`.
+
+SMS SDK does not:
+
+- buy numbers, register 10DLC brands or campaigns, submit toll-free verification, or apply for short codes,
+- check whether a sender is registered (the [doctor CLI](/reference/doctor-cli) reports this as "not verified"),
+- collect or store consent, keep an opt-out list, or send required confirmation replies,
+- know country-specific rules such as quiet hours or sender ID registration.
+
+## Sender types
+
+| Sender | What to arrange | Typical use |
+| --- | --- | --- |
+| US and Canada long code (10DLC) | A2P 10DLC brand and campaign registration with your provider before carriers accept application traffic. | Transactional and conversational messages at moderate volume. |
+| Toll-free number | Toll-free verification with your provider. Unverified toll-free traffic is blocked or filtered in the US and Canada. | Notifications and support. |
+| Short code | A short code application and carrier approval, which can take weeks. | High volume, marketing, one-time codes. |
+| Alphanumeric sender ID | Allowed only in some countries. Some require pre-registration. Not supported in the US or Canada. Recipients cannot reply. | One-way notifications outside North America. |
+| Messaging service or pool | The numbers inside it still need the registration their type requires. | Sender selection and scaling handled by the provider. |
+
+Register with each provider you send through. A 10DLC campaign on Twilio does not cover a number on Telnyx. If you configure fallback, the fallback provider's sender needs its own registration, or its sends are rejected or filtered.
+
+## Consent and opt-outs
+
+Your app is responsible for:
+
+1. **Getting consent** before sending, in the form the destination requires, and storing proof: who, when, how, and for what kind of messages.
+2. **Honoring opt-outs** on every provider. A STOP sent to one provider's number is recorded by that provider only. Keep your own suppression list and check it in `beforeSend`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+3. **Answering HELP** with who you are and how to get support, where required. Some providers reply automatically for some sender types; check before adding your own reply.
+4. **Following content and timing rules**, such as quiet hours and restrictions on certain message categories.
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { db } from "./db";
+
+export const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: { messagingService: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "" },
+    }),
+  ],
+  beforeSend: async ({ message }) => {
+    if (await db.suppressions.has(message.to)) {
+      return { kind: "reject", reason: "Recipient opted out." };
+    }
+    return { kind: "allow" };
+  },
+});
+```
+
+Every send now checks your suppression list first. A suppressed recipient throws `PolicyRejectedError` and nothing is sent.
+
+## How registration problems show up
+
+| You see | Likely cause |
+| --- | --- |
+| `ProviderRejectedError`, `category: "sender"` | The sender is not provisioned, not registered for this use, or not allowed for this destination. |
+| `ProviderRejectedError`, `category: "account"` | Trial restrictions, geographic permissions, balance, or spend limits. |
+| `message.filtered` webhook | A carrier or the provider blocked the message as spam or for content, often because of missing registration. |
+| `message.undelivered` with a carrier error code | Many causes, including unregistered traffic. Check the provider's error dictionary. |
+
+With Plivo, sender and account problems arrive as `category: "request"`, because Plivo does not document its error body. See [Plivo](/providers/plivo#error-mapping).
+
+## Provider documentation
+
+Start from each provider's compliance documentation:
+
+- Twilio: [A2P 10DLC](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc), [Messaging Services](https://www.twilio.com/docs/messaging/services)
+- Telnyx: [Messaging documentation](https://developers.telnyx.com/docs/messaging/messages)
+- Plivo: [Messaging documentation](https://www.plivo.com/docs/messaging/)
+- Vonage: [Messages API documentation](https://developer.vonage.com/en/messages/overview)
+
+## Next steps
+
+- [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs)
+- [Senders and E.164 numbers](/sending/senders-and-e164)

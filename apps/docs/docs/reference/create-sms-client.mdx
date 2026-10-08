@@ -1,6 +1,138 @@
 ---
 title: "createSmsClient"
-description: "Options and behavior of createSmsClient."
+description: "Reference for createSmsClient(options): every SmsClientOptions field, its default, and the SmsClient methods it returns."
 ---
 
-TODO: write this page.
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+## `createSmsClient(options)`
+
+Creates an SMS client over one or more adapters. It makes no network request.
+
+```ts
+import { createSmsClient, memoryIdempotencyStore } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({ accountSid: process.env.TWILIO_ACCOUNT_SID ?? "", authToken: process.env.TWILIO_AUTH_TOKEN ?? "", from: "+15550100001" }),
+    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
+  ],
+  fallback: "on-known-rejection",
+  retry: { maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 10_000 },
+  timeoutMs: 10_000,
+  idempotency: { store: memoryIdempotencyStore(), ttlSec: 86_400, staleReservationSec: 300 },
+  beforeSend: () => ({ kind: "allow" }),
+  hooks: { onFailure: (event) => console.error(event.errorCode) },
+});
+```
+
+Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name`, or `timeoutMs` is not a positive number.
+
+## Options
+
+### `adapters`
+
+- Type: `readonly [SmsAdapter, ...SmsAdapter[]]`
+- Required
+- Adapters in priority order. The first is the primary: it must support every field of a message, or `send()` throws `UnsupportedFieldError`. Names must be unique. See [Providers](/providers/overview).
+
+### `fallback`
+
+- Type: `"none" | "on-known-rejection"`
+- Optional
+- Defaults to `"none"`
+- With `"none"`, only the primary adapter sends. With `"on-known-rejection"`, a fallback-eligible rejection (`auth`, `rate_limited`, `sender`, `account`) moves to the next adapter that supports the message. Never after an accepted or unknown outcome. See [Retries and fallback](/sending/retries-and-fallback).
+
+### `retry`
+
+- Type: `{ maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number }`
+- Optional
+- Defaults to `{ maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 10000 }`
+- Same-adapter retries, only after a `rate_limited` rejection. `maxAttempts` counts the first request; `1` turns retries off. Backoff is exponential with full jitter. A provider `Retry-After` is used when it is at most `maxDelayMs`; a longer one stops retrying that adapter.
+
+### `timeoutMs`
+
+- Type: `number`
+- Optional
+- Defaults to `10000`
+- Timeout for each provider request. A timeout after the request starts throws `HandoffUnknownError` with `reason: "timeout"`.
+
+### `idempotency`
+
+- Type: `{ store: IdempotencyStore; ttlSec?: number; staleReservationSec?: number }`
+- Optional
+- Off by default
+- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. `staleReservationSec` (default `300`) is the age after which an unfinished reservation is treated as an unknown outcome. See [Idempotency](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
+
+### `beforeSend`
+
+- Type: `(context: BeforeSendContext) => PolicyDecision | Promise<PolicyDecision>`
+- Optional
+- Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, that error propagates and nothing is sent. See [Policy checks and hooks](/sending/policy-and-hooks).
+
+### `hooks`
+
+- Type: `{ onAttempt?, onAccepted?, onFailure? }`
+- Optional
+- Redacted observability callbacks. Errors thrown by hooks are swallowed. See [Policy checks and hooks](/sending/policy-and-hooks#observe-sends-with-hooks).
+
+## Returns: `SmsClient`
+
+| Method | Returns | Reference |
+| --- | --- | --- |
+| `send(input, options?)` | `Promise<SmsSendResult>` | [send()](/reference/send) |
+| `validate(input)` | `SmsValidationResult` | [validate()](/reference/validate) |
+| `capabilities()` | `readonly SmsAdapterInfo[]` | below |
+
+### `sms.capabilities()`
+
+Returns each configured adapter's metadata, in order:
+
+```ts
+import { sms } from "./sms";
+
+for (const adapter of sms.capabilities()) {
+  console.log(adapter.name, adapter.support.status, adapter.capabilities.mms, adapter.defaultFrom);
+}
+```
+
+Each entry is `{ name, capabilities: SmsCapabilities, support: AdapterSupport, defaultFrom: SmsFrom | undefined }`. See [Adapter contract](/reference/adapter-contract) for the field types.
+
+## Types
+
+```ts ignore="type listing"
+type SmsClientOptions = {
+  readonly adapters: readonly [SmsAdapter, ...SmsAdapter[]];
+  readonly fallback?: "none" | "on-known-rejection";
+  readonly retry?: RetryOptions;
+  readonly timeoutMs?: number;
+  readonly idempotency?: { readonly store: IdempotencyStore; readonly ttlSec?: number; readonly staleReservationSec?: number };
+  readonly beforeSend?: (context: BeforeSendContext) => PolicyDecision | Promise<PolicyDecision>;
+  readonly hooks?: SmsClientHooks;
+};
+
+type RetryOptions = { readonly maxAttempts?: number; readonly baseDelayMs?: number; readonly maxDelayMs?: number };
+
+type BeforeSendContext = { readonly id: string; readonly message: SmsSendInput; readonly encoding: "gsm7" | "ucs2"; readonly segments: number };
+
+type PolicyDecision = { readonly kind: "allow" } | { readonly kind: "reject"; readonly reason: string };
+
+type SmsClientHooks = {
+  readonly onAttempt?: (event: SmsAttemptEvent) => void | Promise<void>;
+  readonly onAccepted?: (event: SmsAcceptedEvent) => void | Promise<void>;
+  readonly onFailure?: (event: SmsFailureEvent) => void | Promise<void>;
+};
+
+type SmsHookEventBase = { readonly id: string; readonly to: string; readonly encoding: SmsEncoding; readonly segments: number; readonly idempotencyKey?: string };
+type SmsAttemptEvent = SmsHookEventBase & { readonly attempt: SendAttempt };
+type SmsAcceptedEvent = SmsHookEventBase & { readonly provider: string; readonly providerId: string; readonly attempts: readonly SendAttempt[] };
+type SmsFailureEvent = SmsHookEventBase & { readonly errorCode: string; readonly retrySafe: boolean; readonly attempts: readonly SendAttempt[] };
+
+type SmsAdapterInfo = { readonly name: string; readonly capabilities: SmsCapabilities; readonly support: AdapterSupport; readonly defaultFrom: SmsFrom | undefined };
+```
+
+All of these are exported as types from `@opencoredev/sms-sdk`.

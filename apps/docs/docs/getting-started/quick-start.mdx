@@ -1,6 +1,84 @@
 ---
-title: "Quick Start"
-description: "Send your first SMS through one provider in a few minutes."
+title: "Quick start"
+description: "Send your first SMS through Twilio with SMS SDK in three steps."
 ---
 
-TODO: write this page.
+At the end of this page you have a server-side script that sends one SMS through Twilio and prints the provider's message ID.
+
+- Using Telnyx, Plivo, or Vonage? Follow the same steps with the adapter from its [provider page](/providers/overview).
+- Want to try it without a provider account? Use the [`memory()` adapter](/guides/local-testing).
+
+You need a Twilio account, its Account SID and Auth Token, and a Twilio phone number that can send SMS to your destination. SMS SDK does not provision numbers or register them for 10DLC or toll-free use. See [Sender registration and consent](/guides/sender-registration-and-consent).
+
+## 1. Install
+
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+## 2. Create the client
+
+Set three environment variables on your server. They stay on the server: never send them to a browser.
+
+```bash .env
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_auth_token
+TWILIO_FROM=+15550100001
+```
+
+Then create the client in its own module so the rest of your app imports one instance:
+
+```ts sms.ts
+import { createSmsClient, isE164 } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const from = process.env.TWILIO_FROM;
+if (!isE164(from)) {
+  throw new Error("Set TWILIO_FROM to your Twilio number in E.164 format, such as +15550100001.");
+}
+
+export const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from,
+    }),
+  ],
+});
+```
+
+Creating the client makes no network request. If the Account SID is malformed or the Auth Token is empty, `twilio()` throws a `ConfigurationError` here, at startup, instead of on the first send.
+
+## 3. Send a message
+
+```ts send.ts
+import { isSmsError } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+try {
+  const result = await sms.send({
+    to: "+14155550123", // replace with your own phone number
+    body: "Hello from SMS SDK.",
+    idempotencyKey: "quick-start:1",
+  });
+  console.log(`Accepted by ${result.provider}: ${result.providerId} (${result.delivery})`);
+} catch (error) {
+  if (isSmsError(error)) {
+    console.error(error.code, error.message, `retrySafe: ${error.retrySafe}`);
+  }
+  throw error;
+}
+```
+
+Run it with `npx tsx --env-file=.env send.ts` on Node.js, or `bun send.ts` (Bun loads `.env` itself). You see a line like `Accepted by twilio: SM… (queued)`, and the text arrives on your phone shortly after.
+
+`queued` means Twilio accepted the message, not that it reached the phone. Delivery is reported later by webhook. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
+
+If the send fails, the error's `code` and `retrySafe` tell you what happened. A `provider_auth` error means Twilio rejected the credentials. A `handoff_unknown` error means SMS SDK could not tell whether Twilio accepted the message, so do not resend until you check the Twilio console. [Errors](/reference/errors) lists every code.
+
+## Next steps
+
+- [Important defaults](/getting-started/important-defaults): what the client does without extra options.
+- [Delivery status webhooks](/receiving/delivery-status-webhooks): learn when the message is delivered.
+- [Retries and fallback](/sending/retries-and-fallback): add a second provider safely.
