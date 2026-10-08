@@ -1,0 +1,510 @@
+/* SMS SDK theme. Accent and fonts come from blume.config.ts; this file adds
+   the landing page styles and the provider status colors. */
+
+:root {
+  --sms-status-supported: oklch(0.52 0.13 155);
+  --sms-status-partial: oklch(0.58 0.13 75);
+  --sms-status-planned: var(--blume-muted-foreground);
+  --sms-rule: var(--blume-border);
+}
+
+:root[data-theme="dark"] {
+  --sms-status-supported: oklch(0.78 0.14 155);
+  --sms-status-partial: oklch(0.82 0.13 85);
+}
+
+/* Landing page ------------------------------------------------------------ */
+
+.sms-home {
+  padding-block-end: 4rem;
+}
+
+.sms-wrap {
+  margin-inline: auto;
+  max-width: 68rem;
+  padding-inline: 1.5rem;
+}
+
+.sms-hero {
+  padding-block: 5rem 3rem;
+}
+
+.sms-hero h1 {
+  font-family: var(--blume-font-display);
+  font-size: clamp(2.75rem, 7vw, 4.5rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sms-lede {
+  color: var(--blume-foreground);
+  font-size: clamp(1.125rem, 2.2vw, 1.375rem);
+  line-height: 1.45;
+  margin: 1.25rem 0 0;
+  max-width: 36rem;
+  text-wrap: pretty;
+}
+
+.sms-sub {
+  color: var(--blume-muted-foreground);
+  font-size: 0.9375rem;
+  margin: 0.75rem 0 0;
+}
+
+.sms-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  margin-block-start: 2rem;
+}
+
+.sms-btn {
+  align-items: center;
+  border: 1px solid var(--blume-border);
+  border-radius: var(--blume-radius);
+  color: var(--blume-foreground);
+  display: inline-flex;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  text-decoration: none;
+  transition-duration: 150ms;
+  transition-property: background-color, border-color, color, scale;
+  transition-timing-function: ease-out;
+}
+
+.sms-btn:hover {
+  background-color: var(--blume-muted);
+}
+
+.sms-btn:active {
+  scale: 0.96;
+}
+
+.sms-btn:focus-visible,
+.sms-link:focus-visible,
+.sms-matrix a:focus-visible {
+  outline: 2px solid var(--blume-accent);
+  outline-offset: 2px;
+}
+
+.sms-btn-primary {
+  background-color: var(--blume-accent);
+  border-color: var(--blume-accent);
+  color: var(--blume-accent-foreground);
+}
+
+.sms-btn-primary:hover {
+  background-color: color-mix(in oklch, var(--blume-accent) 88%, var(--blume-foreground));
+}
+
+.sms-btn-quiet {
+  border-color: transparent;
+}
+
+.sms-hero-code {
+  margin-block-start: 3rem;
+}
+
+/* Blume's code block carries its own top margin from prose styles. */
+.sms-home .prose > :first-child {
+  margin-block: 0;
+}
+
+/* The rule spans the content column, not the gutter padding. */
+.sms-section {
+  background: linear-gradient(var(--sms-rule), var(--sms-rule)) top center / calc(100% - 3rem) 1px
+    no-repeat;
+  padding-block: 3.5rem;
+}
+
+.sms-section h2 {
+  font-family: var(--blume-font-display);
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sms-section-head {
+  max-width: 38rem;
+}
+
+.sms-section-head p,
+.sms-closing p {
+  color: var(--blume-muted-foreground);
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+  text-wrap: pretty;
+}
+
+.sms-home :not(pre) > code {
+  background-color: var(--blume-muted);
+  border-radius: calc(var(--blume-radius) * 0.5);
+  font-family: var(--blume-font-mono);
+  font-size: 0.875em;
+  padding: 0.1em 0.35em;
+}
+
+.sms-link {
+  color: var(--blume-accent);
+  display: inline-block;
+  font-weight: 500;
+  margin-block-start: 1rem;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.sms-note {
+  color: var(--blume-muted-foreground);
+  font-size: 0.875rem;
+  margin: 1.25rem 0 0;
+}
+
+.sms-visually-hidden {
+  block-size: 1px;
+  clip-path: inset(50%);
+  inline-size: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+}
+
+/* Two columns: copy on the left, code on the right. */
+.sms-split {
+  display: grid;
+  gap: 2rem;
+}
+
+.sms-split-code {
+  min-width: 0;
+}
+
+@media (min-width: 60rem) {
+  .sms-split {
+    align-items: start;
+    gap: 3rem;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+
+/* Segment ruler: the signature element. */
+.sms-ruler {
+  display: grid;
+  gap: 1.75rem;
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+}
+
+.sms-ruler-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sms-ruler-body {
+  font-family: var(--blume-font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 52rem;
+  overflow-wrap: anywhere;
+}
+
+.sms-ruler-track {
+  display: flex;
+  gap: 4px;
+}
+
+.sms-ruler-cell {
+  background-color: var(--blume-muted);
+  block-size: 0.625rem;
+  border-radius: 2px;
+  flex: 1 1 0;
+  max-width: 22rem;
+  overflow: hidden;
+}
+
+.sms-ruler-fill {
+  background-color: var(--blume-accent);
+  block-size: 100%;
+  display: block;
+}
+
+.sms-ruler-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+}
+
+.sms-ruler-meta div {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.sms-ruler-meta dt {
+  color: var(--blume-muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.sms-ruler-meta dd {
+  font-family: var(--blume-font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+/* Features: a ruled 2x2 grid, not floating cards. */
+.sms-features {
+  border: 1px solid var(--sms-rule);
+  border-radius: var(--blume-radius);
+  display: grid;
+  overflow: hidden;
+}
+
+.sms-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 1.5rem;
+}
+
+.sms-feature + .sms-feature {
+  border-block-start: 1px solid var(--sms-rule);
+}
+
+.sms-feature h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.sms-feature p {
+  color: var(--blume-muted-foreground);
+  flex: 1;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.sms-home .sms-feature-code {
+  align-self: flex-start;
+  font-size: 0.8125rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48rem) {
+  .sms-features {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sms-feature + .sms-feature {
+    border-block-start: 0;
+  }
+
+  .sms-feature:nth-child(even) {
+    border-inline-start: 1px solid var(--sms-rule);
+  }
+
+  .sms-feature:nth-child(n + 3) {
+    border-block-start: 1px solid var(--sms-rule);
+  }
+}
+
+/* Provider matrix. */
+.sms-table-scroll {
+  margin-block-start: 2rem;
+  overflow-x: auto;
+}
+
+.sms-matrix {
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  min-width: 36rem;
+  width: 100%;
+}
+
+.sms-matrix th,
+.sms-matrix td {
+  border-block-end: 1px solid var(--sms-rule);
+  padding: 0.75rem 1rem 0.75rem 0;
+  text-align: start;
+}
+
+.sms-matrix thead th {
+  color: var(--blume-muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.sms-matrix tbody th {
+  font-weight: 500;
+}
+
+.sms-matrix a {
+  color: var(--blume-foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--sms-rule);
+  text-underline-offset: 3px;
+}
+
+.sms-matrix a:hover {
+  text-decoration-color: currentColor;
+}
+
+.sms-status {
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+}
+
+.sms-status::before {
+  block-size: 0.5rem;
+  border-radius: 50%;
+  content: "";
+  inline-size: 0.5rem;
+}
+
+.sms-status-supported::before {
+  background-color: var(--sms-status-supported);
+}
+
+.sms-status-partial::before {
+  background-color: var(--sms-status-partial);
+}
+
+.sms-status-planned {
+  color: var(--sms-status-planned);
+}
+
+.sms-status-planned::before {
+  border: 1.5px solid var(--sms-status-planned);
+}
+
+/* FAQ. */
+.sms-faq {
+  display: grid;
+  gap: 1.75rem;
+  margin: 2rem 0 0;
+}
+
+@media (min-width: 48rem) {
+  .sms-faq {
+    column-gap: 3rem;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.sms-faq dt {
+  font-weight: 600;
+}
+
+.sms-faq dd {
+  color: var(--blume-muted-foreground);
+  line-height: 1.6;
+  margin: 0.5rem 0 0;
+  text-wrap: pretty;
+}
+
+.sms-closing {
+  text-align: start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sms-btn {
+    transition: none;
+  }
+
+  .sms-btn:active {
+    scale: none;
+  }
+}
+
+/* Copy button for landing code blocks. Sits in the code block's title strip. */
+.sms-code {
+  position: relative;
+}
+
+.sms-copy {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--blume-radius) * 0.75);
+  color: var(--blume-muted-foreground);
+  cursor: pointer;
+  display: inline-flex;
+  height: 2rem;
+  inset-block-start: 0.375rem;
+  inset-inline-end: 0.5rem;
+  justify-content: center;
+  position: absolute;
+  transition-duration: 150ms;
+  transition-property: background-color, color;
+  width: 2rem;
+}
+
+.sms-copy:hover {
+  background-color: var(--blume-muted);
+  color: var(--blume-foreground);
+}
+
+.sms-copy:focus-visible {
+  outline: 2px solid var(--blume-accent);
+  outline-offset: 1px;
+}
+
+.sms-copy svg {
+  fill: none;
+  height: 1rem;
+  position: absolute;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  transition-duration: 200ms;
+  transition-property: opacity, scale, filter;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  width: 1rem;
+}
+
+.sms-check-icon {
+  filter: blur(4px);
+  opacity: 0;
+  scale: 0.25;
+}
+
+.sms-copy[data-copied] .sms-copy-icon {
+  filter: blur(4px);
+  opacity: 0;
+  scale: 0.25;
+}
+
+.sms-copy[data-copied] .sms-check-icon {
+  color: var(--sms-status-supported);
+  filter: blur(0);
+  opacity: 1;
+  scale: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sms-copy svg {
+    transition: none;
+  }
+}
+
+/* Blume caps prose code at 24rem and scrolls the rest. Landing snippets are
+   short and should show whole. */
+.sms-code pre > code {
+  max-height: none;
+}

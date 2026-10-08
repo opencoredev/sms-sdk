@@ -1,5 +1,0 @@
-{
-  "title": "Agents",
-  "icon": "agents",
-  "pages": ["index", "skill", "ai-sdk", "ai-sdk-harness", "eve", "mastra"]
-}
