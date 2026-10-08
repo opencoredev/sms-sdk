@@ -14,6 +14,9 @@
 import type {
   AdapterMessage,
   AdapterSendOutcome,
+  ProviderOptionValue,
+  ProviderOptionsOf,
+  ProviderOptionsSpec,
   RejectionCategory,
   SmsAdapter,
   SmsCapabilities,
@@ -99,8 +102,51 @@ export const VONAGE_SUPPORT_NOTES: readonly string[] = [
   "Short codes and MMS (a separate Messages API channel) are not supported by this adapter.",
 ];
 
-/** Request body for `POST /v1/messages` with channel `sms`. */
+/**
+ * Messages API SMS parameters accepted in `providerOptions.vonage`, from the
+ * Messages OpenAPI spec (`OutboundSMSText`). Wire names that start with
+ * `sms.` are sent inside the `sms` object, in `extra` too. Parameters the SDK
+ * sets are reserved, as is `failover`, which would send extra messages on
+ * other channels outside the SDK's outcome tracking. Not typed:
+ * `trusted_sender` (deprecated by Vonage in favor of `trusted_recipient`).
+ *
+ * @see https://developer.vonage.com/en/api/messages
+ */
+export const VONAGE_PROVIDER_OPTIONS = {
+  options: {
+    /** `client_ref`: your reference, up to 100 characters, returned in every status webhook. */
+    clientRef: { type: "string", wire: "client_ref", maxLength: 100 },
+    /** `webhook_version`: status webhook format for this message. `parseSmsWebhook` reads `"v1"`. */
+    webhookVersion: { type: "enum", wire: "webhook_version", values: ["v0.1", "v1"] },
+    /** `trusted_recipient`: skip Fraud Defender protections for this message (Fraud Defender Premium only). */
+    trustedRecipient: { type: "boolean", wire: "trusted_recipient" },
+    /** `sms.encoding_type`: `"text"`, `"unicode"`, or `"auto"` (default, detect from the text). */
+    encodingType: { type: "enum", wire: "sms.encoding_type", values: ["text", "unicode", "auto"] },
+    /** `sms.content_id`: regulatory content (template) ID required in some countries. */
+    contentId: { type: "string", wire: "sms.content_id" },
+    /** `sms.entity_id`: regulatory entity ID required in some countries. */
+    entityId: { type: "string", wire: "sms.entity_id" },
+    /** `sms.pool_id`: Number Pool to pick the sender from. `from` is still sent and used if the pool cannot be. */
+    poolId: { type: "string", wire: "sms.pool_id" },
+  },
+  reserved: ["message_type", "channel", "to", "from", "text", "ttl", "webhook_url", "failover", "sms"],
+} as const satisfies ProviderOptionsSpec;
+
+/** Vonage-specific send options: `providerOptions.vonage`. */
+export type VonageSendOptions = ProviderOptionsOf<typeof VONAGE_PROVIDER_OPTIONS>;
+
+declare module "../core/types.js" {
+  interface SmsProviderOptions {
+    /** Vonage Messages API SMS parameters. Applies only when the `vonage` adapter sends. */
+    readonly vonage?: VonageSendOptions;
+  }
+}
+
+const SMS_OBJECT_PREFIX = "sms.";
+
+/** Request body for `POST /v1/messages` with channel `sms`. Provider options add their own keys. */
 export type VonageMessageRequest = {
+  [option: string]: ProviderOptionValue | Record<string, ProviderOptionValue> | undefined;
   message_type: "text";
   channel: "sms";
   to: string;
@@ -108,6 +154,8 @@ export type VonageMessageRequest = {
   text: string;
   ttl?: number;
   webhook_url?: string;
+  /** SMS settings from `sms.*` provider options. */
+  sms?: Record<string, ProviderOptionValue>;
 };
 
 /**
@@ -128,6 +176,7 @@ export function vonage(options: VonageOptions): SmsAdapter {
     name: "vonage",
     capabilities,
     support: { status: "partial", notes: VONAGE_SUPPORT_NOTES },
+    providerOptions: VONAGE_PROVIDER_OPTIONS,
     ...(options.from === undefined ? {} : { defaultFrom: options.from }),
 
     validate(message) {
@@ -175,6 +224,13 @@ export function buildVonageRequest(message: AdapterMessage): VonageMessageReques
   }
   if (message.webhookUrl !== undefined) {
     request.webhook_url = message.webhookUrl;
+  }
+  for (const field of message.providerFields ?? []) {
+    if (field.wire.startsWith(SMS_OBJECT_PREFIX)) {
+      request.sms = { ...request.sms, [field.wire.slice(SMS_OBJECT_PREFIX.length)]: field.value };
+    } else {
+      request[field.wire] = field.value;
+    }
   }
   return request;
 }

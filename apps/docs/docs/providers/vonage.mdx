@@ -103,7 +103,7 @@ With JWT auth, the adapter signs a fresh RS256 token for each request with the c
 ## API version and endpoint
 
 - `POST https://{region}.nexmo.com/v1/messages` (Messages API v1)
-- JSON body: `message_type: "text"`, `channel: "sms"`, `to` and `from` without the leading `+`, `text`, `ttl` (from `validityPeriodSec`), and `webhook_url` (from `webhookUrl`).
+- JSON body: `message_type: "text"`, `channel: "sms"`, `to` and `from` without the leading `+`, `text`, `ttl` (from `validityPeriodSec`), `webhook_url` (from `webhookUrl`), and any [provider options](#provider-options).
 - Success: a 2xx response with `message_uuid`. A 2xx without it is an unknown outcome.
 
 ## Senders
@@ -141,6 +141,46 @@ SMS SDK does not check country rules before sending, and these rules have not be
 | Inbound webhooks | Yes | No |
 | Empty body | Not allowed | Not allowed |
 | Native idempotency | No | No |
+
+## Provider options
+
+Pass the Messages API's other SMS fields in `providerOptions.vonage`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+
+const sms = createSmsClient({
+  adapters: [
+    vonage({
+      applicationId: process.env.VONAGE_APPLICATION_ID ?? "",
+      privateKey: process.env.VONAGE_PRIVATE_KEY ?? "",
+      from: "+15550100001",
+    }),
+  ],
+});
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  providerOptions: { vonage: { clientRef: "order-123", encodingType: "text" } },
+});
+```
+
+| Option | Vonage field | Type |
+| --- | --- | --- |
+| `clientRef` | `client_ref` | `string`, up to 100 characters. Returned in every status webhook. |
+| `webhookVersion` | `webhook_version` | `"v0.1" \| "v1"`. `parseSmsWebhook` reads `v1`. |
+| `trustedRecipient` | `trusted_recipient` | `boolean`. Skips Fraud Defender protections; Fraud Defender Premium only. |
+| `encodingType` | `sms.encoding_type` | `"text" \| "unicode" \| "auto"` |
+| `contentId` | `sms.content_id` | `string`, a regulatory ID some countries require |
+| `entityId` | `sms.entity_id` | `string`, a regulatory ID some countries require |
+| `poolId` | `sms.pool_id` | `string`, a Number Pool to send from. `from` is still sent and used if the pool cannot be. |
+| `extra` | any other field | `Record<string, string \| number \| boolean>`, sent as is. A key such as `sms.new_field` goes inside the `sms` object. |
+
+Each option maps to one Vonage JSON parameter. Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. Options apply only when the `vonage` adapter sends; see [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency behavior.
+
+SMS SDK sets `message_type`, `channel`, `to`, `from`, `text`, `ttl`, `webhook_url`, and `sms` itself, so `extra` cannot (use `sms.<name>` keys instead of `sms`). `failover` is blocked too: Vonage would send further messages, possibly on other channels, that SMS SDK cannot track. `trusted_sender` is deprecated by Vonage in favor of `trusted_recipient`.
 
 ## Example: send and track delivery
 
@@ -296,7 +336,7 @@ type VonageOptions =
 type VonageRegion = "api" | "api-eu" | "api-us" | "api-ap";
 ```
 
-Also exported from `@opencoredev/sms-sdk/vonage`: `VONAGE_JWT_CAPABILITIES`, `VONAGE_BASIC_CAPABILITIES`, `VONAGE_SUPPORT_NOTES`, `buildVonageRequest(message)`, `interpretVonageResponse(status, text, headers)`, `vonageRejectionCategory(status, code)`, `signVonageJwt({ applicationId, key, now })`, and the types `VonageOptions`, `VonageRegion`, `VonageBasicAuthOptions`, `VonageJwtAuthOptions`, `VonageMessageRequest`.
+Also exported from `@opencoredev/sms-sdk/vonage`: `VONAGE_JWT_CAPABILITIES`, `VONAGE_BASIC_CAPABILITIES`, `VONAGE_SUPPORT_NOTES`, `VONAGE_PROVIDER_OPTIONS`, `buildVonageRequest(message)`, `interpretVonageResponse(status, text, headers)`, `vonageRejectionCategory(status, code)`, `signVonageJwt({ applicationId, key, now })`, and the types `VonageOptions`, `VonageRegion`, `VonageBasicAuthOptions`, `VonageJwtAuthOptions`, `VonageMessageRequest`, `VonageSendOptions`.
 
 ## Official documentation
 

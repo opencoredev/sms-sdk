@@ -103,7 +103,62 @@ export type AdapterMessage = {
   readonly sendAt?: Date;
   readonly validityPeriodSec?: number;
   readonly webhookUrl?: string;
+  /**
+   * This adapter's `providerOptions` entry, parsed against its
+   * {@link SmsAdapter.providerOptions} spec. Absent or empty when the caller
+   * passed none. Send every field as is: the client has already rejected
+   * unknown keys, wrong types, and collisions with fields the adapter sets.
+   */
+  readonly providerFields?: readonly ProviderWireField[];
 };
+
+/** A value the caller may pass in `providerOptions`, including `extra`. */
+export type ProviderOptionValue = string | number | boolean;
+
+/**
+ * Unvalidated passthrough for provider parameters the typed options do not
+ * cover yet, keyed by the provider's own wire name. The SDK checks only that
+ * the key is not one it sets itself and that the value is a string, finite
+ * number, or boolean.
+ */
+export type ProviderExtra = { readonly [wire: string]: ProviderOptionValue };
+
+/** One provider option after parsing: the provider's parameter name and the value to send. */
+export type ProviderWireField = { readonly wire: string; readonly value: ProviderOptionValue };
+
+/** How one typed provider option is checked and sent. */
+export type ProviderOptionField =
+  | { readonly type: "boolean"; readonly wire: string }
+  | { readonly type: "string"; readonly wire: string; readonly maxLength?: number; readonly pattern?: RegExp }
+  | { readonly type: "integer"; readonly wire: string; readonly min: number; readonly max?: number }
+  | { readonly type: "enum"; readonly wire: string; readonly values: readonly [string, ...string[]] };
+
+/**
+ * An adapter's provider-specific send options. Declare it with
+ * `as const satisfies ProviderOptionsSpec` and derive the caller-facing type
+ * with {@link ProviderOptionsOf}.
+ */
+export type ProviderOptionsSpec = {
+  /** Typed options by camelCase name. `extra` is reserved for the passthrough. */
+  readonly options: { readonly [option: string]: ProviderOptionField };
+  /** Wire names the adapter sets from portable fields. Neither typed options nor `extra` may set them. */
+  readonly reserved: readonly string[];
+};
+
+type ProviderOptionFieldValue<F extends ProviderOptionField> = F extends { readonly type: "boolean" }
+  ? boolean
+  : F extends { readonly type: "string" }
+    ? string
+    : F extends { readonly type: "integer" }
+      ? number
+      : F extends { readonly type: "enum"; readonly values: readonly (infer V)[] }
+        ? V
+        : never;
+
+/** The caller-facing options type for a {@link ProviderOptionsSpec}: every typed option, plus `extra`. */
+export type ProviderOptionsOf<S extends ProviderOptionsSpec> = {
+  readonly [K in keyof S["options"]]?: ProviderOptionFieldValue<S["options"][K]>;
+} & { readonly extra?: ProviderExtra };
 
 /** Per-attempt context the client passes to {@link SmsAdapter.send}. */
 export type SendContext = {
@@ -212,7 +267,8 @@ export type ValidationField =
   | "sendAt"
   | "validityPeriodSec"
   | "webhookUrl"
-  | "idempotencyKey";
+  | "idempotencyKey"
+  | "providerOptions";
 
 /**
  * The adapter contract. Implement it to add a provider; run
@@ -225,6 +281,13 @@ export interface SmsAdapter {
   readonly support: AdapterSupport;
   /** Sender used when the message has no `from`. */
   readonly defaultFrom?: SmsFrom;
+  /**
+   * Provider-specific send options this adapter accepts under its `name` in
+   * `SmsSendInput.providerOptions`. Without it, any entry for this adapter is
+   * rejected with `UnsupportedFieldError`. To type the entry for callers,
+   * augment `SmsProviderOptions`; see the built-in adapters.
+   */
+  readonly providerOptions?: ProviderOptionsSpec;
   /**
    * Provider-specific checks that need no network, such as sender ID formats
    * or field combinations. Generic capability checks run in the client.

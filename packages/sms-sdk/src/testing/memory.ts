@@ -3,6 +3,7 @@ import type {
   AdapterSendOutcome,
   AdapterSupport,
   Delivery,
+  ProviderOptionsSpec,
   RejectionCategory,
   SendContext,
   SmsAdapter,
@@ -32,6 +33,12 @@ export type MemoryAdapterOptions = {
   readonly from?: SmsFrom;
   /** Capability overrides. Defaults allow every field and sender type. */
   readonly capabilities?: Partial<SmsCapabilities>;
+  /**
+   * Provider options to accept, such as `TWILIO_PROVIDER_OPTIONS` with
+   * `name: "twilio"`. Parsed fields are recorded in `sent[i].message.providerFields`.
+   * Without it, any `providerOptions` entry for this adapter is rejected.
+   */
+  readonly providerOptions?: ProviderOptionsSpec;
   /** Outcomes used in order, one per send. After they run out, sends are accepted. */
   readonly outcomes?: readonly MemoryOutcome[];
 };
@@ -78,6 +85,7 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
     name,
     capabilities: { ...MEMORY_CAPABILITIES, ...options.capabilities },
     support: MEMORY_SUPPORT,
+    ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }),
     defaultFrom: options.from ?? "+15005550006",
     sent,
 

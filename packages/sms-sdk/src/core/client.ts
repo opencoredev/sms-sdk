@@ -1,4 +1,4 @@
-import type { ValidationIssue } from "./adapters.js";
+import type { SmsAdapter, ValidationIssue } from "./adapters.js";
 import { checkAdapter, issueToError, validateMessage } from "./capabilities.js";
 import { maskPhoneNumber } from "./e164.js";
 import { estimateSegments, type SegmentPreview } from "./encoding.js";
@@ -13,6 +13,7 @@ import {
 } from "./errors.js";
 import { emitHook, type SmsHookEventBase } from "./events.js";
 import { runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
+import { adaptersWithProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
 import { resolveRetryOptions } from "./retry.js";
 import type {
@@ -71,24 +72,30 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
   const validate = (input: SmsSendInput): SmsValidationResult => {
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
-    const messageIssues = validateMessage(input);
+    const messageIssues = [...validateMessage(input), ...validateProviderOptions(adapters, input.providerOptions)];
     if (messageIssues.length > 0) {
-      return { ...preview, supported: false, issues: messageIssues, adapterCandidates: [] };
+      return { ...preview, supported: false, issues: messageIssues, adapterCandidates: [], providerOptionsFor: [] };
     }
 
     const issues: ValidationIssue[] = [];
-    const candidates: string[] = [];
+    const candidates: SmsAdapter[] = [];
     let primarySupported = false;
     adapters.forEach((adapter, index) => {
       const check = checkAdapter(adapter, input);
       if (check.kind === "ok") {
-        candidates.push(adapter.name);
+        candidates.push(adapter);
         primarySupported ||= index === 0;
       } else {
         issues.push(...check.issues);
       }
     });
-    return { ...preview, supported: primarySupported, issues, adapterCandidates: candidates };
+    return {
+      ...preview,
+      supported: primarySupported,
+      issues,
+      adapterCandidates: candidates.map((adapter) => adapter.name),
+      providerOptionsFor: adaptersWithProviderOptions(candidates, input.providerOptions),
+    };
   };
 
   const send = async (input: SmsSendInput, sendOptions: SmsSendOptions = {}): Promise<SmsSendResult> => {
@@ -112,6 +119,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       sendAt: input.sendAt?.toISOString() ?? null,
       validityPeriodSec: input.validityPeriodSec ?? null,
       webhookUrl: input.webhookUrl ?? null,
+      providerOptions: input.providerOptions,
     });
 
     const running = inFlight.get(key);
@@ -134,7 +142,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
   /** Validates and builds the ordered candidates, throwing for the primary adapter's first issue. */
   const buildCandidates = (input: SmsSendInput): [SendCandidate, ...SendCandidate[]] => {
-    const [firstIssue] = validateMessage(input);
+    const [firstIssue] = [...validateMessage(input), ...validateProviderOptions(adapters, input.providerOptions)];
     if (firstIssue !== undefined) {
       throw issueToError(firstIssue);
     }

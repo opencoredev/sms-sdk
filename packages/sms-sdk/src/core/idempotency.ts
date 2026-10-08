@@ -142,6 +142,9 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
 /**
  * SHA-256 fingerprint of the fields that make two sends "the same message".
  * Used to detect a key reused with a different payload.
+ *
+ * `providerOptions` is included with its object keys sorted, and only when
+ * present, so sends without it keep the fingerprint earlier versions stored.
  */
 export async function fingerprintMessage(fields: {
   readonly to: string;
@@ -151,8 +154,9 @@ export async function fingerprintMessage(fields: {
   readonly sendAt: string | null;
   readonly validityPeriodSec: number | null;
   readonly webhookUrl: string | null;
+  readonly providerOptions?: unknown;
 }): Promise<string> {
-  const canonical = JSON.stringify([
+  const parts: unknown[] = [
     fields.to,
     fields.from ?? null,
     fields.body,
@@ -160,7 +164,27 @@ export async function fingerprintMessage(fields: {
     fields.sendAt,
     fields.validityPeriodSec,
     fields.webhookUrl,
-  ]);
+  ];
+  if (fields.providerOptions !== undefined) {
+    parts.push(sortKeys(fields.providerOptions));
+  }
+  const canonical = JSON.stringify(parts);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Copies plain objects with their keys sorted, recursively, so key order does not change a fingerprint. */
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortKeys);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, nested]) => nested !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, nested]) => [key, sortKeys(nested)]),
+    );
+  }
+  return value;
 }

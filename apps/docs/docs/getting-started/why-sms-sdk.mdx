@@ -5,7 +5,7 @@ description: "SMS SDK vs the Twilio, Telnyx, Plivo, and Vonage SDKs: when each i
 
 You can send SMS with a provider's own SDK, or with SMS SDK in front of one or more providers. This page helps you choose.
 
-**A provider SDK is a good fit** when you use one provider, need features beyond SMS (voice, verification, number lookup, number purchasing, TwiML), or want every option the provider's API has on the day it ships.
+**A provider SDK is a good fit** when you use one provider, need features beyond SMS (voice, verification, number lookup, number purchasing, TwiML), or want new API parameters typed on the day they ship.
 
 **SMS SDK is a good fit** when you only send and receive SMS, want to change or add providers without touching call sites, and want timeouts and ambiguous responses handled conservatively by default.
 
@@ -19,8 +19,7 @@ Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
 | --- | --- | --- |
 | Send SMS | ✅ | ✅ |
 | Same send code across four providers | ✅ | ❌ |
-| Voice, verification, lookup, number management | ❌ | ✅ |
-| Every provider-specific SMS option | ❌ [1] | ✅ |
+| Provider-specific SMS options | ✅ [1] | ✅ |
 | Typed errors that say whether a retry can duplicate a message | ✅ | 🟡 [2] |
 | Fallback to a second provider after a proven rejection | ✅ | ❌ |
 | Unsupported fields fail before the request | ✅ | 🟡 [3] |
@@ -30,7 +29,7 @@ Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
 | In-memory test adapter and signed webhook builders | ✅ | 🟡 |
 | Runtime dependencies | 0 | `twilio` 7, `plivo` 15, `telnyx` 0, `@vonage/server-sdk` 17 (Vonage packages) [4] |
 
-1. SMS SDK exposes the fields every adapter can map: `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, `idempotencyKey`. Options such as Twilio's `ShortenUrls` or Telnyx's `auto_detect` have no field. Use the provider SDK, or [build your own adapter](/providers/writing-an-adapter), if you need them.
+1. Through [`providerOptions`](/reference/send#provideroptions): typed options for the documented optional SMS parameters of each provider's send request, such as Twilio's `ShortenUrls` or Telnyx's `auto_detect`, plus an `extra` passthrough for any other parameter, including ones added later. Parameters that would replace a portable field stay blocked, such as Twilio's `ContentSid`, because a Content Template replaces `body`. Each provider page lists its options.
 2. Provider SDKs throw their own error types with HTTP status and error codes. Deciding which ones are safe to retry is left to your code.
 3. Provider APIs validate fields on their side, so you learn about an unsupported field from a failed (sometimes billed) request.
 4. Direct `dependencies` in each package's `package.json` on the comparison date. Transitive counts are higher.
@@ -44,9 +43,9 @@ Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
 
 ## Where provider SDKs are stronger
 
-- **Coverage.** They expose the whole platform and every SMS option. SMS SDK covers SMS send and receive only.
+- **Coverage.** They expose the whole platform: voice, verification, number lookup, number purchasing, and account management. SMS SDK sends and receives SMS only, on purpose, and has no equivalent for the rest.
+- **New parameters.** A provider SDK types a new API parameter when it ships. In SMS SDK it goes through `extra`, unvalidated, until a release adds a typed option. Twilio Content Templates are not supported.
 - **Maturity.** They have years of production use and the provider's own support behind them. SMS SDK is at 0.1.0.
-- **Provider features.** Number lookup, verification products, and account management have no SMS SDK equivalent.
 - **Status.** Two of the four SMS SDK adapters are marked partial, because Plivo and Vonage do not document parts of their error behavior. See the [Providers overview](/providers/overview).
 
 ## Side by side
@@ -119,7 +118,7 @@ try {
 
 ## When to choose a provider SDK
 
-- You need voice, verification, lookups, or provider options SMS SDK does not expose.
+- You need voice, verification, lookups, number management, or Twilio Content Templates.
 - You are committed to one provider and want its full feature set and support.
 
 You can use both: SMS SDK for sending and webhooks, the provider SDK for everything else.

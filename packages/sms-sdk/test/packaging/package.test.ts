@@ -99,6 +99,61 @@ describe("published package", () => {
     expect(run("node", ["--input-type=module", "-e", script], consumerDir).trim()).toBe("SM0123456789abcdef0123456789abcdef 1");
   });
 
+  test("providerOptions reach the request from the installed package under Node", () => {
+    const script = `
+      import { createSmsClient } from "@opencoredev/sms-sdk";
+      import { twilio } from "@opencoredev/sms-sdk/twilio";
+      import { mockFetch } from "@opencoredev/sms-sdk/testing";
+      const fake = mockFetch({ status: 201, body: { sid: "SM0123456789abcdef0123456789abcdef", status: "queued" } });
+      const sms = createSmsClient({ adapters: [twilio({ accountSid: "AC0123456789abcdef0123456789abcdef", authToken: "t", from: "+15005550006", fetch: fake.fetch })] });
+      await sms.send({ to: "+14155550123", body: "hi", providerOptions: { twilio: { smartEncoded: true } } });
+      console.log(new URLSearchParams(fake.calls[0].body).get("SmartEncoded"));
+    `;
+    expect(run("node", ["--input-type=module", "-e", script], consumerDir).trim()).toBe("true");
+  });
+
+  test("providerOptions are typed per imported adapter in the published declarations", () => {
+    const tsc = join(dirname(Bun.resolveSync("typescript/package.json", PACKAGE_DIR)), "bin", "tsc");
+    writeFileSync(
+      join(consumerDir, "options.ts"),
+      `import { createSmsClient, type SmsSendInput } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+const sms = createSmsClient({ adapters: [twilio({ accountSid: "AC0", authToken: "t" }), telnyx({ apiKey: "k" })] });
+const input: SmsSendInput = {
+  to: "+14155550123",
+  body: "hi",
+  providerOptions: { twilio: { shortenUrls: true, extra: { TrafficType: "free" } }, telnyx: { autoDetect: true } },
+};
+void sms.validate(input);
+// @ts-expect-error unknown Twilio option
+const unknownOption: SmsSendInput = { to: "+14155550123", body: "hi", providerOptions: { twilio: { shortenUrl: true } } };
+// @ts-expect-error vonage is not imported, so it has no key
+const notImported: SmsSendInput = { to: "+14155550123", body: "hi", providerOptions: { vonage: {} } };
+export { unknownOption, notImported };
+`,
+    );
+    writeFileSync(
+      join(consumerDir, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          exactOptionalPropertyTypes: true,
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          target: "ES2022",
+          lib: ["ES2022", "DOM"],
+          types: [],
+          noEmit: true,
+          skipLibCheck: false,
+        },
+        files: ["options.ts"],
+      }),
+    );
+    expect(run("node", [tsc, "-p", consumerDir], consumerDir)).toBe("");
+  });
+
   test("Telnyx Ed25519 webhook verification works under Node", () => {
     const script = `
       import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";

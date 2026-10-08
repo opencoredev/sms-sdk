@@ -66,7 +66,7 @@ Telnyx uses one API v2 key per request, sent as `Authorization: Bearer <apiKey>`
 
 - `POST https://api.telnyx.com/v2/messages`
 - `Authorization: Bearer <apiKey>`, JSON body.
-- Fields sent: `to`, `from` or `messaging_profile_id`, `text`, `media_urls` with `type: "MMS"`, `webhook_url` (from `webhookUrl`), and `send_at` (from `sendAt`).
+- Fields sent: `to`, `from` or `messaging_profile_id`, `text`, `media_urls` with `type: "MMS"`, `webhook_url` (from `webhookUrl`), `send_at` (from `sendAt`), and any [provider options](#provider-options).
 - Success: a 2xx response with `data.id`. Delivery comes from `data.to[0].status`, usually `queued`. A 2xx without `data.id` is an unknown outcome.
 
 ## Senders
@@ -104,6 +104,41 @@ SMS SDK does not check country rules before sending, and these rules have not be
 | Delivery status webhooks | Yes |
 | Inbound webhooks | Yes |
 | Native idempotency | No |
+
+## Provider options
+
+Pass Telnyx's other `POST /v2/messages` fields in `providerOptions.telnyx`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" })],
+});
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  webhookUrl: "https://example.com/webhooks/sms/telnyx",
+  providerOptions: {
+    telnyx: { encoding: "gsm7", webhookFailoverUrl: "https://backup.example.com/webhooks/sms/telnyx" },
+  },
+});
+```
+
+| Option | Telnyx field | Type |
+| --- | --- | --- |
+| `subject` | `subject` | `string`, the subject of an MMS |
+| `webhookFailoverUrl` | `webhook_failover_url` | `http` or `https` URL |
+| `useProfileWebhooks` | `use_profile_webhooks` | `boolean`, Telnyx default `true` |
+| `autoDetect` | `auto_detect` | `boolean`, Telnyx default `false` |
+| `encoding` | `encoding` | `"auto" \| "gsm7" \| "ucs2"`. With `"gsm7"`, Telnyx answers 400 if a character has no GSM-7 form. |
+| `extra` | any other field | `Record<string, string \| number \| boolean>`, sent as is |
+
+Each option maps to one Telnyx JSON parameter. Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. Options apply only when the `telnyx` adapter sends; see [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency behavior.
+
+SMS SDK sets `to`, `from`, `messaging_profile_id`, `text`, `media_urls`, `type`, `webhook_url`, and `send_at` itself, so `extra` cannot.
 
 ## Example: send and track delivery
 
@@ -201,7 +236,6 @@ The code comes from `errors[0].code` in the response. Telnyx does not document a
 - No `validityPeriodSec`. Use Twilio, Plivo, or Vonage if you need an expiry.
 - Alphanumeric senders need a messaging profile ID on the adapter.
 - Error 40008 is not mapped to `message.filtered`, because Telnyx's pages disagree on its meaning. It stays `message.undelivered`.
-- Telnyx-specific request options such as `auto_detect` or `subject` have no field.
 
 ## Testing
 
@@ -254,7 +288,7 @@ type TelnyxOptions = {
 };
 ```
 
-Also exported from `@opencoredev/sms-sdk/telnyx`: `TELNYX_CAPABILITIES`, `buildTelnyxRequest(message, messagingProfileId)`, `interpretTelnyxResponse(status, text, headers)`, `telnyxRejectionCategory(status, code)`, `telnyxDelivery(status)`, and the types `TelnyxOptions`, `TelnyxMessageRequest`.
+Also exported from `@opencoredev/sms-sdk/telnyx`: `TELNYX_CAPABILITIES`, `TELNYX_PROVIDER_OPTIONS`, `buildTelnyxRequest(message, messagingProfileId)`, `interpretTelnyxResponse(status, text, headers)`, `telnyxRejectionCategory(status, code)`, `telnyxDelivery(status)`, and the types `TelnyxOptions`, `TelnyxMessageRequest`, `TelnyxSendOptions`.
 
 ## Official documentation
 

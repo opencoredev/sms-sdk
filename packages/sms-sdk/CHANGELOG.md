@@ -4,6 +4,7 @@
 
 First public version.
 
+- `providerOptions` on `send()` input: typed, per-adapter provider parameters (`{ twilio: { shortenUrls: true }, telnyx: { autoDetect: true } }`) plus an unvalidated `extra` passthrough. Each adapter subpath adds its key by module augmentation of `SmsProviderOptions`. Unknown keys, wrong types, and fields the SDK sets throw before any request; options apply only to their own adapter, are listed in `validate().providerOptionsFor`, and are part of the idempotency fingerprint. Adapters declare accepted options with `SmsAdapter.providerOptions` and receive them as `AdapterMessage.providerFields`.
 - `createSmsClient` with `send()`, `validate()`, and `capabilities()`. `send()` resolves only on provider acceptance; rejections and unknown outcomes throw typed errors with `code`, `retrySafe`, and redacted `attempts`.
 - Adapters: Twilio (supported), Telnyx (supported), Plivo (partial), Vonage Messages API with Basic or JWT auth (partial). See PROVIDERS.md.
 - Opt-in fallback (`fallback: "on-known-rejection"`) for auth, rate-limit, sender, and account rejections only. Never after unknown outcomes.

@@ -8,6 +8,9 @@
 import type {
   AdapterMessage,
   AdapterSendOutcome,
+  ProviderOptionValue,
+  ProviderOptionsOf,
+  ProviderOptionsSpec,
   RejectionCategory,
   SmsAdapter,
   SmsCapabilities,
@@ -59,8 +62,37 @@ export const PLIVO_SUPPORT_NOTES: readonly string[] = [
   "Plivo documents no timestamp in callback signatures, so webhook replay protection relies on your deduplication.",
 ];
 
-/** Request body for the Plivo Message API. */
+/**
+ * Plivo Message API parameters accepted in `providerOptions.plivo`, from the
+ * Send a message reference. Parameters the SDK sets from portable fields are
+ * reserved. Not typed: the deprecated India DLT parameters and the
+ * WhatsApp-only `template`, `interactive`, and `location`.
+ *
+ * @see https://www.plivo.com/docs/messaging/api/message/send-a-message
+ */
+export const PLIVO_PROVIDER_OPTIONS = {
+  options: {
+    /** `log`: how Plivo logs the message. `"content_only"` and `"number_only"` log one of the two. Default `"true"`. */
+    log: { type: "enum", wire: "log", values: ["true", "false", "content_only", "number_only"] },
+    /** `trackable`: the message has a trackable action, such as a 2FA code. Default `false`. */
+    trackable: { type: "boolean", wire: "trackable" },
+  },
+  reserved: ["src", "powerpack_uuid", "dst", "text", "type", "media_urls", "url", "method", "message_expiry"],
+} as const satisfies ProviderOptionsSpec;
+
+/** Plivo-specific send options: `providerOptions.plivo`. */
+export type PlivoSendOptions = ProviderOptionsOf<typeof PLIVO_PROVIDER_OPTIONS>;
+
+declare module "../core/types.js" {
+  interface SmsProviderOptions {
+    /** Plivo Message API parameters. Applies only when the `plivo` adapter sends. */
+    readonly plivo?: PlivoSendOptions;
+  }
+}
+
+/** Request body for the Plivo Message API. Provider options add their own keys. */
 export type PlivoMessageRequest = {
+  [option: string]: ProviderOptionValue | string[] | undefined;
   src?: string;
   powerpack_uuid?: string;
   dst: string;
@@ -96,6 +128,7 @@ export function plivo(options: PlivoOptions): SmsAdapter {
     name: "plivo",
     capabilities: PLIVO_CAPABILITIES,
     support: { status: "partial", notes: PLIVO_SUPPORT_NOTES },
+    providerOptions: PLIVO_PROVIDER_OPTIONS,
     ...(options.from === undefined ? {} : { defaultFrom: options.from }),
 
     async send(message, context) {
@@ -140,6 +173,9 @@ export function buildPlivoRequest(message: AdapterMessage): PlivoMessageRequest 
   }
   if (message.validityPeriodSec !== undefined) {
     request.message_expiry = message.validityPeriodSec;
+  }
+  for (const field of message.providerFields ?? []) {
+    request[field.wire] = field.value;
   }
   return request;
 }

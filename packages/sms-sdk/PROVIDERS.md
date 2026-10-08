@@ -9,6 +9,7 @@ Rules applied to every adapter:
 - 5xx, 1xx/3xx, network errors, timeouts, and aborts after the request starts are unknown. They are never retried or failed over.
 - An HTTP 429 is `rate_limited` (retried, then fallback-eligible) only when the body carries the provider's documented rate-limit error, listed per provider below. Any other 429, such as a proxy or CDN page, an empty body, or JSON the provider did not produce, is unknown: nothing proves the message was not created.
 - No provider documents send idempotency for its SMS endpoint, so no adapter sends an idempotency key and `nativeIdempotency` is `false` everywhere.
+- Provider options (`providerOptions.<adapter>`) cover the documented optional parameters of each send endpoint that the portable fields do not. Each typed option maps to one wire parameter, listed per provider below. Parameters the adapter sets from portable fields are reserved: neither a typed option nor `extra` can set them (compared case-insensitively). `extra` passes any other parameter through unvalidated.
 
 ## Twilio: supported
 
@@ -29,6 +30,23 @@ Sending:
 - Fields used: `To`, `From` or `MessagingServiceSid` (`^MG[0-9a-fA-F]{32}$`), `Body` (up to 1,600 characters), `MediaUrl` (up to 10), `StatusCallback`, `ValidityPeriod` (1-36000 seconds), `SendAt` (ISO 8601) with `ScheduleType=fixed` (Messaging Service only).
 - Response ID: `sid`, `^(SM|MM)[0-9a-fA-F]{32}$`. Initial `status` is `queued`, or `accepted`/`scheduled` with a Messaging Service; all three map to delivery `queued`.
 - Error body: `{ code, message, more_info, status }`.
+
+Provider options (`providerOptions.twilio`), from the Create a Message parameter list (https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource), sent as form parameters:
+
+| Option | Wire | Type |
+|---|---|---|
+| `applicationSid` | `ApplicationSid` | `AP` + 32 hex |
+| `provideFeedback` | `ProvideFeedback` | boolean |
+| `attempt` | `Attempt` | integer ≥ 1 |
+| `contentRetention` | `ContentRetention` | `retain`, `discard` |
+| `addressRetention` | `AddressRetention` | `retain`, `obfuscate` |
+| `smartEncoded` | `SmartEncoded` | boolean |
+| `shortenUrls` | `ShortenUrls` | boolean; Twilio requires `MessagingServiceSid`, so the adapter rejects it with any other sender |
+| `sendAsMms` | `SendAsMms` | boolean |
+| `messageIntent` | `MessageIntent` | `otp`, `notifications`, `marketing`, `fraud`, `security`, `customercare`, `delivery`, `education`, `polling`, `announcements`, `events` |
+| `riskCheck` | `RiskCheck` | `enable`, `disable` |
+
+Reserved: `To`, `From`, `MessagingServiceSid`, `Body`, `MediaUrl`, `StatusCallback`, `ValidityPeriod`, `SendAt`, `ScheduleType`, and `ContentSid`/`ContentVariables` (a Content Template replaces `Body`, which the SDK owns). Not typed: `MaxPrice` ("[OBSOLETE] ... no longer have any effect as of 2024-06-03"), `ForceDelivery` (described only as "Reserved"), `TrafficType` (no description), `PersistentAction` (non-SMS channels), `FallbackFrom` (RCS). These can still go through `extra`.
 
 Error classification (Twilio code → category):
 
@@ -73,6 +91,18 @@ Sending:
 - Response ID: `data.id`. Recipient status `data.to[0].status`: `queued`, `sending`, `sent`, `expired`, `sending_failed`, `delivery_unconfirmed`, `delivered`, `delivery_failed`, `read`.
 - Error body: `{ errors: [{ code, title, detail, source, meta }] }`.
 
+Provider options (`providerOptions.telnyx`), from the `CreateMessageRequest` schema on the Send a message page, sent as JSON fields:
+
+| Option | Wire | Type |
+|---|---|---|
+| `subject` | `subject` | string ("Subject of multimedia message") |
+| `webhookFailoverUrl` | `webhook_failover_url` | http(s) URL |
+| `useProfileWebhooks` | `use_profile_webhooks` | boolean, Telnyx default `true` |
+| `autoDetect` | `auto_detect` | boolean, Telnyx default `false` |
+| `encoding` | `encoding` | `auto` (default), `gsm7` (400 if a character can't be encoded), `ucs2` |
+
+Reserved: `to`, `from`, `messaging_profile_id`, `text`, `media_urls`, `type`, `webhook_url`, `send_at`. The schema has no other optional fields.
+
 Error classification:
 
 | Category | Codes |
@@ -114,6 +144,15 @@ Sending:
 - Response: `{ message, message_uuid: [id], api_id }`. The success status code is not stated; any 2xx with a non-empty `message_uuid` is accepted.
 - Documented status codes: 400 invalid parameter, 401 authentication failed, 404, 405, 429 rate limit exceeded, 500.
 
+Provider options (`providerOptions.plivo`), from the Send a message parameter list, sent as JSON fields:
+
+| Option | Wire | Type |
+|---|---|---|
+| `log` | `log` | `"true"` (default), `"false"`, `"content_only"`, `"number_only"`; documented as a string |
+| `trackable` | `trackable` | boolean, default `false` |
+
+Reserved: `src`, `powerpack_uuid`, `dst`, `text`, `type`, `media_urls`, `url`, `method`, `message_expiry`. Not typed: `dlt_entity_id`, `dlt_template_id`, `dlt_template_category` (marked deprecated: "India DLT is no longer supported"), and the WhatsApp-only `template`, `interactive`, `location`. These can still go through `extra`.
+
 Why partial:
 
 - Plivo does not document its error response body. Only 401 (`auth`) and 429 (`rate_limited`) are classified; every other 4xx is `request` and does not fall back, even when the real cause is a sender problem.
@@ -146,6 +185,20 @@ Sending:
 - Auth: Basic (API key and secret) or JWT (RS256 with the application private key; claims `application_id`, `iat`, `jti`, and `exp`, which defaults to 15 minutes and is set to 15 minutes here). Vonage documents that Basic auth does not support webhooks and returns 401 when the number is linked to an application. The Basic-auth adapter therefore reports no webhook, inbound, or receipt support.
 - Response: `{ message_uuid }` (described as "Accepted"); any 2xx with `message_uuid` is accepted.
 - Errors use RFC 7807 problem details (`type`, `title`, `detail`, `instance`). The error code is read from the `type` fragment (`...#1420`) or a numeric `title`.
+
+Provider options (`providerOptions.vonage`), from the Messages OpenAPI schemas `channelOptionsSms` and `outboundMessageCommon` (https://developer.vonage.com/api/v1/developer/api/file/messages?format=json). Wire names starting with `sms.` are sent inside the `sms` object, including `extra` keys:
+
+| Option | Wire | Type |
+|---|---|---|
+| `clientRef` | `client_ref` | string, up to 100 characters |
+| `webhookVersion` | `webhook_version` | `v0.1`, `v1`; the webhook parser reads `v1` |
+| `trustedRecipient` | `trusted_recipient` | boolean (Fraud Defender Premium only) |
+| `encodingType` | `sms.encoding_type` | `text`, `unicode`, `auto` (default) |
+| `contentId` | `sms.content_id` | string |
+| `entityId` | `sms.entity_id` | string |
+| `poolId` | `sms.pool_id` | string; `from` is still sent and used as the fallback |
+
+Reserved: `message_type`, `channel`, `to`, `from`, `text`, `ttl`, `webhook_url`, `sms` (set it per key with `sms.<name>`), and `failover` (Vonage's own failover sends further messages, possibly on other channels, outside the SDK's outcome tracking). Not typed: `trusted_sender` ("DEPRECATED ... use `trusted_recipient` instead").
 
 Why partial:
 

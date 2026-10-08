@@ -27,6 +27,7 @@ Tests mock `fetch` and never contact a provider. `test/integration/live.test.ts`
    - `capabilities`: only what the provider documents. A flag you cannot verify is `false`.
    - `support`: `{ status: "supported" | "partial", notes }`.
    - `validate(message)`: provider-specific local checks (ID formats, field combinations).
+   - `providerOptions`: a `ProviderOptionsSpec` declared `as const satisfies ProviderOptionsSpec`, with one typed option per documented optional send parameter and every wire name the adapter sets listed in `reserved`. Export `type <Name>SendOptions = ProviderOptionsOf<typeof SPEC>` and add it to `SmsProviderOptions` with `declare module "../core/types.js"`. Apply `message.providerFields` last when building the request.
    - `send(message, context)`: one request through `exchange()` from `src/core/http.ts`, passing `context.signal`. Return `accepted` only with the documented message ID, `rejected` only for 4xx responses that prove the message was not created, and `unknown` for everything else. Do not throw.
 2. Map provider error codes to `RejectionCategory`. Only `auth`, `rate_limited`, `sender`, and `account` trigger fallback, so put a code there only when another provider could plausibly accept the same message. Opt-outs and blocks are `compliance`.
 3. Add a subpath to `package.json` `exports` and to `tsconfig.json` `paths`.

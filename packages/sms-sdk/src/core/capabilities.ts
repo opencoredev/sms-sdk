@@ -15,6 +15,8 @@ import {
   UnsupportedFieldError,
   type SmsError,
 } from "./errors.js";
+import { isRecord } from "./http.js";
+import { parseProviderOptions } from "./provider-options.js";
 import type { SmsSendInput } from "./types.js";
 
 const SENDER_ID_PATTERN = /^(?=.*[A-Za-z])[A-Za-z0-9 ]{1,11}$/;
@@ -191,6 +193,11 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
     issues.push(unsupported(provider, "webhookUrl", `${provider} adapter does not support a per-message webhookUrl.`));
   }
 
+  const options = parseProviderOptions(adapter, providerOptionsEntry(input, provider));
+  if (options.kind === "issues") {
+    issues.push(...options.issues);
+  }
+
   const message: AdapterMessage = {
     to: input.to,
     from: sender,
@@ -199,12 +206,19 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
     ...(input.sendAt === undefined ? {} : { sendAt: input.sendAt }),
     ...(input.validityPeriodSec === undefined ? {} : { validityPeriodSec: input.validityPeriodSec }),
     ...(input.webhookUrl === undefined ? {} : { webhookUrl: input.webhookUrl }),
+    ...(options.kind === "ok" && options.fields.length > 0 ? { providerFields: options.fields } : {}),
   };
 
   if (issues.length === 0 && adapter.validate !== undefined) {
     issues.push(...adapter.validate(message).map((issue) => ({ ...issue, provider })));
   }
   return issues.length === 0 ? { kind: "ok", message } : { kind: "issues", issues };
+}
+
+/** The caller's `providerOptions` entry for `adapterName`, still unparsed. */
+function providerOptionsEntry(input: SmsSendInput, adapterName: string): unknown {
+  const all: unknown = input.providerOptions;
+  return isRecord(all) ? all[adapterName] : undefined;
 }
 
 /** Converts a validation issue into the error `send()` throws for it. */

@@ -12,6 +12,21 @@ import type { SegmentPreview } from "./encoding.js";
 import type { SendAttempt, SmsClientHooks } from "./events.js";
 import type { IdempotencyStore } from "./idempotency.js";
 
+/**
+ * Provider-specific send options, keyed by adapter name. Each adapter subpath
+ * adds its own key by module augmentation, so the keys you can write are the
+ * adapters you import. A custom adapter can do the same:
+ *
+ * ```ts
+ * declare module "@opencoredev/sms-sdk" {
+ *   interface SmsProviderOptions {
+ *     readonly acme?: ProviderOptionsOf<typeof ACME_PROVIDER_OPTIONS>;
+ *   }
+ * }
+ * ```
+ */
+export interface SmsProviderOptions {}
+
 /** One logical SMS to send. */
 export type SmsSendInput = {
   /** Destination in E.164, such as `+14155550123`. */
@@ -34,6 +49,15 @@ export type SmsSendInput = {
   readonly validityPeriodSec?: number;
   /** Per-message status webhook URL. Requires `capabilities.webhookUrlOverride`. */
   readonly webhookUrl?: string;
+  /**
+   * Provider-specific options, keyed by adapter name, such as
+   * `{ twilio: { shortenUrls: true } }`. An entry applies only when that
+   * adapter sends; with fallback, each adapter uses its own entry. Entries for
+   * adapters the client does not have are ignored. Unknown keys, wrong types,
+   * and fields the SDK sets itself throw before any request. Part of the
+   * idempotency fingerprint.
+   */
+  readonly providerOptions?: SmsProviderOptions;
 };
 
 /**
@@ -70,6 +94,8 @@ export type SmsValidationResult = SegmentPreview & {
   readonly issues: readonly ValidationIssue[];
   /** Adapters that could send this message, in configured order. */
   readonly adapterCandidates: readonly string[];
+  /** Candidates that have an entry in `providerOptions`, in configured order. */
+  readonly providerOptionsFor: readonly string[];
 };
 
 /** Decision returned by `beforeSend`. */

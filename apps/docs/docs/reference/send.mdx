@@ -79,6 +79,70 @@ A guide with error handling is at [Send your first SMS](/sending/send-your-first
 - Optional
 - Per-message status callback. Needs `capabilities.webhookUrlOverride`.
 
+### `providerOptions`
+
+- Type: `SmsProviderOptions`, an object keyed by adapter name
+- Optional
+- Provider-specific parameters the portable fields do not cover, such as Twilio's `ShortenUrls` or Telnyx's `auto_detect`.
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: { messagingService: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "" },
+    }),
+    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" }),
+  ],
+  fallback: "on-known-rejection",
+});
+
+await sms.send({
+  to: "+14155550123",
+  body: "Track your order: https://example.com/orders/123",
+  providerOptions: {
+    twilio: { shortenUrls: true, smartEncoded: false },
+    telnyx: { autoDetect: true },
+  },
+});
+```
+
+Each entry has typed options in camelCase, which the adapter sends under the provider's own parameter names, and an optional `extra` object for parameters the typed options do not cover yet.
+
+```ts ignore="type listing"
+interface SmsProviderOptions {
+  twilio?: TwilioSendOptions;   // added by "@opencoredev/sms-sdk/twilio"
+  telnyx?: TelnyxSendOptions;   // added by "@opencoredev/sms-sdk/telnyx"
+  plivo?: PlivoSendOptions;     // added by "@opencoredev/sms-sdk/plivo"
+  vonage?: VonageSendOptions;   // added by "@opencoredev/sms-sdk/vonage"
+}
+
+type TwilioSendOptions = {
+  shortenUrls?: boolean;
+  smartEncoded?: boolean;
+  // ...one optional field per typed option
+  extra?: Record<string, string | number | boolean>;
+};
+```
+
+The options for each provider, with their wire names, are on its page: [Twilio](/providers/twilio#provider-options), [Telnyx](/providers/telnyx#provider-options), [Plivo](/providers/plivo#provider-options), and [Vonage](/providers/vonage#provider-options).
+
+How the SDK handles them:
+
+- **Typed by import.** Each adapter subpath adds its key to `SmsProviderOptions`, so you can only write keys for adapters you import. An unknown option key is a type error.
+- **One adapter each.** An entry applies only when that adapter sends. With fallback, each adapter sends its own entry and never another's. Entries for adapters the client does not have are ignored. `sms.validate()` lists the candidates that have an entry in `providerOptionsFor`.
+- **Checked before sending.** For every configured adapter, before any request: an unknown option key throws `UnsupportedFieldError`, a wrong type or value throws `InvalidMessageError`, and an `extra` key that names a parameter SMS SDK sets (such as Twilio's `To` or `StatusCallback`, in any letter case) or a typed option's parameter throws `UnsupportedFieldError`. Each error has `field: "providerOptions"`.
+- **`extra` is not validated.** Its values must be strings, finite numbers, or booleans, and are sent as they are. Use it for parameters released after this SDK version, and check the provider's reference first.
+- **Part of the idempotency key.** Reusing an `idempotencyKey` with different options throws `IdempotencyConflictError`. Key order does not matter.
+- **Values stay out of logs.** Error messages name option keys, never their values. Hook events and `SendAttempt` carry no options. `beforeSend` receives the whole input, options included, as it does `body`.
+
+An adapter you write can accept options too: set `providerOptions` on the adapter to a `ProviderOptionsSpec` and add its key to `SmsProviderOptions` with `declare module "@opencoredev/sms-sdk"`.
+
 ## Returns: `SmsSendResult`
 
 | Field | Type | Meaning |
@@ -111,7 +175,7 @@ type SendAttempt =
 
 ## Order of checks
 
-1. Local validation: recipient, body, field formats, then the primary adapter's sender and capabilities. Failures throw before any request.
+1. Local validation: recipient, body, field formats, `providerOptions` for every configured adapter, then the primary adapter's sender and capabilities. Failures throw before any request.
 2. Abort check: an already-aborted `signal` throws `SendAbortedError`.
 3. Idempotency: replay, conflict, in-progress, or unknown, when a key and store are set.
 4. `beforeSend`.
@@ -123,8 +187,8 @@ type SendAttempt =
 | --- | --- | --- | --- |
 | `InvalidRecipientError` | `invalid_recipient` | true | `to` is not E.164 |
 | `InvalidSenderError` | `invalid_sender` | true | No sender, or a malformed one |
-| `InvalidMessageError` | `invalid_message` | true | Empty body without media, bad URL, date, or number field, a provider limit |
-| `UnsupportedFieldError` | `unsupported_field` | true | The primary adapter cannot send a field or sender type |
+| `InvalidMessageError` | `invalid_message` | true | Empty body without media, bad URL, date, or number field, a provider limit, a `providerOptions` value of the wrong type |
+| `UnsupportedFieldError` | `unsupported_field` | true | The primary adapter cannot send a field or sender type, or a `providerOptions` key is unknown or names a parameter SMS SDK sets |
 | `PolicyRejectedError` | `policy_rejected` | true | `beforeSend` rejected |
 | `ProviderRejectedError` | `provider_rejected` | true | The provider proved non-acceptance |
 | `ProviderAuthError` | `provider_auth` | true | Category `auth` |
@@ -139,4 +203,4 @@ Details and actions for each are in [Errors](/reference/errors). An error thrown
 
 ## Types
 
-`SmsSendInput`, `SmsSendOptions`, `SmsSendResult`, `SmsFrom`, `Delivery`, `Handoff`, `SendAttempt`, `RejectionCategory`, and `UnknownReason` are exported as types from `@opencoredev/sms-sdk`. `E164` is exported from the same path.
+`SmsSendInput`, `SmsSendOptions`, `SmsSendResult`, `SmsProviderOptions`, `ProviderOptionsSpec`, `ProviderOptionsOf`, `ProviderExtra`, `SmsFrom`, `Delivery`, `Handoff`, `SendAttempt`, `RejectionCategory`, and `UnknownReason` are exported as types from `@opencoredev/sms-sdk`. `E164` is exported from the same path.

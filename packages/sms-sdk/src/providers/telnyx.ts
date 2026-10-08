@@ -9,6 +9,9 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  ProviderOptionValue,
+  ProviderOptionsOf,
+  ProviderOptionsSpec,
   RejectionCategory,
   SmsAdapter,
   SmsCapabilities,
@@ -58,8 +61,42 @@ export const TELNYX_CAPABILITIES: SmsCapabilities = {
   nativeIdempotency: false,
 };
 
-/** Request body for `POST /v2/messages`. */
+/**
+ * Telnyx `POST /v2/messages` parameters accepted in `providerOptions.telnyx`,
+ * from the Send a message reference. Parameters the SDK sets from portable
+ * fields or adapter options are reserved.
+ *
+ * @see https://developers.telnyx.com/api/messaging/send-message
+ */
+export const TELNYX_PROVIDER_OPTIONS = {
+  options: {
+    /** `subject`: subject of a multimedia message. */
+    subject: { type: "string", wire: "subject" },
+    /** `webhook_failover_url`: backup URL for this message's webhooks when `webhookUrl` fails. */
+    webhookFailoverUrl: { type: "string", wire: "webhook_failover_url", pattern: /^https?:\/\// },
+    /** `use_profile_webhooks`: also send webhooks to the messaging profile's URLs. Telnyx defaults to `true`. */
+    useProfileWebhooks: { type: "boolean", wire: "use_profile_webhooks" },
+    /** `auto_detect`: flag unusually long SMS that exceed the recommended number of parts. */
+    autoDetect: { type: "boolean", wire: "auto_detect" },
+    /** `encoding`: `"gsm7"` fails with a 400 on characters outside GSM-7; `"ucs2"` turns off smart encoding. Default `"auto"`. */
+    encoding: { type: "enum", wire: "encoding", values: ["auto", "gsm7", "ucs2"] },
+  },
+  reserved: ["to", "from", "messaging_profile_id", "text", "media_urls", "type", "webhook_url", "send_at"],
+} as const satisfies ProviderOptionsSpec;
+
+/** Telnyx-specific send options: `providerOptions.telnyx`. */
+export type TelnyxSendOptions = ProviderOptionsOf<typeof TELNYX_PROVIDER_OPTIONS>;
+
+declare module "../core/types.js" {
+  interface SmsProviderOptions {
+    /** Telnyx send parameters. Applies only when the `telnyx` adapter sends. */
+    readonly telnyx?: TelnyxSendOptions;
+  }
+}
+
+/** Request body for `POST /v2/messages`. Provider options add their own keys. */
 export type TelnyxMessageRequest = {
+  [option: string]: ProviderOptionValue | string[] | undefined;
   to: string;
   from?: string;
   messaging_profile_id?: string;
@@ -92,6 +129,7 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
     name: "telnyx",
     capabilities: TELNYX_CAPABILITIES,
     support: { status: "supported", notes: [] },
+    providerOptions: TELNYX_PROVIDER_OPTIONS,
     ...(options.from === undefined ? {} : { defaultFrom: options.from }),
 
     validate(message) {
@@ -140,6 +178,9 @@ export function buildTelnyxRequest(message: AdapterMessage, messagingProfileId: 
   }
   if (message.sendAt !== undefined) {
     request.send_at = message.sendAt.toISOString();
+  }
+  for (const field of message.providerFields ?? []) {
+    request[field.wire] = field.value;
   }
   return request;
 }

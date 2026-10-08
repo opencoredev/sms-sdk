@@ -89,7 +89,7 @@ Twilio recommends API keys for production because you can revoke them one at a t
 
 - `POST https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json`
 - HTTP Basic auth, form-encoded body.
-- Fields sent: `To`, `From` or `MessagingServiceSid`, `Body`, `MediaUrl` (repeated), `StatusCallback` (from `webhookUrl`), `ValidityPeriod` (from `validityPeriodSec`), and `SendAt` with `ScheduleType=fixed` (from `sendAt`).
+- Fields sent: `To`, `From` or `MessagingServiceSid`, `Body`, `MediaUrl` (repeated), `StatusCallback` (from `webhookUrl`), `ValidityPeriod` (from `validityPeriodSec`), `SendAt` with `ScheduleType=fixed` (from `sendAt`), and any [provider options](#provider-options).
 - Success: a 2xx response with a `sid` matching `SM` or `MM` plus 32 hex characters. A 2xx without one is an unknown outcome.
 
 ## Senders
@@ -128,6 +128,51 @@ SMS SDK does not check country rules before sending, and these rules have not be
 | Inbound webhooks | Yes |
 | Body length | Up to 1600 characters (checked locally) |
 | Native idempotency | No |
+
+## Provider options
+
+Pass Twilio's other Message parameters in `providerOptions.twilio`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: { messagingService: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "" },
+    }),
+  ],
+});
+
+await sms.send({
+  to: "+14155550123",
+  body: "Track your order: https://example.com/orders/123",
+  providerOptions: {
+    twilio: { shortenUrls: true, smartEncoded: true, messageIntent: "delivery" },
+  },
+});
+```
+
+| Option | Twilio parameter | Type |
+| --- | --- | --- |
+| `applicationSid` | `ApplicationSid` | `string`, `AP` plus 32 hex characters |
+| `provideFeedback` | `ProvideFeedback` | `boolean` |
+| `attempt` | `Attempt` | integer, 1 or more |
+| `contentRetention` | `ContentRetention` | `"retain" \| "discard"` |
+| `addressRetention` | `AddressRetention` | `"retain" \| "obfuscate"` |
+| `smartEncoded` | `SmartEncoded` | `boolean` |
+| `shortenUrls` | `ShortenUrls` | `boolean`. Needs a `{ messagingService }` sender, or the send throws `UnsupportedFieldError`. |
+| `sendAsMms` | `SendAsMms` | `boolean` |
+| `messageIntent` | `MessageIntent` | `"otp" \| "notifications" \| "marketing" \| "fraud" \| "security" \| "customercare" \| "delivery" \| "education" \| "polling" \| "announcements" \| "events"` |
+| `riskCheck` | `RiskCheck` | `"enable" \| "disable"` |
+| `extra` | any other parameter | `Record<string, string \| number \| boolean>`, sent as is |
+
+Each option maps to one Twilio form parameter. Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. Options apply only when the `twilio` adapter sends; see [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency behavior.
+
+SMS SDK sets these parameters itself, so `extra` cannot: `To`, `From`, `MessagingServiceSid`, `Body`, `MediaUrl`, `StatusCallback`, `ValidityPeriod`, `SendAt`, and `ScheduleType`. `ContentSid` and `ContentVariables` are blocked too, because a Content Template replaces `Body`, which SMS SDK uses for segment estimates, policy checks, and idempotency. `MaxPrice` (obsolete), `ForceDelivery` (reserved by Twilio), and `TrafficType` (undocumented) have no typed option; send them through `extra` if you need them.
 
 ## Example: send and track delivery
 
@@ -232,7 +277,7 @@ Twilio documents that 429 responses with error 20429 were not processed. A 429 w
 ## Limitations
 
 - Scheduling requires a Messaging Service sender. Use Telnyx if you need to schedule from a plain number.
-- No Twilio-specific options beyond the fields above, such as `ShortenUrls`, `ContentSid`, or `RiskCheck`. Use the Twilio SDK for those.
+- Content Templates (`ContentSid`) are not supported, because a template replaces `body`.
 - Twilio's own scheduling window and MMS country coverage are enforced by Twilio as rejections.
 - Content Templates, WhatsApp, and Conversations are out of scope.
 
@@ -280,7 +325,7 @@ type TwilioOptions =
   | { accountSid: string; apiKeySid: string; apiKeySecret: string; from?: SmsFrom; baseUrl?: string; fetch?: FetchLike };
 ```
 
-Also exported from `@opencoredev/sms-sdk/twilio`, for adapter authors and tests: `TWILIO_CAPABILITIES`, `buildTwilioForm(message)`, `interpretTwilioResponse(status, text, headers)`, `twilioRejectionCategory(status, code)`, `twilioDelivery(status)`, and the types `TwilioOptions`, `TwilioAuthTokenOptions`, `TwilioApiKeyOptions`.
+Also exported from `@opencoredev/sms-sdk/twilio`, for adapter authors and tests: `TWILIO_CAPABILITIES`, `TWILIO_PROVIDER_OPTIONS`, `buildTwilioForm(message)`, `interpretTwilioResponse(status, text, headers)`, `twilioRejectionCategory(status, code)`, `twilioDelivery(status)`, and the types `TwilioOptions`, `TwilioAuthTokenOptions`, `TwilioApiKeyOptions`, `TwilioSendOptions`.
 
 ## Official documentation
 

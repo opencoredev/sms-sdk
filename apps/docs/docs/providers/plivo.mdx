@@ -77,7 +77,7 @@ Plivo uses HTTP Basic auth with the account's (or a subaccount's) Auth ID and Au
 
 - `POST https://api.plivo.com/v1/Account/{auth_id}/Message/`
 - HTTP Basic auth, JSON body.
-- Fields sent: `src` or `powerpack_uuid`, `dst`, `text`, `type` (`sms` or `mms`), `media_urls`, `url` with `method: "POST"` (from `webhookUrl`), and `message_expiry` (from `validityPeriodSec`).
+- Fields sent: `src` or `powerpack_uuid`, `dst`, `text`, `type` (`sms` or `mms`), `media_urls`, `url` with `method: "POST"` (from `webhookUrl`), `message_expiry` (from `validityPeriodSec`), and any [provider options](#provider-options).
 - Success: a 2xx response with a non-empty `message_uuid` array. Plivo does not state the exact success status. A 2xx without `message_uuid` is an unknown outcome.
 
 ## Senders
@@ -115,6 +115,41 @@ SMS SDK does not check country rules before sending, and these rules have not be
 | Delivery status webhooks | Yes |
 | Inbound webhooks | Yes |
 | Native idempotency | No |
+
+## Provider options
+
+Pass Plivo's other Message API parameters in `providerOptions.plivo`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+
+const sms = createSmsClient({
+  adapters: [
+    plivo({
+      authId: process.env.PLIVO_AUTH_ID ?? "",
+      authToken: process.env.PLIVO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+});
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your code is 123456",
+  providerOptions: { plivo: { trackable: true, log: "number_only" } },
+});
+```
+
+| Option | Plivo parameter | Type |
+| --- | --- | --- |
+| `log` | `log` | `"true" \| "false" \| "content_only" \| "number_only"`. Plivo documents it as a string; default `"true"`. |
+| `trackable` | `trackable` | `boolean`, for messages with a trackable action such as a 2FA code. Default `false`. |
+| `extra` | any other parameter | `Record<string, string \| number \| boolean>`, sent as is |
+
+Each option maps to one Plivo JSON parameter. Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. Options apply only when the `plivo` adapter sends; see [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency behavior.
+
+SMS SDK sets `src`, `powerpack_uuid`, `dst`, `text`, `type`, `media_urls`, `url`, `method`, and `message_expiry` itself, so `extra` cannot. Plivo's India DLT parameters are deprecated and have no typed option. `template`, `interactive`, and `location` are WhatsApp-only.
 
 ## Example: send and track delivery
 
@@ -265,7 +300,7 @@ type PlivoOptions = {
 };
 ```
 
-Also exported from `@opencoredev/sms-sdk/plivo`: `PLIVO_CAPABILITIES`, `PLIVO_SUPPORT_NOTES`, `buildPlivoRequest(message)`, `interpretPlivoResponse(status, text, headers)`, `plivoRejectionCategory(status)`, and the types `PlivoOptions`, `PlivoMessageRequest`.
+Also exported from `@opencoredev/sms-sdk/plivo`: `PLIVO_CAPABILITIES`, `PLIVO_SUPPORT_NOTES`, `PLIVO_PROVIDER_OPTIONS`, `buildPlivoRequest(message)`, `interpretPlivoResponse(status, text, headers)`, `plivoRejectionCategory(status)`, and the types `PlivoOptions`, `PlivoMessageRequest`, `PlivoSendOptions`.
 
 ## Official documentation
 

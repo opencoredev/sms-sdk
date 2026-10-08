@@ -9,6 +9,8 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  ProviderOptionsOf,
+  ProviderOptionsSpec,
   RejectionCategory,
   SmsAdapter,
   SmsCapabilities,
@@ -16,6 +18,7 @@ import type {
   ValidationIssue,
 } from "../core/adapters.js";
 import { ConfigurationError } from "../core/errors.js";
+import { hasTrueField } from "../core/provider-options.js";
 import {
   basicAuthorization,
   exchange,
@@ -77,6 +80,79 @@ export const TWILIO_CAPABILITIES: SmsCapabilities = {
 };
 
 /**
+ * Twilio Message create parameters accepted in `providerOptions.twilio`, from
+ * the Message resource reference. Parameters the SDK sets from portable fields
+ * are reserved. Not typed: `MaxPrice` (obsolete), `ForceDelivery` (reserved by
+ * Twilio), `TrafficType` (undocumented), and non-SMS channel parameters
+ * (`PersistentAction`, `FallbackFrom`); send them through `extra` if needed.
+ *
+ * @see https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource
+ */
+export const TWILIO_PROVIDER_OPTIONS = {
+  options: {
+    /** `ApplicationSid`: TwiML App whose status callback URL receives status updates. Ignored by Twilio when `webhookUrl` is set. */
+    applicationSid: { type: "string", wire: "ApplicationSid", pattern: /^AP[0-9a-fA-F]{32}$/ },
+    /** `ProvideFeedback`: you will report delivery feedback through the Message Feedback resource. */
+    provideFeedback: { type: "boolean", wire: "ProvideFeedback" },
+    /** `Attempt`: total send attempts for this message so far, including this one, across providers. */
+    attempt: { type: "integer", wire: "Attempt", min: 1 },
+    /** `ContentRetention`: keep or discard the message body, per your privacy settings. */
+    contentRetention: { type: "enum", wire: "ContentRetention", values: ["retain", "discard"] },
+    /** `AddressRetention`: keep or obfuscate the phone numbers, per your privacy settings. */
+    addressRetention: { type: "enum", wire: "AddressRetention", values: ["retain", "obfuscate"] },
+    /** `SmartEncoded`: replace Unicode characters with similar GSM-7 characters. */
+    smartEncoded: { type: "boolean", wire: "SmartEncoded" },
+    /** `ShortenUrls`: shorten links in the body. Requires a `{ messagingService }` sender with Link Shortening. */
+    shortenUrls: { type: "boolean", wire: "ShortenUrls" },
+    /** `SendAsMms`: send as one MMS, with or without media. */
+    sendAsMms: { type: "boolean", wire: "SendAsMms" },
+    /** `MessageIntent`: the message's purpose, used by Traffic Shaping and the Compliance Toolkit. */
+    messageIntent: {
+      type: "enum",
+      wire: "MessageIntent",
+      values: [
+        "otp",
+        "notifications",
+        "marketing",
+        "fraud",
+        "security",
+        "customercare",
+        "delivery",
+        "education",
+        "polling",
+        "announcements",
+        "events",
+      ],
+    },
+    /** `RiskCheck`: `"disable"` skips Twilio's risk checks for this request. */
+    riskCheck: { type: "enum", wire: "RiskCheck", values: ["enable", "disable"] },
+  },
+  reserved: [
+    "To",
+    "From",
+    "MessagingServiceSid",
+    "Body",
+    "MediaUrl",
+    "StatusCallback",
+    "ValidityPeriod",
+    "SendAt",
+    "ScheduleType",
+    "ContentSid",
+    "ContentVariables",
+  ],
+} as const satisfies ProviderOptionsSpec;
+
+/** Twilio-specific send options: `providerOptions.twilio`. */
+export type TwilioSendOptions = ProviderOptionsOf<typeof TWILIO_PROVIDER_OPTIONS>;
+
+declare module "../core/types.js" {
+  interface SmsProviderOptions {
+    /** Twilio Message create parameters. Applies only when the `twilio` adapter sends. */
+    readonly twilio?: TwilioSendOptions;
+  }
+}
+
+/**
  * Creates a Twilio adapter.
  *
  * Sends `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` with HTTP Basic
@@ -102,6 +178,7 @@ export function twilio(options: TwilioOptions): SmsAdapter {
     name: "twilio",
     capabilities: TWILIO_CAPABILITIES,
     support: { status: "supported", notes: [] },
+    providerOptions: TWILIO_PROVIDER_OPTIONS,
     ...(options.from === undefined ? {} : { defaultFrom: options.from }),
 
     validate(message) {
@@ -152,6 +229,9 @@ export function buildTwilioForm(message: AdapterMessage): URLSearchParams {
     form.set("SendAt", message.sendAt.toISOString());
     form.set("ScheduleType", "fixed");
   }
+  for (const field of message.providerFields ?? []) {
+    form.set(field.wire, String(field.value));
+  }
   return form;
 }
 
@@ -169,6 +249,13 @@ function validateTwilioMessage(message: AdapterMessage): ValidationIssue[] {
       code: "unsupported_field",
       field: "sendAt",
       message: "Twilio schedules messages only when sending from a Messaging Service.",
+    });
+  }
+  if (hasTrueField(message.providerFields, "ShortenUrls") && message.from.kind !== "messaging_service") {
+    issues.push({
+      code: "unsupported_field",
+      field: "providerOptions",
+      message: "Twilio shortens URLs only when sending from a Messaging Service.",
     });
   }
   if (message.body.length > MAX_BODY_LENGTH) {
