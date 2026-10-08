@@ -1,6 +1,135 @@
 ---
-title: "STOP/HELP and opt-outs"
-description: "Handle STOP and HELP keywords and keep sends to opted-out numbers from going out."
+title: "STOP, HELP, and opt-outs"
+description: "Record opt-outs from STOP replies, answer HELP, and block sends to suppressed recipients. SMS SDK helps; compliance stays your app's job."
 ---
 
-TODO: write this page.
+When someone replies STOP, you must stop texting them, on every provider you use. SMS SDK turns opt-out and help replies into events and lets you block sends with `beforeSend`. Keeping the suppression list, getting consent, and following local rules is your app's job.
+
+:::warning[No compliance guarantee]
+SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also block STOP replies on their side with their own rules. Treat these events as inputs to your own records.
+:::
+
+## Opt-out and help events
+
+An inbound message becomes one of these instead of `message.received`:
+
+| Event | Comes from |
+| --- | --- |
+| `recipient.opted_out` | Twilio `OptOutType=STOP`, or a whole-message keyword: `STOP`, `STOPALL`, `UNSUBSCRIBE`, `CANCEL`, `END`, `QUIT` |
+| `recipient.opted_in` | Twilio `OptOutType=START` only |
+| `recipient.help` | Twilio `OptOutType=HELP`, or a whole-message keyword: `HELP`, `INFO` |
+
+Each event has `from` (the person), `to` (your number), the original `body`, `keyword`, `providerId`, and `source`:
+
+- `source: "provider"`: the provider flagged it. Only Twilio sends this signal, in the `OptOutType` field, and only when Advanced Opt-Out is enabled on the Messaging Service.
+- `source: "keyword"`: SMS SDK matched the whole message, trimmed, ignoring case and trailing `.`, `!`, or `?`. "stop" and "Stop!" match. "Please stop texting me" does not.
+
+Keyword matching is a convenience. Carriers and providers may treat other words, or other languages, as opt-outs. Set `detectKeywords: false` to receive every inbound message as `message.received` and apply your own rules with `detectKeyword()` or your own matcher.
+
+## Record opt-outs
+
+```ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "twilio",
+      request,
+      publicUrl: "https://example.com/webhooks/sms/twilio",
+      credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+    });
+
+    if (event.type === "recipient.opted_out") {
+      await db.suppressions.add(event.from);
+    } else if (event.type === "recipient.opted_in") {
+      await db.suppressions.remove(event.from);
+    }
+    return new Response("<Response></Response>", { headers: { "content-type": "text/xml" } });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+    throw error;
+  }
+}
+```
+
+The suppression list lives in your database, so it covers every provider you send through.
+
+## Block sends to suppressed recipients
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { db } from "./db";
+
+export const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
+  ],
+  fallback: "on-known-rejection",
+  beforeSend: async ({ message }) =>
+    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "Recipient opted out." } : { kind: "allow" },
+});
+```
+
+A suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
+
+Provider-side blocks are covered too. When a provider refuses a message because the recipient opted out with it (Twilio 21610, Telnyx 40300, Vonage 1240), the rejection has `category: "compliance"`. Compliance rejections are never retried and never sent through another provider. Add the number to your suppression list when you see one:
+
+```ts
+import { ProviderRejectedError } from "@opencoredev/sms-sdk";
+import { db } from "./db";
+import { sms } from "./sms";
+
+try {
+  await sms.send({ to: "+14155550123", body: "Your weekly summary is ready." });
+} catch (error) {
+  if (error instanceof ProviderRejectedError && error.category === "compliance") {
+    await db.suppressions.add("+14155550123");
+  } else {
+    throw error;
+  }
+}
+```
+
+## Answer HELP
+
+SMS SDK never replies on its own. Some providers answer HELP and STOP automatically for some sender types; check your provider settings so the person does not get two replies. To reply yourself:
+
+```ts
+import { isE164 } from "@opencoredev/sms-sdk";
+import type { SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+import { sms } from "./sms";
+
+export async function answerHelp(event: SmsEvent): Promise<void> {
+  if (event.type !== "recipient.help" || !isE164(event.from) || !isE164(event.to)) return;
+  await sms.send({
+    to: event.from,
+    from: event.to,
+    body: "Acme order updates. Reply STOP to unsubscribe. Help: support@example.com",
+    idempotencyKey: `help-reply:${event.dedupeKey}`,
+  });
+}
+```
+
+## What else you are responsible for
+
+- Collecting and storing consent before you text someone.
+- Registering senders: US A2P 10DLC campaigns, toll-free verification, short code approval, sender ID registration where required.
+- Quiet hours, message content rules, and country-specific requirements.
+
+See [Sender registration and consent](/guides/sender-registration-and-consent) for links to each provider's rules. They change, so check them directly.
+
+## Next steps
+
+- [Policy checks and hooks](/sending/policy-and-hooks)
+- [Sender registration and consent](/guides/sender-registration-and-consent)

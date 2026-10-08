@@ -1,6 +1,304 @@
 ---
 title: "Vonage"
-description: "Configure the Vonage adapter: credentials, senders, webhooks, and limits."
+description: "Send and receive SMS through the Vonage Messages API with the SMS SDK vonage() adapter: Basic vs JWT auth, regions, webhooks, errors, and partial-support limits."
 ---
 
-TODO: write this page.
+The `vonage()` adapter sends SMS through the Vonage Messages API (channel `sms`) and parses its JWT-signed status and inbound webhooks. It does not use the older Vonage SMS API (`rest.nexmo.com/sms/json`), whose responses and webhook signing work differently.
+
+Comparing providers? See the [Providers overview](/providers/overview).
+
+## Support status
+
+**Partial.** The adapter works and passes the shared contract tests, with gaps that come from Vonage's documentation:
+
+- Vonage does not document which HTTP status each Messages API error code uses. SMS SDK classifies rejections from the documented statuses (401, 402, 422) and from the error code in the response's problem `type` or `title`. Codes it does not know become `request`. A 429 counts as a rate limit only with a documented throttling code.
+- The API reference describes `payload_hash` in signed webhooks only as "a SHA-256 hash of the payload". SMS SDK checks it against the exact bytes delivered. If Vonage ever hashes a re-serialized body instead, verification fails with `body_hash_mismatch`.
+- Vonage documents no freshness window for the webhook JWT. SMS SDK uses 300 seconds.
+- Short codes and MMS are not supported by this adapter.
+
+The same notes are in `adapter.support.notes` at runtime.
+
+## Installation
+
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+```ts
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+```
+
+## Environment variables
+
+| Variable | Required | Used for |
+| --- | --- | --- |
+| `VONAGE_API_KEY`, `VONAGE_API_SECRET` | For Basic auth | Account API key and secret. |
+| `VONAGE_APPLICATION_ID`, `VONAGE_PRIVATE_KEY` | For JWT auth | Vonage application ID and its RSA private key (PKCS#8 PEM contents; literal `\n` sequences are accepted). |
+| `VONAGE_FROM` | Yes | Default sender: a Vonage number or an alphanumeric sender ID. |
+| `VONAGE_SIGNATURE_SECRET` | For webhooks | Signature secret from the dashboard settings. |
+
+These names are used by the examples and the doctor CLI. The adapter reads nothing from the environment itself. Keep secrets and the private key on the server.
+
+## Basic usage
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+
+const sms = createSmsClient({
+  adapters: [
+    vonage({
+      applicationId: process.env.VONAGE_APPLICATION_ID ?? "",
+      privateKey: process.env.VONAGE_PRIVATE_KEY ?? "",
+      from: "+15550100001",
+    }),
+  ],
+});
+
+const result = await sms.send({ to: "+14155550123", body: "Your order has shipped." });
+console.log(result.providerId); // the Vonage message_uuid
+```
+
+`vonage()` throws `ConfigurationError` at startup when credentials are empty or the private key is not a PEM.
+
+## Authentication
+
+Choose one:
+
+| | JWT auth | Basic auth |
+| --- | --- | --- |
+| Options | `applicationId`, `privateKey` | `apiKey`, `apiSecret` |
+| Status and inbound webhooks | Yes | No |
+| Per-message `webhookUrl` | Yes | No |
+| Numbers linked to an application | Works | Fails with 401 |
+
+Vonage documents that Basic auth does not support webhooks and fails with 401 when the number is linked to an application. So with Basic auth the adapter reports `webhookUrlOverride`, `inbound`, and `deliveryReceipts` as `false`, and a `webhookUrl` throws `UnsupportedFieldError`. Use JWT auth for anything beyond fire-and-forget sends.
+
+```ts
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+
+const basic = vonage({
+  apiKey: process.env.VONAGE_API_KEY ?? "",
+  apiSecret: process.env.VONAGE_API_SECRET ?? "",
+  from: { senderId: "Acme" },
+  region: "api-eu",
+});
+
+console.log(basic.capabilities.deliveryReceipts); // false
+```
+
+With JWT auth, the adapter signs a fresh RS256 token for each request with the claims Vonage documents: `application_id`, `iat`, `jti`, and `exp` 15 minutes later. If the private key cannot be imported as an RSA PKCS#8 key, each send is rejected with category `auth`.
+
+## Configuration
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `applicationId`, `privateKey` | `string` | required for JWT | Application ID and PKCS#8 PEM private key. |
+| `apiKey`, `apiSecret` | `string` | required for Basic | API key and secret. |
+| `from` | `SmsFrom` | none | Default sender. |
+| `region` | `"api" \| "api-eu" \| "api-us" \| "api-ap"` | `"api"` | Host prefix: `https://{region}.nexmo.com`. |
+| `baseUrl` | `string` | from `region` | API origin. Overrides `region`. |
+| `fetch` | `FetchLike` | global `fetch` | Custom fetch. |
+
+## API version and endpoint
+
+- `POST https://{region}.nexmo.com/v1/messages` (Messages API v1)
+- JSON body: `message_type: "text"`, `channel: "sms"`, `to` and `from` without the leading `+`, `text`, `ttl` (from `validityPeriodSec`), and `webhook_url` (from `webhookUrl`).
+- Success: a 2xx response with `message_uuid`. A 2xx without it is an unknown outcome.
+
+## Senders
+
+| Sender | Write | Sent as |
+| --- | --- | --- |
+| Long code or toll-free number | `"+15550100001"` | `from`, without `+` |
+| Alphanumeric sender ID | `{ senderId: "Acme" }` | `from` |
+| Short code | not supported | |
+| Messaging service | not supported | |
+
+US long codes need 10DLC registration and toll-free numbers need verification through Vonage. Alphanumeric sender IDs work only where the destination country allows them.
+
+## Capabilities
+
+| Capability | JWT auth | Basic auth |
+| --- | --- | --- |
+| MMS | No | No |
+| Scheduling | No | No |
+| Validity period | 20 to 604800 seconds | 20 to 604800 seconds |
+| Per-message `webhookUrl` | Yes | No |
+| Delivery status webhooks | Yes | No |
+| Inbound webhooks | Yes | No |
+| Empty body | Not allowed | Not allowed |
+| Native idempotency | No | No |
+
+## Example: send and track delivery
+
+```ts send-with-status.ts
+import { createSmsClient, isE164, isSmsError } from "@opencoredev/sms-sdk";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+
+const from = process.env.VONAGE_FROM;
+const to = process.env.SMS_EXAMPLE_TO;
+if (!isE164(from) || !isE164(to)) {
+  throw new Error("Set VONAGE_FROM and SMS_EXAMPLE_TO to E.164 numbers.");
+}
+
+const sms = createSmsClient({
+  adapters: [
+    vonage({
+      applicationId: process.env.VONAGE_APPLICATION_ID ?? "",
+      privateKey: process.env.VONAGE_PRIVATE_KEY ?? "",
+      from,
+    }),
+  ],
+});
+
+try {
+  const result = await sms.send({
+    to,
+    body: "Your order has shipped.",
+    idempotencyKey: "order:123:shipped:v1",
+    webhookUrl: "https://example.com/webhooks/sms/vonage",
+  });
+  console.log(`Vonage accepted ${result.providerId} (${result.delivery})`);
+} catch (error) {
+  if (isSmsError(error)) console.error(error.toJSON());
+  throw error;
+}
+```
+
+You see `Vonage accepted <uuid> (queued)`. Vonage then posts status updates to the `webhookUrl`.
+
+## Delivery and inbound webhooks
+
+- **Status:** pass `webhookUrl` per message, or set the Status URL on the Vonage application.
+- **Inbound:** link the number to the application and set its Inbound URL.
+- Webhooks require JWT auth on the sending side and signed webhooks enabled for the application.
+
+```ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "vonage",
+      request,
+      credentials: { signatureSecret: process.env.VONAGE_SIGNATURE_SECRET ?? "" },
+    });
+    if (event.type === "message.delivered" || event.type === "message.undelivered") {
+      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
+    } else if (event.type === "message.received") {
+      await db.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
+    }
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+}
+```
+
+Status mapping: `submitted` becomes `message.sent`; `delivered` becomes `message.delivered`; `rejected` and `undeliverable` become `message.undelivered`, or `message.filtered` with error 1210, 1470, 1472, or 1480 to 1483. Vonage sends no queued status. `read` and other statuses become `unrecognized`.
+
+Vonage sends numbers without `+`. SMS SDK restores it, so `from` and `to` are E.164. `dedupeKey` is `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received`. Vonage's `sms.keyword` field is not treated as an opt-out signal; STOP and HELP come from keyword detection on the text.
+
+## Signature verification
+
+Vonage signs Messages API webhooks with `Authorization: Bearer <JWT>`, an HS256 token signed with your signature secret. SMS SDK checks:
+
+- the HS256 signature (other algorithms are refused),
+- that `iat` is within `toleranceSec` (default 300) of now,
+- that `payload_hash`, when present, equals the SHA-256 hex of the exact raw body. A re-serialized body is not accepted, because different bytes can parse to the same JSON.
+
+The URL is not signed, so proxies do not affect verification.
+
+## Error mapping
+
+| Vonage response | Category | Falls back |
+| --- | --- | --- |
+| 401 or 403 without a listed code | `auth` | Yes |
+| Error 1000, 1241, or `throttled` | `rate_limited` | Yes, after retries |
+| Error 1120 or 1420 | `sender` | Yes |
+| 402, or error 1060, 1080, 1160, 1290, or 1460 | `account` | Yes |
+| Error 1170 or 1430 | `recipient` | No |
+| Error 1240 or 1476 | `compliance` | Never |
+| 422 and any other 4xx | `request` | No |
+| 429 without one of those codes | unknown | Never |
+| 5xx, network error, timeout, 2xx without `message_uuid` | unknown | Never |
+
+The error code is read from the `type` URL fragment (`…#1420`, or `…#throttled` from Vonage's generic error list) or a numeric `title`. A 429 without a documented throttling code may come from a proxy rather than Vonage, so it proves nothing and is treated as unknown. `error.provider.requestId` holds the `X-Request-Id` header.
+
+## Limitations
+
+- No MMS and no short codes. Use Twilio, Telnyx, or Plivo.
+- No scheduling. Use Telnyx, or Twilio with a Messaging Service.
+- Basic auth has no webhooks and fails for numbers linked to an application.
+- Error classification is inferred, so some sender or account problems may arrive as `request` and not fall back.
+- The legacy SMS API is not supported. Its webhooks will not verify with this parser.
+
+## Testing
+
+Point `vonage()` at a fake API with `mockFetch`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { mockFetch } from "@opencoredev/sms-sdk/testing";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+
+const fake = mockFetch({ status: 202, body: { message_uuid: "aaaaaaaa-bbbb-4ccc-8ddd-0123456789ab" } });
+const sms = createSmsClient({
+  adapters: [vonage({ apiKey: "test", apiSecret: "test", from: "+15550100001", fetch: fake.fetch })],
+});
+
+await sms.send({ to: "+14155550123", body: "Hi" });
+console.log(JSON.parse(fake.calls[0]?.body ?? "{}").to); // "14155550123"
+```
+
+Test your webhook handler with `signedVonageRequest()`. See [Local testing](/guides/local-testing#test-webhook-handlers).
+
+The adapter's own fixtures and live test live in the SMS SDK repository. From `packages/sms-sdk`:
+
+```bash
+bun test test/contracts/vonage.test.ts test/webhooks/vonage.test.ts
+```
+
+The live test sends one real, billable message per configured provider and is skipped unless you opt in:
+
+```bash
+LIVE_SMS_TESTS=true LIVE_SMS_TO=+14155550123 LIVE_SMS_ALLOWLIST=+14155550123 \
+VONAGE_API_KEY=... VONAGE_API_SECRET=... VONAGE_FROM=+15550100001 \
+bun test test/integration/live.test.ts
+```
+
+Check your configuration first with `npx @opencoredev/sms-sdk doctor --adapter vonage`.
+
+## API reference
+
+```ts ignore="signature listing"
+vonage(options: VonageOptions): SmsAdapter
+
+type VonageOptions =
+  | { applicationId: string; privateKey: string; from?: SmsFrom; region?: VonageRegion; baseUrl?: string; fetch?: FetchLike }
+  | { apiKey: string; apiSecret: string; from?: SmsFrom; region?: VonageRegion; baseUrl?: string; fetch?: FetchLike };
+
+type VonageRegion = "api" | "api-eu" | "api-us" | "api-ap";
+```
+
+Also exported from `@opencoredev/sms-sdk/vonage`: `VONAGE_JWT_CAPABILITIES`, `VONAGE_BASIC_CAPABILITIES`, `VONAGE_SUPPORT_NOTES`, `buildVonageRequest(message)`, `interpretVonageResponse(status, text, headers)`, `vonageRejectionCategory(status, code)`, `signVonageJwt({ applicationId, key, now })`, and the types `VonageOptions`, `VonageRegion`, `VonageBasicAuthOptions`, `VonageJwtAuthOptions`, `VonageMessageRequest`.
+
+## Official documentation
+
+Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/PROVIDERS.md).
+
+- [Messages API reference](https://developer.vonage.com/en/api/messages)
+- [Messages API error codes](https://developer.vonage.com/en/api-errors/messages)
+- [Signed webhooks](https://developer.vonage.com/en/messages/concepts/signed-webhooks)
+- [Authentication](https://developer.vonage.com/en/getting-started/concepts/authentication)
+- [Validating inbound messages (payload_hash)](https://developer.vonage.com/en/blog/validating-inbound-messages-from-the-vonage-messages-api-dr)
+- [Basic auth and linked numbers](https://api.support.vonage.com/hc/en-us/articles/4412210010644)
+
+## Next steps
+
+- [Providers overview](/providers/overview)
+- [Delivery status webhooks](/receiving/delivery-status-webhooks)
+- [Webhook security](/receiving/webhook-security)

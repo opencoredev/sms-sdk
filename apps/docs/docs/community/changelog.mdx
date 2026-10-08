@@ -3,4 +3,19 @@ title: "Changelog"
 description: "Release history for @opencoredev/sms-sdk."
 ---
 
-TODO: write this page.
+The canonical changelog is [`CHANGELOG.md`](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CHANGELOG.md) in the repository. This page summarizes it.
+
+## 0.1.0 (unreleased)
+
+First public version.
+
+- `createSmsClient` with `send()`, `validate()`, and `capabilities()`. `send()` resolves only on provider acceptance. Rejections and unknown outcomes throw typed errors with `code`, `retrySafe`, and redacted `attempts`.
+- Adapters: [Twilio](/providers/twilio) (supported), [Telnyx](/providers/telnyx) (supported), [Plivo](/providers/plivo) (partial), and [Vonage](/providers/vonage) Messages API with Basic or JWT auth (partial).
+- Opt-in fallback (`fallback: "on-known-rejection"`) for `auth`, `rate_limited`, `sender`, and `account` rejections only, never after an unknown outcome.
+- Rate-limit retries with exponential backoff, full jitter, and bounded `Retry-After`. A 429 counts as a rate limit only with the provider's documented rate-limit error; any other 429 is an unknown outcome.
+- Per-request timeout and `AbortSignal` support.
+- The `IdempotencyStore` contract with atomic `reserve` and owner-checked `finalize`, plus `memoryIdempotencyStore()`.
+- GSM-7 and UCS-2 segment estimates, including extension characters and surrogate pairs at segment boundaries.
+- `/webhooks`: verified, normalized events for all four providers, with dedupe keys and STOP/HELP detection.
+- `/testing`: the `memory()` adapter, `mockFetch()`, signed webhook request builders, and `runSmsAdapterContract()`.
+- `sms-sdk doctor`: a dry-run configuration check with a gated `--live` send.

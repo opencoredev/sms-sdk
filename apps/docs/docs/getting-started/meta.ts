@@ -1,8 +1,8 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  title: "Getting Started",
+  title: "Getting started",
   icon: "rocket",
   order: 1,
-  pages: ["overview", "why-sms-sdk", "quick-start", "installation"],
+  pages: ["overview", "installation", "quick-start", "important-defaults", "why-sms-sdk"],
 });

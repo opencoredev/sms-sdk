@@ -1,6 +1,170 @@
 ---
-title: "Multiple instances"
-description: "Run SMS SDK across several processes with a shared idempotency store."
+title: "Deploy with multiple instances"
+description: "Share idempotency across servers, workers, and serverless functions with an atomic IdempotencyStore, and know what still needs manual reconciliation."
 ---
 
-TODO: write this page.
+With one process, `memoryIdempotencyStore()` stops a retried job from sending twice. With two servers, a worker pool, or serverless functions, each process has its own memory, so two of them can send the same message. You need one store they all share, with an atomic reserve.
+
+## Why get-then-set is not enough
+
+Two workers pick up the same job at the same time. Both read the key, both see nothing, both send. Only a single atomic compare-and-set prevents that: `INSERT ... ON CONFLICT` in SQL, `SET NX` in Redis, a conditional write in DynamoDB. The `IdempotencyStore` contract requires it.
+
+| Method | Must |
+| --- | --- |
+| `get(key)` | Return the record, or `null`. |
+| `reserve({ key, fingerprint, now })` | Atomically claim the key when there is no record, or the record is `rejected` with the same fingerprint. Otherwise return the existing record unchanged. |
+| `finalize({ key, reservationId, record, ttlSec, now })` | Replace the reservation with the final record only if `reservationId` still owns the key. Keep `accepted` and `rejected` records for `ttlSec`. Keep `unknown` records until an operator clears them. |
+
+Reservations must never expire into a claimable state. An abandoned reservation means a process stopped mid-send, so the outcome is unknown. The client turns a reservation older than `staleReservationSec` into `HandoffUnknownError`, never into a resend.
+
+## A Postgres store
+
+This store works with any client that has a `pg`-style `query(text, params)` method, such as `pg.Pool`.
+
+```sql
+create table sms_idempotency (
+  key            text primary key,
+  fingerprint    text not null,
+  state          text not null check (state in ('reserved', 'accepted', 'rejected', 'unknown')),
+  reservation_id text,
+  reserved_at    bigint,
+  record         jsonb,
+  expires_at     bigint
+);
+```
+
+```ts idempotency-store.ts
+import type { FinalIdempotencyRecord, IdempotencyRecord, IdempotencyStore } from "@opencoredev/sms-sdk";
+
+type Row = {
+  fingerprint: string;
+  state: IdempotencyRecord["state"];
+  reservation_id: string | null;
+  reserved_at: string | null;
+  record: FinalIdempotencyRecord | null;
+  expires_at: string | null;
+};
+
+export type SqlClient = {
+  query<T>(text: string, params: unknown[]): Promise<{ rows: T[] }>;
+};
+
+function toRecord(row: Row): IdempotencyRecord | null {
+  if (row.state === "reserved" && row.reservation_id !== null && row.reserved_at !== null) {
+    return { state: "reserved", fingerprint: row.fingerprint, reservationId: row.reservation_id, reservedAt: Number(row.reserved_at) };
+  }
+  return row.record;
+}
+
+export function postgresIdempotencyStore(db: SqlClient): IdempotencyStore {
+  return {
+    async get(key) {
+      const { rows } = await db.query<Row>(
+        "select * from sms_idempotency where key = $1 and (expires_at is null or expires_at > $2)",
+        [key, Date.now()],
+      );
+      const row = rows[0];
+      return row === undefined ? null : toRecord(row);
+    },
+
+    async reserve({ key, fingerprint, now }) {
+      const reservationId = crypto.randomUUID();
+      // One statement: insert, or take over an expired record or a same-payload rejection.
+      const claimed = await db.query<{ reservation_id: string }>(
+        `insert into sms_idempotency (key, fingerprint, state, reservation_id, reserved_at, record, expires_at)
+         values ($1, $2, 'reserved', $3, $4, null, null)
+         on conflict (key) do update
+           set fingerprint = excluded.fingerprint, state = 'reserved', reservation_id = excluded.reservation_id,
+               reserved_at = excluded.reserved_at, record = null, expires_at = null
+           where (sms_idempotency.expires_at is not null and sms_idempotency.expires_at <= $4)
+              or (sms_idempotency.state = 'rejected' and sms_idempotency.fingerprint = excluded.fingerprint)
+         returning reservation_id`,
+        [key, fingerprint, reservationId, now],
+      );
+      if (claimed.rows[0]?.reservation_id === reservationId) {
+        return { kind: "reserved", reservationId };
+      }
+      const { rows } = await db.query<Row>("select * from sms_idempotency where key = $1", [key]);
+      const row = rows[0];
+      const record = row === undefined ? null : toRecord(row);
+      if (record === null) {
+        throw new Error(`Idempotency record for ${key} disappeared during reserve.`);
+      }
+      return { kind: "existing", record };
+    },
+
+    async finalize({ key, reservationId, record, ttlSec, now }) {
+      const expiresAt = record.state === "unknown" ? null : now + ttlSec * 1000;
+      const { rows } = await db.query<{ key: string }>(
+        `update sms_idempotency
+           set state = $3, record = $4::text::jsonb, expires_at = $5, reservation_id = null, reserved_at = null
+         where key = $1 and state = 'reserved' and reservation_id = $2
+         returning key`,
+        [key, reservationId, record.state, JSON.stringify(record), expiresAt],
+      );
+      return rows.length === 1 ? { kind: "finalized" } : { kind: "not_owner" };
+    },
+  };
+}
+```
+
+`reserve` claims the key in one `insert ... on conflict ... where` statement, so two concurrent callers cannot both get `reserved`. Expired `accepted` and `rejected` records count as absent. `unknown` and `reserved` rows have no expiry, so they are never taken over.
+
+Wire it into the client:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { pool } from "./db"; // for example, new pg.Pool()
+import { postgresIdempotencyStore } from "./idempotency-store";
+
+export const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" })],
+  idempotency: { store: postgresIdempotencyStore(pool), ttlSec: 7 * 24 * 60 * 60 },
+});
+```
+
+Every instance now shares one record per key. A second worker sending `order:123:shipped:v1` gets the stored result (`replayed: true`) or `IdempotencyInProgressError` while the first is still sending.
+
+## Choosing the timings
+
+- **`ttlSec`** must be longer than the longest time a job can be retried. If your queue retries for 3 days, keep records at least 3 days, or a late retry sends again.
+- **`staleReservationSec`** (default 300) must be longer than the longest a single send can take: `timeoutMs` times the requests one send can make (retries times adapters), plus backoff waits. With defaults (10 s timeout, 2 attempts, one adapter) a send takes at most about 30 s.
+- **`IdempotencyInProgressError`** is retry safe. Let the job retry later; by then the first send has finished and the retry replays its result.
+
+## Reconcile unknown outcomes
+
+A process that crashes after sending, or a request that times out, leaves the key `reserved` or `unknown`. SMS SDK will not resend it. Give your operators a way to resolve it:
+
+1. Find keys in state `unknown`, or `reserved` and older than `staleReservationSec`.
+2. Check each with the provider: its console, its message list API, or the status webhooks you stored.
+3. If the provider has the message, mark it accepted in your own records. If not, delete the row and let the job send again.
+
+```ts
+import { pool } from "./db";
+import { alertOnCall } from "./notify";
+
+const { rows } = await pool.query<{ key: string }>(
+  "select key from sms_idempotency where state = 'unknown' or (state = 'reserved' and reserved_at < $1)",
+  [Date.now() - 300_000],
+);
+if (rows.length > 0) {
+  await alertOnCall(`${rows.length} SMS sends need reconciliation`, rows.map((row) => row.key));
+}
+```
+
+No store can make this step unnecessary. None of the four providers deduplicates SMS sends by key, so an outcome lost in a crash or timeout can only be settled by asking the provider.
+
+## Webhooks across instances
+
+Webhook deduplication has the same problem. Store `dedupeKey` with a unique constraint in the shared database, not in process memory. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+
+## Other state that is per process
+
+- In-flight coalescing (two concurrent `send()` calls with the same key sharing one request) works within one client instance only. The shared store covers the rest.
+- Retry backoff timers live in the process that is sending. A crash during backoff leaves a `reserved` record, which becomes an unknown outcome after `staleReservationSec`.
+
+## Next steps
+
+- [Idempotency store reference](/reference/idempotency-store)
+- [Idempotency](/sending/idempotency)

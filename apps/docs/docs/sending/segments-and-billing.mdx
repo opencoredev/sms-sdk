@@ -1,6 +1,80 @@
 ---
 title: "Segments and billing"
-description: "How message length becomes segments, and why segment counts are estimates."
+description: "How SMS SDK estimates GSM-7 and UCS-2 segments, why one emoji changes the count, and why the estimate is not a price."
 ---
 
-TODO: write this page.
+Providers bill SMS per segment, not per message, so you want to know how many segments a body uses before you send it at scale. SMS SDK estimates the count locally with `estimateSegments()`. The estimate follows the standard encoding rules. It is not a price quote.
+
+## Estimate a body
+
+```ts
+import { estimateSegments } from "@opencoredev/sms-sdk/encoding";
+
+const short = estimateSegments("Your order has shipped.");
+console.log(short.encoding, short.units, short.segments); // "gsm7" 23 1
+
+const emoji = estimateSegments("Your package is ready 📦");
+console.log(emoji.encoding, emoji.units, emoji.segments); // "ucs2" 24 1
+```
+
+The same function is exported from `@opencoredev/sms-sdk`, and `sms.validate()` and every `SmsSendResult` include its result.
+
+## The rules
+
+A message is encoded in GSM-7 when every character is in the GSM 03.38 basic alphabet or its extension table. Otherwise the whole message is encoded in UCS-2.
+
+| Encoding | Unit | One segment holds | Each part of a longer message holds |
+| --- | --- | --- | --- |
+| GSM-7 | Septet | 160 | 153 |
+| UCS-2 | UTF-16 code unit | 70 | 67 |
+
+Longer messages lose a few units per segment to the header that joins the parts back together. That is why 161 GSM-7 septets cost 2 segments, not 1 with a remainder.
+
+Details SMS SDK applies:
+
+- **Extension characters count 2 septets**: form feed, `^`, `{`, `}`, `\`, `[`, `~`, `]`, `|`, and `€`. Eighty `€` signs fill one 160-septet segment.
+- **Extension characters never split** across two segments. Their escape and character stay together.
+- **Emoji count 2 code units** in UCS-2, and surrogate pairs never split across segments.
+- **One non-GSM character switches the whole message to UCS-2.** A message with one emoji is not automatically two segments. It changes encoding, and the count then depends on length. "Your package is ready 📦" is 24 code units, so it still fits in one segment.
+- **No transliteration.** SMS SDK never replaces `“` with `"` or drops an emoji to stay in GSM-7. `nonGsmCharacters` lists what forced UCS-2, so you can change the text yourself.
+
+## Why the estimate is not the bill
+
+The estimate tells you how a standard handset would split the message. Your bill can differ:
+
+- Some providers apply smart encoding and replace characters such as curly quotes before sending, which can lower the count.
+- Some routes use different limits. Some toll-free and international routes concatenate differently or have their own maximum length.
+- MMS, scheduled messages, failed messages, carrier fees, and per-country prices are set by the provider and carriers.
+- Prices change by country, sender type, and contract.
+
+Use the segment count to catch surprises, such as a template that grew past 160 characters or a stray emoji. Use your provider's pricing pages and invoices for money.
+
+## Catch long messages before sending
+
+`beforeSend` receives the segment estimate, so you can block messages that are longer than you expect:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+  beforeSend: ({ segments, encoding }) =>
+    segments > 3
+      ? { kind: "reject", reason: `Message is ${segments} ${encoding} segments; the limit is 3.` }
+      : { kind: "allow" },
+});
+```
+
+A rejected message throws `PolicyRejectedError` before any request, so nothing is billed.
+
+## Next steps
+
+- [Validation and encoding](/sending/validation-and-encoding)
+- [Encoding and utilities reference](/reference/encoding-and-utilities)

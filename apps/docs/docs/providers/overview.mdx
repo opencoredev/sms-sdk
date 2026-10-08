@@ -1,6 +1,72 @@
 ---
-title: "Overview"
-description: "Which providers SMS SDK supports and what each one can do."
+title: "Providers overview"
+description: "Compare the Twilio, Telnyx, Plivo, and Vonage adapters: support status, sender types, MMS, scheduling, webhooks, and limits."
+sidebar:
+  label: "Overview"
 ---
 
-TODO: write this page.
+Pick a provider by what you need to send and where. Every adapter uses the same `send()` call and the same webhook events, so the choice comes down to capabilities, the provider's own coverage and pricing, and where your senders are already provisioned.
+
+## Support status
+
+| Provider | API | Status | Why |
+| --- | --- | --- | --- |
+| [Twilio](/providers/twilio) | Programmable Messaging, Message resource, `2010-04-01` | Supported | Request, response, error codes, statuses, and webhook signing come from Twilio's docs. Twilio's published signature example is a test vector. |
+| [Telnyx](/providers/telnyx) | Messaging API v2, `POST /v2/messages` | Supported | Request, response, error catalog, and Ed25519 webhook signing come from Telnyx's docs and official SDK source. |
+| [Plivo](/providers/plivo) | Message API, `POST /v1/Account/{auth_id}/Message/` | Partial | Plivo does not document its API error body, so only 401 (auth) and 429 with Plivo's `api_id` (rate limit) are told apart. Other 4xx responses are `request` rejections and never fall back. |
+| [Vonage](/providers/vonage) | Messages API v1, `POST /v1/messages`, channel `sms` | Partial | Vonage does not document the HTTP status for each error code. Classification uses the documented 401, 402, and 422 statuses and the error code in the response. No short codes, no MMS. |
+
+**Supported** means requests, responses, error mapping, and webhooks are implemented from official documentation and pass the adapter contract tests. **Partial** means the adapter works and passes the same tests, but some provider behavior could not be confirmed from official documentation. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
+
+None of the four providers documents send idempotency for SMS, so no adapter has native idempotency. See [Idempotency](/sending/idempotency).
+
+## Capabilities
+
+| | Twilio | Telnyx | Plivo | Vonage (JWT) | Vonage (Basic) |
+| --- | --- | --- | --- | --- | --- |
+| Send text | ✅ | ✅ | ✅ | ✅ | ✅ |
+| MMS (`mediaUrls`) | ✅ max 10 | ✅ | ✅ | ❌ | ❌ |
+| Scheduling (`sendAt`) | ✅ Messaging Service only | ✅ | ❌ | ❌ | ❌ |
+| Validity period (`validityPeriodSec`) | 1 to 36000 s | ❌ | 5 to 10799 s | 20 to 604800 s | 20 to 604800 s |
+| Per-message `webhookUrl` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Delivery status webhooks | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Inbound webhooks | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Provider-declared STOP/HELP | ✅ `OptOutType` | Keyword only | Keyword only | Keyword only | ❌ |
+| Webhook replay window | None | 300 s | None | 300 s | n/a |
+
+## Sender types
+
+| Sender | Twilio | Telnyx | Plivo | Vonage |
+| --- | --- | --- | --- | --- |
+| Long code | ✅ | ✅ | ✅ | ✅ |
+| Toll-free | ✅ | ✅ | ✅ | ✅ |
+| Short code | ✅ | ✅ | ✅ | ❌ |
+| Alphanumeric sender ID | ✅ | ✅ needs `messagingProfileId` | ✅ | ✅ |
+| `{ messagingService }` | Messaging Service SID | Messaging profile ID | Powerpack UUID | ❌ |
+
+The adapter can send from a sender type. Whether your account may use it in a given country is decided by the provider. See [Senders and E.164 numbers](/sending/senders-and-e164).
+
+## Choosing
+
+| You need | Use |
+| --- | --- |
+| Scheduling with any sender | Telnyx |
+| Scheduling from a Twilio Messaging Service | Twilio |
+| MMS | Twilio, Telnyx, or Plivo |
+| Short codes | Twilio, Telnyx, or Plivo |
+| The most precise rejection categories, so fallback triggers on the right errors | Twilio or Telnyx |
+| A second provider for fallback | Any two. Put the supported one first if you mix statuses. |
+
+## Switching providers
+
+Changing the adapter is one line of code. Moving the account work is not:
+
+- Provision and register a sender with the new provider. Numbers, short codes, 10DLC campaigns, and toll-free verifications belong to one provider account.
+- Configure webhook URLs and webhook credentials on the new provider.
+- Check sender rules for each destination country.
+
+See [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx) for the full checklist.
+
+## Another provider
+
+Need a provider that is not listed? Implement the adapter contract and check it with the contract harness. See [Build a provider adapter](/providers/writing-an-adapter).

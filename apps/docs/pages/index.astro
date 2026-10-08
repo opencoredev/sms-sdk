@@ -7,7 +7,9 @@ import CodeBlock from "blume/components/content/CodeBlock.astro";
 import PageLayout from "blume/components/layout/PageLayout.astro";
 import data from "blume:data";
 
-import { estimateSegments } from "./_home/segments.ts";
+// The segment ruler uses the SDK's own estimator, so the landing page and
+// sms.validate() can never disagree.
+import { estimateSegments } from "../../../packages/sms-sdk/src/core/encoding.ts";
 
 const { config } = data;
 const repoUrl = "https://github.com/opencoredev/sms-sdk";
@@ -18,9 +20,9 @@ import { twilio } from "@opencoredev/sms-sdk/twilio";
 const sms = createSmsClient({
   adapters: [
     twilio({
-      accountSid: process.env.TWILIO_ACCOUNT_SID!,
-      authToken: process.env.TWILIO_AUTH_TOKEN!,
-      from: process.env.TWILIO_FROM as \`+\${string}\`,
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001", // a number on your Twilio account
     }),
   ],
 });
@@ -35,25 +37,27 @@ const switchExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
 import { twilio } from "@opencoredev/sms-sdk/twilio"; // [!code --]
 import { telnyx } from "@opencoredev/sms-sdk/telnyx"; // [!code ++]
 
-const sms = createSmsClient({
+export const sms = createSmsClient({
   adapters: [
     twilio({ // [!code --]
-      accountSid: process.env.TWILIO_ACCOUNT_SID!, // [!code --]
-      authToken: process.env.TWILIO_AUTH_TOKEN!, // [!code --]
-      from: process.env.TWILIO_FROM as \`+\${string}\`, // [!code --]
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "", // [!code --]
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "", // [!code --]
+      from: "+15550100001", // [!code --]
     }), // [!code --]
     telnyx({ // [!code ++]
-      apiKey: process.env.TELNYX_API_KEY!, // [!code ++]
-      from: process.env.TELNYX_FROM as \`+\${string}\`, // [!code ++]
+      apiKey: process.env.TELNYX_API_KEY ?? "", // [!code ++]
+      from: "+15550100002", // [!code ++]
     }), // [!code ++]
   ],
 });
 
 // Unchanged
-await sms.send({ to, body, idempotencyKey });`;
+await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  idempotencyKey: "order:123:shipped:v1",
+});`;
 
-// TODO(docs-content): confirm the memory() adapter API against
-// packages/sms-sdk/src/testing once the SDK lands.
 const testingExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
 import { memory } from "@opencoredev/sms-sdk/testing";
 
@@ -68,12 +72,14 @@ const rulerMessages = [
   "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule. Please arrive 10 minutes early to fill in the check-in forms.",
 ].map((body) => {
   const estimate = estimateSegments(body);
+  const perSegment = estimate.unitsPerSegment;
   // Fill each segment cell in order: full cells, then the remainder.
   const cells = Array.from({ length: estimate.segments }, (_, index) => {
-    const used = Math.min(estimate.perSegment, estimate.units - index * estimate.perSegment);
-    return used / estimate.perSegment;
+    const used = Math.min(perSegment, estimate.units - index * perSegment);
+    return used / perSegment;
   });
-  return { body, cells, ...estimate };
+  const encoding = estimate.encoding === "gsm7" ? "GSM-7" : "UCS-2";
+  return { body, cells, encoding, perSegment, units: estimate.units, segments: estimate.segments };
 });
 
 const features = [
@@ -99,21 +105,32 @@ const features = [
   },
 ];
 
-// TODO(docs-content): every provider is "planned" until the SDK's adapter
-// contract tests pass for it. Update these statuses from real test results.
-type Status = "supported" | "partial" | "planned";
+// Statuses mirror the adapters' own `support` values and the Providers
+// overview page. Partial cells say why in `partialNotes` below the table.
+type Status = "supported" | "partial";
 const capabilities = ["Send", "Delivery status", "Inbound", "Signature check"];
 const providers: { name: string; href: string; cells: Status[] }[] = [
-  { name: "Twilio", href: "/providers/twilio", cells: ["planned", "planned", "planned", "planned"] },
-  { name: "Telnyx", href: "/providers/telnyx", cells: ["planned", "planned", "planned", "planned"] },
-  { name: "Plivo", href: "/providers/plivo", cells: ["planned", "planned", "planned", "planned"] },
-  { name: "Vonage", href: "/providers/vonage", cells: ["planned", "planned", "planned", "planned"] },
+  { name: "Twilio", href: "/providers/twilio", cells: ["supported", "supported", "supported", "supported"] },
+  { name: "Telnyx", href: "/providers/telnyx", cells: ["supported", "supported", "supported", "supported"] },
+  { name: "Plivo", href: "/providers/plivo", cells: ["partial", "supported", "supported", "partial"] },
+  { name: "Vonage", href: "/providers/vonage", cells: ["partial", "partial", "partial", "partial"] },
 ];
 const statusLabel: Record<Status, string> = {
   supported: "Supported",
   partial: "Partial",
-  planned: "Planned",
 };
+const partialNotes = [
+  {
+    name: "Plivo",
+    href: "/providers/plivo#support-status",
+    note: "Plivo does not document its error body, so only auth and rate-limit rejections are classified. Its callback signature covers the URL and a nonce, not the body or a timestamp.",
+  },
+  {
+    name: "Vonage",
+    href: "/providers/vonage#support-status",
+    note: "Error classification is inferred because Vonage does not document the HTTP status per error code. Webhooks need JWT auth. No short codes or MMS.",
+  },
+];
 
 const faq = [
   {
@@ -230,7 +247,7 @@ const faq = [
           Credentials, the sender number, its registration, and your webhook URLs belong to each
           provider account. Set those up on Telnyx first.
         </p>
-        <a class="sms-link" href="/guides/switch-twilio-to-telnyx">Read the switching guide</a>
+        <a class="sms-link" href="/migration/switch-twilio-to-telnyx">Read the switching guide</a>
       </div>
       <div class="sms-split-code">
         <div class="sms-code">
@@ -262,8 +279,9 @@ const faq = [
       <div class="sms-section-head">
         <h2 id="matrix-title">Providers</h2>
         <p>
-          A provider is marked supported only after it passes the adapter contract tests. Each
-          provider page lists its verified API version, sender types, and known limits.
+          All four adapters pass the same contract tests. Supported means requests, errors, and
+          webhooks follow the provider's official documentation. Partial means part of the
+          provider's behavior is undocumented, so the SDK treats it conservatively.
         </p>
       </div>
       <div class="sms-table-scroll">
@@ -292,9 +310,15 @@ const faq = [
           </tbody>
         </table>
       </div>
-      <p class="sms-note">
-        SMS SDK is in early development. These statuses change as each adapter is tested.
-      </p>
+      <ul class="sms-notes">
+        {
+          partialNotes.map((item) => (
+            <li>
+              <a href={item.href}>{item.name}</a>: {item.note}
+            </li>
+          ))
+        }
+      </ul>
     </section>
 
     <section class="sms-wrap sms-section sms-split" aria-labelledby="deps-title">

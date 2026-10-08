@@ -1,6 +1,213 @@
 ---
 title: "Errors"
-description: "Error classes, codes, and the retrySafe flag."
+description: "Every SMS SDK error class with its code, retrySafe value, when it is thrown, and what to do about it."
 ---
 
-TODO: write this page.
+Every error SMS SDK throws extends `SmsError`. Each has a stable `code` you can switch on and a `retrySafe` flag that answers one question: can you send the same logical message again without risking a duplicate?
+
+`retrySafe: true` means nothing was accepted: the SDK never sent a request, or the provider proved it did not create the message. It does not mean a retry will succeed. `retrySafe: false` means a retry could duplicate the message, or the error is not about sending at all.
+
+```ts
+import { HandoffUnknownError, isSmsError } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+try {
+  await sms.send({ to: "+14155550123", body: "Your order has shipped.", idempotencyKey: "order:123:shipped:v1" });
+} catch (error) {
+  if (!isSmsError(error)) throw error;
+  console.error(JSON.stringify(error)); // redacted: name, code, message, retrySafe, attempts, provider
+  if (error instanceof HandoffUnknownError) {
+    // reconcile with the provider before sending again
+  } else if (error.retrySafe) {
+    // safe to send again later
+  }
+}
+```
+
+## Summary
+
+| Class | `code` | `retrySafe` | What to do |
+| --- | --- | --- | --- |
+| `ConfigurationError` | `configuration` | true | Fix the options. Happens at startup. |
+| `InvalidRecipientError` | `invalid_recipient` | true | Fix the number format. Do not retry as is. |
+| `InvalidSenderError` | `invalid_sender` | true | Pass `from` or configure the adapter's default, in a valid format. |
+| `InvalidMessageError` | `invalid_message` | true | Fix the field named in `field`. |
+| `UnsupportedFieldError` | `unsupported_field` | true | Remove the field or use an adapter that supports it. |
+| `PolicyRejectedError` | `policy_rejected` | true | Respect your policy. Do not retry until it allows the send. |
+| `ProviderRejectedError` | `provider_rejected` | true | Act on `category`. |
+| `ProviderAuthError` | `provider_auth` | true | Fix the provider credentials. |
+| `ProviderRateLimitedError` | `provider_rate_limited` | true | Retry later, after `retryAfterMs` if set. |
+| `AllProvidersRejectedError` | `all_providers_rejected` | true | Inspect `errors`, one per adapter. |
+| `HandoffUnknownError` | `handoff_unknown` | **false** | Do not resend. Reconcile with the provider first. |
+| `SendAbortedError` | `aborted` | true | Send again when ready. |
+| `IdempotencyConflictError` | `idempotency_conflict` | false | Use a new key for a different message. |
+| `IdempotencyInProgressError` | `idempotency_in_progress` | true | Retry later; you get the other call's result. |
+| `WebhookSignatureError` | `webhook_signature` | false | Respond 401 or 403. Do not process the request. |
+| `WebhookPayloadError` | `webhook_payload` | false | Respond 400 and log; the request was authentic but incomplete. |
+
+`ConfigurationError` is thrown by `createSmsClient` and the adapter factories, the two webhook errors by `parseSmsWebhook`, and the rest by `send()`.
+
+## `SmsError`
+
+The base class. Fields on every error:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | `string` | The class name, such as `"HandoffUnknownError"`. |
+| `code` | `SmsErrorCode` | Stable machine-readable code. |
+| `message` | `string` | Human-readable explanation. Phone numbers are masked. |
+| `retrySafe` | `boolean` | See above. |
+| `attempts` | `readonly SendAttempt[]` | Provider requests made before the error, oldest first. Empty when nothing was sent. |
+| `provider` | `ProviderErrorInfo \| undefined` | Redacted provider details: `{ provider, httpStatus?, code?, message?, requestId? }`. `message` has numbers masked and is at most 200 characters. |
+| `cause` | `unknown` | The original exception, when there was one. For debugging only. |
+
+`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider? }`. It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
+
+`isSmsError(value)` is a type guard for any SDK error.
+
+## Configuration
+
+### `ConfigurationError`
+
+- `code`: `configuration`. `retrySafe`: true.
+- Thrown by `createSmsClient` for no adapters, duplicate adapter names, or a non-positive `timeoutMs`, and by adapter factories for malformed credentials (a Twilio Account SID that is not `AC` plus 32 hex, an empty API key, a Vonage private key that is not a PEM).
+- Fix the configuration. Nothing was sent.
+
+## Local validation
+
+These are thrown before any provider request. Nothing was sent. `sms.validate()` reports the same problems as issues without throwing.
+
+### `InvalidRecipientError`
+
+- `code`: `invalid_recipient`. `retrySafe`: true.
+- `to` does not match `^\+[1-9]\d{1,14}$`.
+- Normalize the number to E.164. See [Senders and E.164 numbers](/sending/senders-and-e164).
+
+### `InvalidSenderError`
+
+- `code`: `invalid_sender`. `retrySafe`: true. Extra field: `providerName?: string`.
+- No sender on the message or the adapter, or a malformed sender: a sender ID that is not 1 to 11 letters, digits, or spaces with a letter; a short code that is not 3 to 8 digits; a Twilio Messaging Service SID that is not `MG` plus 32 hex; a Telnyx alphanumeric sender without `messagingProfileId`.
+- Fix the sender or the adapter's `from`.
+
+### `InvalidMessageError`
+
+- `code`: `invalid_message`. `retrySafe`: true. Extra field: `field: ValidationField`.
+- An empty body without media (or any empty body on Vonage), a relative or non-http media or webhook URL, an invalid `sendAt` date, a `validityPeriodSec` that is not a positive integer or is outside the adapter's range, an `idempotencyKey` outside 1 to 255 characters, or a provider limit such as Twilio's 1600-character body or 10 media URLs.
+- Fix the named field.
+
+### `UnsupportedFieldError`
+
+- `code`: `unsupported_field`. `retrySafe`: true. Extra fields: `field: ValidationField`, `providerName: string`.
+- The primary adapter cannot send `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or the sender type. Thrown before any request, even with fallback on.
+- Remove the field, change the sender, or put an adapter that supports it first. See [MMS, scheduling, and validity](/sending/mms-and-scheduling).
+
+## Policy
+
+### `PolicyRejectedError`
+
+- `code`: `policy_rejected`. `retrySafe`: true. Extra field: `reason: string`.
+- Your `beforeSend` returned `{ kind: "reject", reason }`. Nothing was sent and fallback never runs.
+- `message` is always "Send blocked by the beforeSend policy." Your `reason` may name a person or number, so it stays on `error.reason` only: it is not in `message`, `toJSON()`, hook payloads, or the idempotency store.
+- Respect the decision. An error thrown inside `beforeSend` is not wrapped in this class; it propagates as is.
+
+## Provider rejections
+
+The provider answered and proved it did not create the message. Sending the same message again cannot create a duplicate.
+
+### `ProviderRejectedError`
+
+- `code`: `provider_rejected`. `retrySafe`: true.
+- Extra fields: `category: RejectionCategory`, `providerName: string`, `fallbackEligible: boolean`, and `provider` with the provider's HTTP status, error code, message, and request ID.
+- What to do depends on `category`:
+
+| `category` | Falls back | Typical cause | What to do |
+| --- | --- | --- | --- |
+| `auth` | Yes | Bad or revoked credentials | Fix credentials. Thrown as `ProviderAuthError`. |
+| `rate_limited` | Yes, after retries | Throttling or a full queue | Retry later. Thrown as `ProviderRateLimitedError`. |
+| `sender` | Yes | Sender not provisioned, not registered, or not allowed for this destination | Fix the sender or its registration. |
+| `account` | Yes | Balance, trial limits, geographic permissions, spend limit | Fix the account settings with the provider. |
+| `recipient` | No | Invalid or unreachable number | Mark the number bad. Another provider would fail too. |
+| `compliance` | Never | The recipient opted out, or the content was blocked | Add the number to your suppression list. Never route around it. |
+| `request` | No | Any other 4xx | Inspect `error.provider` and fix the request. |
+
+`isFallbackEligible(category)` returns the "Falls back" column. Per-provider code mappings are on each [provider page](/providers/overview).
+
+### `ProviderAuthError`
+
+- `code`: `provider_auth`. Extends `ProviderRejectedError` with `category: "auth"`.
+- Fix the credentials. With fallback on, the next adapter was tried.
+
+### `ProviderRateLimitedError`
+
+- `code`: `provider_rate_limited`. Extends `ProviderRejectedError` with `category: "rate_limited"`. Extra field: `retryAfterMs: number | undefined`.
+- Thrown after same-adapter retries ran out, or when `Retry-After` was longer than `retry.maxDelayMs`.
+- Retry later, after `retryAfterMs` when set. Raise `retry.maxAttempts` if this is common.
+
+### `AllProvidersRejectedError`
+
+- `code`: `all_providers_rejected`. `retrySafe`: true. Extra field: `errors: readonly ProviderRejectedError[]`, one per attempted adapter, in order.
+- Fallback was on and every attempted adapter rejected, the last one with a non-eligible category or with no adapters left. When only one adapter was tried, its `ProviderRejectedError` is thrown directly instead.
+- Act on each entry in `errors`. A `compliance` entry means the recipient opted out.
+
+## Unknown outcome
+
+### `HandoffUnknownError`
+
+- `code`: `handoff_unknown`. **`retrySafe`: false.** Extra fields: `reason: HandoffUnknownReason`, `providerName: string | undefined`.
+- SMS SDK cannot tell whether the provider accepted the message. Never retried and never failed over.
+
+| `reason` | Cause |
+| --- | --- |
+| `network` | The connection failed after the request may have been sent. |
+| `timeout` | No response within `timeoutMs`. |
+| `aborted` | Your `signal` aborted while the request was in flight. |
+| `server_error` | The provider returned a 5xx. |
+| `unexpected_status` | A 1xx or 3xx status, or a 429 without the provider's documented rate-limit error. |
+| `malformed_response` | A 2xx without the documented message ID, or a body that is not JSON. |
+| `adapter_exception` | The adapter threw instead of returning an outcome. |
+| `replayed_unknown` | An earlier send with this idempotency key had an unknown outcome. |
+| `stale_reservation` | An earlier send with this key never finished (older than `staleReservationSec`). |
+
+What to do: check whether the message exists before sending again. Look it up in the provider's console or message API around the time of `attempts`, or wait for a status webhook. If it was never created, clear the idempotency record (for the memory store, `store.delete(key)`) and send again. See [Idempotency](/sending/idempotency#reconcile-an-unknown-outcome).
+
+:::warning
+Do not wrap `send()` in a generic retry loop. A loop that retries on any error turns a `HandoffUnknownError` into a possible duplicate text. Retry only when `error.retrySafe` is `true`.
+:::
+
+### `SendAbortedError`
+
+- `code`: `aborted`. `retrySafe`: true.
+- Your `signal` aborted before any request was sent, or while waiting to retry after a proven rate-limit rejection.
+- Send again when ready. (An abort during a request is a `HandoffUnknownError` instead.)
+
+## Idempotency
+
+### `IdempotencyConflictError`
+
+- `code`: `idempotency_conflict`. `retrySafe`: false. Extra field: `idempotencyKey: string`.
+- The key was already used for a different `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, or `webhookUrl`. Nothing was sent.
+- Use a new key for a new message, such as a version suffix (`:v2`). Retrying with the same key and payload will keep failing.
+
+### `IdempotencyInProgressError`
+
+- `code`: `idempotency_in_progress`. `retrySafe`: true. Extra field: `idempotencyKey: string`.
+- Another process holds a reservation for the key that is younger than `staleReservationSec`. This call sent nothing.
+- Retry later with the same key. You get the other call's outcome: its result, its rejection (and a new attempt), or `HandoffUnknownError`.
+
+## Webhooks
+
+### `WebhookSignatureError`
+
+- `code`: `webhook_signature`. `retrySafe`: false. Extra fields: `reason: WebhookFailureReason`, `providerName: string`.
+- `reason` is one of `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, `invalid_credentials`.
+- Respond with 401 or 403 and do not process the request. A steady stream of `invalid_signature` usually means a wrong credential or a URL mismatch behind a proxy. See [Webhook security](/receiving/webhook-security).
+
+### `WebhookPayloadError`
+
+- `code`: `webhook_payload`. `retrySafe`: false. Extra field: `providerName: string`.
+- The signature was valid, but the payload is missing required fields (such as `MessageSid`) or is not valid JSON.
+- Respond with 400, log the provider and request, and report it if it looks like a new provider format.
+
+## Types
+
+`SmsErrorCode`, `SerializedSmsError`, `HandoffUnknownReason`, `WebhookFailureReason`, `RejectionCategory`, `UnknownReason`, and `ProviderErrorInfo` are exported as types from `@opencoredev/sms-sdk`. `WebhookSignatureError`, `WebhookPayloadError`, and `WebhookFailureReason` are also exported from `@opencoredev/sms-sdk/webhooks`.

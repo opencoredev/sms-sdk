@@ -1,6 +1,128 @@
 ---
-title: "Next.js"
-description: "Send SMS and receive webhooks in a Next.js app."
+title: "Use with Next.js"
+description: "Send SMS from Next.js route handlers and server actions, and receive verified provider webhooks in the App Router."
 ---
 
-TODO: write this page.
+You have a Next.js App Router app and want to send SMS from the server and receive delivery and inbound webhooks. SMS SDK runs in route handlers and server actions on the Node.js runtime. It must never run in a client component.
+
+## 1. Create the client in a server-only module
+
+```ts lib/sms.ts
+import { createSmsClient, isE164 } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+const from = process.env.TELNYX_FROM;
+if (!isE164(from)) {
+  throw new Error("Set TELNYX_FROM to an E.164 number.");
+}
+
+export const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from })],
+});
+```
+
+Put `TELNYX_API_KEY`, `TELNYX_FROM`, and `TELNYX_PUBLIC_KEY` in `.env.local` and in your host's environment settings. Do not prefix them with `NEXT_PUBLIC_`: that would ship them to the browser.
+
+If you use the `server-only` package, add `import "server-only";` at the top of this file so a client import fails the build.
+
+## 2. Send from a route handler
+
+```ts app/api/orders/[id]/shipped/route.ts
+import { HandoffUnknownError, isE164, isSmsError } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
+  const { id } = await context.params;
+  const body: unknown = await request.json();
+  const phone = typeof body === "object" && body !== null && "phone" in body ? body.phone : undefined;
+  if (typeof phone !== "string" || !isE164(phone)) {
+    return Response.json({ error: "phone must be an E.164 number" }, { status: 400 });
+  }
+
+  try {
+    const result = await sms.send({ to: phone, body: `Order ${id} has shipped.`, idempotencyKey: `order:${id}:shipped:v1` });
+    return Response.json({ providerId: result.providerId });
+  } catch (error) {
+    if (error instanceof HandoffUnknownError) {
+      return Response.json({ status: "unknown", message: "Check the provider before retrying." }, { status: 202 });
+    }
+    if (isSmsError(error)) {
+      return Response.json(error.toJSON(), { status: error.retrySafe ? 422 : 500 });
+    }
+    throw error;
+  }
+}
+```
+
+In your project, import from `@/lib/sms` (or your alias) instead of `./sms`. A `POST` with `{ "phone": "+14155550123" }` returns the provider's message ID. Rejections come back as the redacted `error.toJSON()`.
+
+## 3. Send from a server action
+
+```ts app/actions.ts
+"use server";
+
+import { isE164 } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+export async function sendReminder(formData: FormData): Promise<{ ok: boolean; message: string }> {
+  const phone = formData.get("phone");
+  if (typeof phone !== "string" || !isE164(phone)) {
+    return { ok: false, message: "Enter the number with its country code, such as +14155550123." };
+  }
+  await sms.send({ to: phone, body: "Reminder: your appointment is tomorrow at 9:30." });
+  return { ok: true, message: "Reminder sent." };
+}
+```
+
+## 4. Receive webhooks
+
+```ts app/api/webhooks/sms/telnyx/route.ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "telnyx",
+      request,
+      credentials: { publicKey: process.env.TELNYX_PUBLIC_KEY ?? "" },
+    });
+    if (!(await db.webhookEvents.insertIfNew(event.dedupeKey))) {
+      return new Response(null, { status: 200 });
+    }
+    if (event.type === "message.delivered" || event.type === "message.undelivered") {
+      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
+    } else if (event.type === "recipient.opted_out") {
+      await db.suppressions.add(event.from);
+    }
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+    throw error;
+  }
+}
+```
+
+Route handlers receive a web `Request` whose body has not been read, which is what `parseSmsWebhook()` needs. Do not call `request.json()` or `request.text()` before it.
+
+For Twilio or Plivo, which sign the URL, pass `publicUrl` with the exact URL configured in the provider console, such as `https://example.com/api/webhooks/sms/twilio`. On Vercel and most hosts the URL your handler sees differs from the public one. See [Webhook security](/receiving/webhook-security).
+
+Set the URL in the provider console to your deployed route, for example `https://example.com/api/webhooks/sms/telnyx`. For local development, expose `localhost:3000` with a tunnel and use the tunnel's HTTPS URL as `publicUrl`.
+
+## Runtime and caching notes
+
+- Use the Node.js runtime (`export const runtime = "nodejs"`). Edge runtimes have the needed APIs but are not tested.
+- Route handlers with `POST` are not cached, so every request runs.
+- `memoryIdempotencyStore()` does not survive across serverless invocations. Use a shared store in production. See [Deploy with multiple instances](/guides/multiple-instances).
+- Serverless functions can be stopped right after the response. Store webhook events before responding, or use your platform's background task API, so work is not lost.
+
+## Next steps
+
+- [Delivery status webhooks](/receiving/delivery-status-webhooks)
+- [Deploy with multiple instances](/guides/multiple-instances)

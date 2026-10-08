@@ -1,6 +1,288 @@
 ---
 title: "Twilio"
-description: "Configure the Twilio adapter: credentials, senders, webhooks, and limits."
+description: "Send and receive SMS and MMS through Twilio Programmable Messaging with the SMS SDK twilio() adapter: setup, senders, webhooks, errors, and limits."
 ---
 
-TODO: write this page.
+The `twilio()` adapter sends SMS and MMS through Twilio Programmable Messaging and parses Twilio's status and inbound webhooks.
+
+Comparing providers? See the [Providers overview](/providers/overview).
+
+## Support status
+
+**Supported.** Request fields, responses, error codes, status values, and webhook signing come from Twilio's official documentation, and Twilio's published signature example is used as a test vector. The adapter passes the shared contract tests.
+
+## Installation
+
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+```ts
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+```
+
+## Environment variables
+
+| Variable | Required | Used for |
+| --- | --- | --- |
+| `TWILIO_ACCOUNT_SID` | Yes | Account SID, `AC` plus 32 hex characters. Part of the request URL. |
+| `TWILIO_AUTH_TOKEN` | Yes, unless you use an API key | Basic auth password, and webhook signature verification. |
+| `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET` | Instead of the Auth Token | Basic auth with an API key. |
+| `TWILIO_FROM` | One sender variable | Default sender: a Twilio number, short code, or alphanumeric sender ID. |
+| `TWILIO_MESSAGING_SERVICE_SID` | One sender variable | Default sender: a Messaging Service, `MG` plus 32 hex characters. |
+
+These names are used by the examples and the doctor CLI. The adapter reads nothing from the environment itself. Keep the token on the server.
+
+## Basic usage
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+});
+
+const result = await sms.send({ to: "+14155550123", body: "Your order has shipped." });
+console.log(result.providerId); // "SM..." (or "MM..." for MMS)
+```
+
+`twilio()` throws `ConfigurationError` at startup when the Account SID is malformed or a credential is empty.
+
+## Authentication
+
+Pass either the Auth Token or an API key, not both:
+
+```ts
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const withApiKey = twilio({
+  accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+  apiKeySid: process.env.TWILIO_API_KEY_SID ?? "",
+  apiKeySecret: process.env.TWILIO_API_KEY_SECRET ?? "",
+  from: { messagingService: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "" },
+});
+
+console.log(withApiKey.name); // "twilio"
+```
+
+Twilio recommends API keys for production because you can revoke them one at a time. Webhook verification still needs the account's Auth Token: Twilio signs webhooks with it, not with an API key.
+
+## Configuration
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `accountSid` | `string` | required | `AC` plus 32 hex characters. |
+| `authToken` | `string` | required without API key | Auth Token. |
+| `apiKeySid`, `apiKeySecret` | `string` | required without Auth Token | API key pair. |
+| `from` | `SmsFrom` | none | Default sender. |
+| `baseUrl` | `string` | `https://api.twilio.com` | API origin, for a proxy or a mock server. |
+| `fetch` | `FetchLike` | global `fetch` | Custom fetch, for tests or runtimes without a global one. |
+
+## API version and endpoint
+
+- `POST https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json`
+- HTTP Basic auth, form-encoded body.
+- Fields sent: `To`, `From` or `MessagingServiceSid`, `Body`, `MediaUrl` (repeated), `StatusCallback` (from `webhookUrl`), `ValidityPeriod` (from `validityPeriodSec`), and `SendAt` with `ScheduleType=fixed` (from `sendAt`).
+- Success: a 2xx response with a `sid` matching `SM` or `MM` plus 32 hex characters. A 2xx without one is an unknown outcome.
+
+## Senders
+
+| Sender | Write | Sent as |
+| --- | --- | --- |
+| Long code or toll-free number | `"+15550100001"` | `From` |
+| Short code | `{ shortCode: "12345" }` | `From` |
+| Alphanumeric sender ID | `{ senderId: "Acme" }` | `From` |
+| Messaging Service | `{ messagingService: "MG…" }` | `MessagingServiceSid` |
+
+US long codes need A2P 10DLC registration and toll-free numbers need verification before carriers accept traffic. Alphanumeric sender IDs work only in countries that allow them, and some require registration. Twilio decides; a refused sender is a `sender` rejection.
+
+## Capabilities
+
+| Capability | Twilio adapter |
+| --- | --- |
+| MMS | Yes, up to 10 `mediaUrls` |
+| Scheduling | Yes, only with a `{ messagingService }` sender |
+| Validity period | 1 to 36000 seconds |
+| Per-message `webhookUrl` | Yes |
+| Delivery status webhooks | Yes |
+| Inbound webhooks | Yes |
+| Body length | Up to 1600 characters (checked locally) |
+| Native idempotency | No |
+
+## Example: send and track delivery
+
+This standalone script sends one message with a status callback. It is based on [`examples/twilio`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/twilio), which runs against a mocked Twilio API unless you opt into a live send.
+
+```ts send-with-status.ts
+import { createSmsClient, isE164, isSmsError } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const from = process.env.TWILIO_FROM;
+const to = process.env.SMS_EXAMPLE_TO;
+if (!isE164(from) || !isE164(to)) {
+  throw new Error("Set TWILIO_FROM and SMS_EXAMPLE_TO to E.164 numbers.");
+}
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from,
+    }),
+  ],
+});
+
+try {
+  const result = await sms.send({
+    to,
+    body: "Your order has shipped.",
+    idempotencyKey: "order:123:shipped:v1",
+    webhookUrl: "https://example.com/webhooks/sms/twilio",
+  });
+  console.log(`Twilio accepted ${result.providerId} (${result.delivery})`);
+} catch (error) {
+  if (isSmsError(error)) console.error(error.toJSON());
+  throw error;
+}
+```
+
+You see `Twilio accepted SM… (queued)`. Twilio then posts status updates to the `webhookUrl`.
+
+## Delivery and inbound webhooks
+
+- **Status:** pass `webhookUrl` per message, or set a status callback on the Messaging Service.
+- **Inbound:** set "A message comes in" on the phone number, or the incoming message webhook on the Messaging Service, to your endpoint with HTTP POST.
+
+```ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "twilio",
+      request,
+      publicUrl: "https://example.com/webhooks/sms/twilio",
+      credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+    });
+    if (event.type === "message.delivered" || event.type === "message.undelivered") {
+      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
+    } else if (event.type === "recipient.opted_out") {
+      await db.suppressions.add(event.from);
+    }
+    // Empty TwiML: no automatic reply.
+    return new Response("<Response></Response>", { headers: { "content-type": "text/xml" } });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+}
+```
+
+Status mapping: `queued`, `accepted`, `scheduled`, and `sending` become `message.queued`; `sent` becomes `message.sent`; `delivered` becomes `message.delivered`; `undelivered` and `failed` become `message.undelivered`, or `message.filtered` with error 30007. `read`, `canceled`, and other statuses become `unrecognized`. `dedupeKey` is `twilio:{MessageSid}:{status}` or `twilio:{MessageSid}:received`.
+
+With Advanced Opt-Out enabled on a Messaging Service, Twilio adds `OptOutType` (`STOP`, `START`, `HELP`) to inbound webhooks, which becomes `recipient.opted_out`, `recipient.opted_in`, or `recipient.help` with `source: "provider"`.
+
+## Signature verification
+
+Twilio signs each webhook with `X-Twilio-Signature`: Base64 HMAC-SHA1, keyed with the Auth Token, over the full URL followed by each form parameter name and value, sorted by name. For JSON bodies, Twilio adds a `bodySHA256` query parameter, signs only the URL, and SMS SDK checks the hash against the raw body.
+
+- Pass `publicUrl` with the exact URL configured in Twilio, or verification fails behind a proxy. SMS SDK tries the URL with and without `:443`/`:80`.
+- Twilio signs no timestamp, so there is no replay window. Deduplicate on `dedupeKey`.
+- The Auth Token must belong to the account that owns the number. A subaccount number is signed with the subaccount's token.
+
+## Error mapping
+
+| Twilio response | Category | Falls back |
+| --- | --- | --- |
+| 401, or error 20003 | `auth` | Yes |
+| 403 with an unlisted code | `auth` | Yes |
+| Error 20429 | `rate_limited` | Yes, after retries |
+| 21212, 21606, 21612, 21659, 21660, 21703 | `sender` | Yes |
+| 21408 (geographic permission), 21608 (trial account) | `account` | Yes |
+| 21211, 21614 | `recipient` | No |
+| 21610 (recipient unsubscribed) | `compliance` | Never |
+| Any other 4xx | `request` | No |
+| 429 without error 20429 | unknown | Never |
+| 5xx, network error, timeout, 2xx without a valid SID | unknown | Never |
+
+Twilio documents that 429 responses with error 20429 were not processed. A 429 without that code may come from a proxy or load balancer, so SMS SDK treats it as unknown. `error.provider.code` holds Twilio's error code and `error.provider.requestId` the `Twilio-Request-Id` header.
+
+## Limitations
+
+- Scheduling requires a Messaging Service sender. Use Telnyx if you need to schedule from a plain number.
+- No Twilio-specific options beyond the fields above, such as `ShortenUrls`, `ContentSid`, or `RiskCheck`. Use the Twilio SDK for those.
+- Twilio's own scheduling window and MMS country coverage are enforced by Twilio as rejections.
+- Content Templates, WhatsApp, and Conversations are out of scope.
+
+## Testing
+
+Unit test your code with the [`memory()` adapter](/guides/local-testing), or point `twilio()` at a fake API with `mockFetch`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { mockFetch } from "@opencoredev/sms-sdk/testing";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const fake = mockFetch({ status: 201, body: { sid: "SM0123456789abcdef0123456789abcdef", status: "queued" } });
+const sms = createSmsClient({
+  adapters: [twilio({ accountSid: "AC0123456789abcdef0123456789abcdef", authToken: "test", from: "+15550100001", fetch: fake.fetch })],
+});
+
+await sms.send({ to: "+14155550123", body: "Hi" });
+console.log(fake.calls[0]?.body); // "To=%2B14155550123&From=%2B15550100001&Body=Hi"
+```
+
+The adapter's own fixtures and live test live in the SMS SDK repository. From `packages/sms-sdk`:
+
+```bash
+bun test test/contracts/twilio.test.ts test/webhooks/twilio.test.ts
+```
+
+The live test sends one real, billable message per configured provider and is skipped unless you opt in:
+
+```bash
+LIVE_SMS_TESTS=true LIVE_SMS_TO=+14155550123 LIVE_SMS_ALLOWLIST=+14155550123 \
+TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_FROM=+15550100001 \
+bun test test/integration/live.test.ts
+```
+
+`LIVE_SMS_TO` must appear in `LIVE_SMS_ALLOWLIST`. Providers without credentials in the environment are skipped. Check your configuration first with `npx @opencoredev/sms-sdk doctor --adapter twilio`.
+
+## API reference
+
+```ts ignore="signature listing"
+twilio(options: TwilioOptions): SmsAdapter
+
+type TwilioOptions =
+  | { accountSid: string; authToken: string; from?: SmsFrom; baseUrl?: string; fetch?: FetchLike }
+  | { accountSid: string; apiKeySid: string; apiKeySecret: string; from?: SmsFrom; baseUrl?: string; fetch?: FetchLike };
+```
+
+Also exported from `@opencoredev/sms-sdk/twilio`, for adapter authors and tests: `TWILIO_CAPABILITIES`, `buildTwilioForm(message)`, `interpretTwilioResponse(status, text, headers)`, `twilioRejectionCategory(status, code)`, `twilioDelivery(status)`, and the types `TwilioOptions`, `TwilioAuthTokenOptions`, `TwilioApiKeyOptions`.
+
+## Official documentation
+
+Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/PROVIDERS.md).
+
+- [Message resource](https://www.twilio.com/docs/messaging/api/message-resource)
+- [Error response format](https://www.twilio.com/docs/usage/twilios-response)
+- [Error dictionary](https://www.twilio.com/docs/api/errors)
+- [Webhook request validation](https://www.twilio.com/docs/usage/security#validating-requests)
+- [Incoming message webhook parameters](https://www.twilio.com/docs/messaging/guides/webhook-request)
+- [Tracking outbound message status](https://www.twilio.com/docs/messaging/guides/track-outbound-message-status)
+- [Messaging Services](https://www.twilio.com/docs/messaging/services)
+
+## Next steps
+
+- [Delivery status webhooks](/receiving/delivery-status-webhooks)
+- [Migrate from the Twilio SDK](/migration/migrate-from-twilio)
+- [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx)

@@ -1,6 +1,271 @@
 ---
 title: "Plivo"
-description: "Configure the Plivo adapter: credentials, senders, webhooks, and limits."
+description: "Send and receive SMS and MMS through the Plivo Message API with the SMS SDK plivo() adapter: setup, senders, webhooks, errors, and partial-support limits."
 ---
 
-TODO: write this page.
+The `plivo()` adapter sends SMS and MMS through the Plivo Message API and parses Plivo's V2-signed message callbacks.
+
+Comparing providers? See the [Providers overview](/providers/overview).
+
+## Support status
+
+**Partial.** The adapter works and passes the shared contract tests, with two gaps that come from Plivo's documentation:
+
+- Plivo does not document its API error body. SMS SDK can only tell 401 (`auth`) and 429 (`rate_limited`, when the response carries Plivo's `api_id`) apart. Every other 4xx becomes a `request` rejection, which never falls back, even when the real cause is a sender or account problem another provider could avoid.
+- Plivo signs message callbacks with its V2 scheme, which covers the URL and a nonce but not the body or a timestamp. A captured callback could be replayed, or its body altered, without failing verification. Plivo documents its V3 scheme, which signs parameters, for Voice only.
+
+The same notes are in `adapter.support.notes` at runtime.
+
+## Installation
+
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+```ts
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+```
+
+## Environment variables
+
+| Variable | Required | Used for |
+| --- | --- | --- |
+| `PLIVO_AUTH_ID` | Yes | Basic auth username, and part of the request URL. |
+| `PLIVO_AUTH_TOKEN` | Yes | Basic auth password, and callback signature verification. |
+| `PLIVO_FROM` | One sender variable | Default sender: a Plivo number, short code, or alphanumeric sender ID. |
+| `PLIVO_POWERPACK_UUID` | One sender variable | Default sender: a Powerpack (number pool). |
+
+These names are used by the examples and the doctor CLI. The adapter reads nothing from the environment itself. Keep the token on the server.
+
+## Basic usage
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+
+const sms = createSmsClient({
+  adapters: [
+    plivo({
+      authId: process.env.PLIVO_AUTH_ID ?? "",
+      authToken: process.env.PLIVO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+});
+
+const result = await sms.send({ to: "+14155550123", body: "Your order has shipped." });
+console.log(result.providerId); // the first message_uuid
+```
+
+`plivo()` throws `ConfigurationError` at startup when the Auth ID or Auth Token is empty.
+
+## Authentication
+
+Plivo uses HTTP Basic auth with the account's (or a subaccount's) Auth ID and Auth Token. The same Auth Token verifies callbacks signed with `X-Plivo-Signature-V2`. Callbacks signed with `X-Plivo-Signature-Ma-V2` use the main account's token.
+
+## Configuration
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `authId` | `string` | required | Auth ID. |
+| `authToken` | `string` | required | Auth Token. |
+| `from` | `SmsFrom` | none | Default sender. `{ messagingService: powerpackUuid }` sends from a Powerpack. |
+| `baseUrl` | `string` | `https://api.plivo.com` | API origin, for a proxy or a mock server. |
+| `fetch` | `FetchLike` | global `fetch` | Custom fetch. |
+
+## API version and endpoint
+
+- `POST https://api.plivo.com/v1/Account/{auth_id}/Message/`
+- HTTP Basic auth, JSON body.
+- Fields sent: `src` or `powerpack_uuid`, `dst`, `text`, `type` (`sms` or `mms`), `media_urls`, `url` with `method: "POST"` (from `webhookUrl`), and `message_expiry` (from `validityPeriodSec`).
+- Success: a 2xx response with a non-empty `message_uuid` array. Plivo does not state the exact success status. A 2xx without `message_uuid` is an unknown outcome.
+
+## Senders
+
+| Sender | Write | Sent as |
+| --- | --- | --- |
+| Long code or toll-free number | `"+15550100001"` | `src` |
+| Short code | `{ shortCode: "12345" }` | `src` |
+| Alphanumeric sender ID | `{ senderId: "Acme" }` | `src` |
+| Powerpack | `{ messagingService: "<powerpack uuid>" }` | `powerpack_uuid` |
+
+US long codes need 10DLC registration and toll-free numbers need verification. Alphanumeric sender IDs work only where the destination country allows them.
+
+## Capabilities
+
+| Capability | Plivo adapter |
+| --- | --- |
+| MMS | Yes |
+| Scheduling | No |
+| Validity period | 5 to 10799 seconds |
+| Per-message `webhookUrl` | Yes |
+| Delivery status webhooks | Yes |
+| Inbound webhooks | Yes |
+| Native idempotency | No |
+
+## Example: send and track delivery
+
+```ts send-with-status.ts
+import { createSmsClient, isE164, isSmsError } from "@opencoredev/sms-sdk";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+
+const from = process.env.PLIVO_FROM;
+const to = process.env.SMS_EXAMPLE_TO;
+if (!isE164(from) || !isE164(to)) {
+  throw new Error("Set PLIVO_FROM and SMS_EXAMPLE_TO to E.164 numbers.");
+}
+
+const sms = createSmsClient({
+  adapters: [plivo({ authId: process.env.PLIVO_AUTH_ID ?? "", authToken: process.env.PLIVO_AUTH_TOKEN ?? "", from })],
+});
+
+try {
+  const result = await sms.send({
+    to,
+    body: "Your order has shipped.",
+    idempotencyKey: "order:123:shipped:v1",
+    webhookUrl: "https://example.com/webhooks/sms/plivo",
+  });
+  console.log(`Plivo accepted ${result.providerId} (${result.delivery})`);
+} catch (error) {
+  if (isSmsError(error)) console.error(error.toJSON());
+  throw error;
+}
+```
+
+You see `Plivo accepted <uuid> (queued)`. Plivo then posts status callbacks to the `webhookUrl`.
+
+## Delivery and inbound webhooks
+
+- **Status:** pass `webhookUrl` per message. Plivo calls it with `POST`.
+- **Inbound:** link the number to a Plivo application and set the application's message URL.
+
+```ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "plivo",
+      request,
+      publicUrl: "https://example.com/webhooks/sms/plivo",
+      credentials: { authToken: process.env.PLIVO_AUTH_TOKEN ?? "" },
+    });
+    if (!(await db.webhookEvents.insertIfNew(event.dedupeKey))) {
+      return new Response(null, { status: 200 }); // also blocks replays
+    }
+    if (event.type === "message.delivered" || event.type === "message.undelivered") {
+      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
+    } else if (event.type === "recipient.opted_out") {
+      await db.suppressions.add(event.from);
+    }
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+}
+```
+
+Status mapping: `queued` becomes `message.queued`; `sent` becomes `message.sent`; `delivered` becomes `message.delivered`; `undelivered` and `failed` become `message.undelivered`. Plivo has no documented filter signal, so no Plivo event is `message.filtered`. `read` and other statuses become `unrecognized`. `ErrorCode` `000` (success) is omitted from `errorCode`.
+
+`dedupeKey` is `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received`. Plivo sends no opt-out flag, so STOP and HELP come from keyword detection.
+
+## Signature verification
+
+Plivo signs message callbacks with `X-Plivo-Signature-V2` (or `X-Plivo-Signature-Ma-V2`) and `X-Plivo-Signature-V2-Nonce`. The signature is Base64 HMAC-SHA256, keyed with the Auth Token, over the callback URL without its query string followed by the nonce.
+
+- Pass `publicUrl` with the exact URL Plivo calls, or verification fails behind a proxy.
+- The body is not signed and there is no timestamp. Serve the endpoint over HTTPS, and deduplicate on `dedupeKey` so a replayed callback has no effect.
+
+## Error mapping
+
+| Plivo response | Category | Falls back |
+| --- | --- | --- |
+| 401 | `auth` | Yes |
+| 429 with Plivo's `api_id` in the body | `rate_limited` | Yes, after retries |
+| 429 without `api_id` | unknown | Never |
+| Any other 4xx | `request` | No |
+| 5xx, network error, timeout, 2xx without `message_uuid` | unknown | Never |
+
+Plivo documents an `api_id` on every response, so a 429 without one did not come from Plivo (a proxy, for example) and proves nothing. Because Plivo's error body is undocumented, `sender`, `account`, `recipient`, and `compliance` are never produced. An opt-out or a bad sender appears as `request`. `error.provider.message` carries Plivo's `error` text and `error.provider.requestId` its `api_id`, which help you tell the cause apart in logs.
+
+## Limitations
+
+- Most rejections are `request` and never fall back. If you rely on fallback, put a supported adapter first, or accept that Plivo sender problems stop the send.
+- Compliance rejections are not detected as such, so they are not added to your suppression list automatically by code that checks `category === "compliance"`.
+- No scheduling. Use Twilio (with a Messaging Service) or Telnyx.
+- Callback bodies are not signed and have no replay window.
+- Plivo states a default `message_expiry` of 10800 seconds, outside its own documented range of 5 to 10799. SMS SDK enforces 5 to 10799.
+
+## Testing
+
+Point `plivo()` at a fake API with `mockFetch`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+import { mockFetch } from "@opencoredev/sms-sdk/testing";
+
+const fake = mockFetch({
+  status: 202,
+  body: { message: "message(s) queued", message_uuid: ["db3ce55a-7f1d-11e1-8ea7-1231380bc196"], api_id: "db342550-7f1d-11e1-8ea7-1231380bc196" },
+});
+const sms = createSmsClient({
+  adapters: [plivo({ authId: "MAXXXXXXXXXXXXXXXXXX", authToken: "test", from: "+15550100001", fetch: fake.fetch })],
+});
+
+const result = await sms.send({ to: "+14155550123", body: "Hi" });
+console.log(result.providerId); // "db3ce55a-7f1d-11e1-8ea7-1231380bc196"
+```
+
+Test your callback handler with `signedPlivoRequest()`. See [Local testing](/guides/local-testing#test-webhook-handlers).
+
+The adapter's own fixtures and live test live in the SMS SDK repository. From `packages/sms-sdk`:
+
+```bash
+bun test test/contracts/plivo.test.ts test/webhooks/plivo.test.ts
+```
+
+The live test sends one real, billable message per configured provider and is skipped unless you opt in:
+
+```bash
+LIVE_SMS_TESTS=true LIVE_SMS_TO=+14155550123 LIVE_SMS_ALLOWLIST=+14155550123 \
+PLIVO_AUTH_ID=... PLIVO_AUTH_TOKEN=... PLIVO_FROM=+15550100001 \
+bun test test/integration/live.test.ts
+```
+
+Check your configuration first with `npx @opencoredev/sms-sdk doctor --adapter plivo`.
+
+## API reference
+
+```ts ignore="signature listing"
+plivo(options: PlivoOptions): SmsAdapter
+
+type PlivoOptions = {
+  authId: string;
+  authToken: string;
+  from?: SmsFrom;
+  baseUrl?: string;
+  fetch?: FetchLike;
+};
+```
+
+Also exported from `@opencoredev/sms-sdk/plivo`: `PLIVO_CAPABILITIES`, `PLIVO_SUPPORT_NOTES`, `buildPlivoRequest(message)`, `interpretPlivoResponse(status, text, headers)`, `plivoRejectionCategory(status)`, and the types `PlivoOptions`, `PlivoMessageRequest`.
+
+## Official documentation
+
+Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/PROVIDERS.md).
+
+- [Send a message](https://www.plivo.com/docs/messaging/api/message/send-a-message)
+- [Messaging API overview and status codes](https://www.plivo.com/docs/messaging/api/overview)
+- [Message object and callbacks](https://www.plivo.com/docs/messaging/api/message)
+- [Messaging signature validation](https://www.plivo.com/docs/messaging/concepts/signature-validation)
+- [Official Node SDK signature code](https://github.com/plivo/plivo-node/blob/master/lib/utils/security.js)
+
+## Next steps
+
+- [Providers overview](/providers/overview)
+- [Webhook security](/receiving/webhook-security)
+- [Retries and fallback](/sending/retries-and-fallback)

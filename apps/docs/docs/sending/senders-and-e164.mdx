@@ -1,6 +1,94 @@
 ---
-title: "Senders and E.164"
-description: "Sender types, number formatting, and why a sender belongs to one provider account."
+title: "Senders and E.164 numbers"
+description: "Format recipients as E.164 and choose a sender: phone number, short code, alphanumeric sender ID, or messaging service."
 ---
 
-TODO: write this page.
+You need to tell SMS SDK who the message goes to and who it comes from. Recipients are always E.164 numbers. Senders can be one of four kinds, and each provider supports a different set.
+
+## Recipients are E.164
+
+`to` must match `^\+[1-9]\d{1,14}$`: a `+`, a country code that does not start with 0, and at most 15 digits in total, with no spaces, dashes, or brackets. `+14155550123` is valid. `(415) 555-0123` and `0044 20 7946 0000` are not.
+
+The check runs at runtime before any request, because the `` `+${string}` `` type alone does not prove a string is a valid number. Use `isE164` to narrow user input:
+
+```ts
+import { isE164 } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+const input: string = "+14155550123"; // for example, from a form field
+
+if (!isE164(input)) {
+  throw new Error("Enter the number with its country code, such as +14155550123.");
+}
+
+await sms.send({ to: input, body: "Thanks for signing up." });
+```
+
+`isE164` checks format only. It cannot tell whether the number exists, is a mobile number, or can receive SMS. SMS SDK does not convert national formats to E.164; use a phone number library for that.
+
+## Senders
+
+`from` accepts one of four shapes, written as `SmsFrom`:
+
+| You send from | Write | Rule checked locally |
+| --- | --- | --- |
+| A long code or toll-free number | `"+15550100001"` | E.164 |
+| A short code | `{ shortCode: "12345" }` | 3 to 8 digits |
+| An alphanumeric sender ID | `{ senderId: "Acme" }` | 1 to 11 letters, digits, or spaces, with at least one letter |
+| A provider sender pool | `{ messagingService: "MG…" }` | Non-empty. Twilio also checks `MG` plus 32 hex characters. |
+
+`{ messagingService }` means a Twilio Messaging Service SID, a Telnyx messaging profile ID (the profile's number pool), or a Plivo Powerpack UUID.
+
+Set a default on the adapter and override it per message:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: { messagingService: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "" },
+    }),
+  ],
+});
+
+// Uses the Messaging Service
+await sms.send({ to: "+14155550123", body: "Your code is 123456" });
+
+// Uses an alphanumeric sender ID for this message only
+await sms.send({ to: "+447700900123", from: { senderId: "Acme" }, body: "Your parcel is out for delivery." });
+```
+
+The first send uses the adapter's default. The second overrides it for one message.
+
+## Which provider supports which sender
+
+| Sender type | Twilio | Telnyx | Plivo | Vonage |
+| --- | --- | --- | --- | --- |
+| Long code | ✅ | ✅ | ✅ | ✅ |
+| Toll-free | ✅ | ✅ | ✅ | ✅ |
+| Short code | ✅ | ✅ | ✅ | ❌ |
+| Alphanumeric sender ID | ✅ | ✅ [1] | ✅ | ✅ |
+| Messaging service | ✅ Messaging Service | ✅ messaging profile | ✅ Powerpack | ❌ |
+
+1. Telnyx requires a messaging profile for alphanumeric senders. Pass `messagingProfileId` to `telnyx()`.
+
+A sender type the primary adapter does not support throws `UnsupportedFieldError` (`field: "from"`) before any request. With fallback on, adapters that cannot use the sender are skipped.
+
+## The provider decides what is sendable
+
+These checks are format checks. SMS SDK cannot see whether a number belongs to your account, whether it is registered for 10DLC or verified for toll-free use, or whether alphanumeric sender IDs are allowed in the destination country. Many countries, including the United States and Canada, do not accept alphanumeric sender IDs.
+
+When the provider refuses the sender, `send()` throws a `ProviderRejectedError` with `category: "sender"`. Provision and register senders with each provider first. See [Sender registration and consent](/guides/sender-registration-and-consent).
+
+:::note
+A sender belongs to one provider account. Switching or adding a provider means provisioning a sender there too. A phone number is hosted by one provider at a time, and moving it is a number port that you arrange with the providers.
+:::
+
+## Next steps
+
+- [Validation and encoding](/sending/validation-and-encoding)
+- [Sender registration and consent](/guides/sender-registration-and-consent)

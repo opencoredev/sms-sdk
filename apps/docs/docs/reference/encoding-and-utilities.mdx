@@ -1,0 +1,86 @@
+---
+title: "Encoding and utilities"
+description: "Reference for estimateSegments, isGsm7, the GSM-7 tables, SEGMENT_LIMITS, isE164, maskPhoneNumber, redactText, and the other root helpers."
+---
+
+Small, synchronous helpers with no network access. The encoding functions live in `@opencoredev/sms-sdk/encoding`; `estimateSegments` and `isGsm7` are also exported from the root.
+
+## `estimateSegments(body)`
+
+Estimates the encoding and segment count for a message body.
+
+```ts
+import { estimateSegments } from "@opencoredev/sms-sdk/encoding";
+
+const preview = estimateSegments("Café opens at 9 € 5");
+console.log(preview.encoding, preview.units, preview.segments); // "gsm7" 20 1
+```
+
+`é` is in the GSM-7 basic table and `€` is in the extension table, so it counts 2 septets.
+
+### Returns: `SegmentPreview`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `encoding` | `"gsm7" \| "ucs2"` | GSM-7 when every character is in the basic or extension table. |
+| `segments` | `number` | Estimated segments. `0` for an empty body. |
+| `units` | `number` | Septets (extension characters count 2) or UTF-16 code units. |
+| `unitsPerSegment` | `number` | 160 or 153 for GSM-7, 70 or 67 for UCS-2. |
+| `remainingInSegment` | `number` | Units left before another segment is needed. |
+| `containsUnicode` | `boolean` | At least one character forced UCS-2. |
+| `nonGsmCharacters` | `readonly string[]` | Distinct characters that forced UCS-2, in order of first appearance. |
+
+Extension characters and surrogate pairs never split across segments. No transliteration is applied. The result is an estimate, not a price. See [Segments and billing](/sending/segments-and-billing).
+
+## `isGsm7(text)`
+
+Returns `true` when every character is in the GSM-7 basic or extension table.
+
+## `GSM7_BASIC_CHARACTERS` and `GSM7_EXTENSION_CHARACTERS`
+
+Strings holding the GSM 03.38 basic alphabet (one septet each) and the extension table (two septets each): form feed, `^`, `{`, `}`, `\`, `[`, `~`, `]`, `|`, `€`.
+
+## `SEGMENT_LIMITS`
+
+```ts ignore="value listing"
+{ gsm7: { single: 160, concatenated: 153 }, ucs2: { single: 70, concatenated: 67 } }
+```
+
+Exported from `/encoding` only.
+
+## `isE164(value)`
+
+```ts
+import { isE164 } from "@opencoredev/sms-sdk";
+
+console.log(isE164("+14155550123"), isE164("+1 415 555 0123"), isE164("0044207946000")); // true false false
+```
+
+A type guard (`value is E164`) for `^\+[1-9]\d{1,14}$`. Format only: it cannot tell whether the number exists or receives SMS. Accepts `unknown`, so you can pass `process.env` values directly.
+
+## `maskPhoneNumber(value)`
+
+Masks a number for logs, keeping the `+`, the first digit, and the last two digits: `+14155550123` becomes `+1********23`. Short strings are fully masked.
+
+## `redactText(text)`
+
+Makes provider text safe to log: masks digit runs that look like phone numbers, removes control characters, and truncates to 200 characters. Use it in [custom adapters](/providers/writing-an-adapter) for `details.message`.
+
+```ts
+import { maskPhoneNumber, redactText } from "@opencoredev/sms-sdk";
+
+console.log(maskPhoneNumber("+14155550123")); // "+1********23"
+console.log(redactText("The 'To' number +14155550123 is not valid")); // "The 'To' number +1********23 is not valid"
+```
+
+## `resolveSender(from)` and `supportsSender(capabilities, sender)`
+
+`resolveSender` validates an `SmsFrom` and returns `{ kind: "ok", sender: SmsSender }`, `{ kind: "missing" }`, or `{ kind: "invalid", message }`. `supportsSender` returns whether an adapter's `capabilities.senderTypes` allow that sender. The client uses both; they are exported for adapter authors.
+
+## `isSmsError(value)` and `isFallbackEligible(category)`
+
+`isSmsError` is a type guard for any SDK error. `isFallbackEligible` returns `true` for `auth`, `rate_limited`, `sender`, and `account`. See [Errors](/reference/errors).
+
+## Types
+
+`E164`, `SegmentPreview`, `SmsEncoding`, and `SenderResolution` are exported as types from `@opencoredev/sms-sdk`.

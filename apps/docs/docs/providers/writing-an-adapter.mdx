@@ -1,6 +1,212 @@
 ---
-title: "Writing an adapter"
-description: "Implement the adapter contract for a new provider and run the contract tests."
+title: "Build a provider adapter"
+description: "Add an SMS provider by implementing the SmsAdapter contract, mapping responses to accepted, rejected, or unknown, and checking it with the contract harness."
 ---
 
-TODO: write this page.
+Your provider is not one of the four built in, or you need a provider option the built-in adapters do not expose. Write an adapter: an object that implements `SmsAdapter`. The client handles validation, retries, fallback, idempotency, and hooks around it.
+
+The [Twilio adapter source](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/src/providers/twilio.ts) is the most complete reference. Copy its structure.
+
+## The contract in one rule
+
+`send()` must return one of three outcomes and must not throw:
+
+| Return | When |
+| --- | --- |
+| `{ kind: "accepted", providerId, delivery }` | The provider's response proves it created the message, and includes its ID. |
+| `{ kind: "rejected", category, details, retryAfterMs? }` | The response proves the message was not created, such as a documented 4xx error. |
+| `{ kind: "unknown", reason, details?, cause? }` | Anything else: network error, timeout, 5xx, a 2xx without the ID, an unexpected status. |
+
+If you are not sure the provider refused the message, return `unknown`. The client never retries or fails over an unknown outcome, so a wrong `unknown` costs one manual check, while a wrong `rejected` can send a message twice. A thrown error is treated as `unknown` with `reason: "adapter_exception"`.
+
+## 1. Declare capabilities
+
+```ts acme-capabilities.ts
+import type { SmsCapabilities } from "@opencoredev/sms-sdk";
+
+export const ACME_CAPABILITIES: SmsCapabilities = {
+  sendText: true,
+  mms: false,
+  scheduling: false,
+  validityPeriod: null,
+  webhookUrlOverride: false,
+  inbound: false,
+  deliveryReceipts: false,
+  senderTypes: ["long_code", "alphanumeric"],
+  nativeIdempotency: false,
+};
+```
+
+The client checks every message against these before calling `send()`, and throws `UnsupportedFieldError` for anything you do not declare. Declare only what you have implemented and tested. Leave `nativeIdempotency` false unless the provider documents send deduplication and you pass `context.idempotencyKey` to it.
+
+## 2. Implement send
+
+```ts acme.ts
+import type { AdapterSendOutcome, RejectionCategory, SmsAdapter, SmsCapabilities, SmsFrom } from "@opencoredev/sms-sdk";
+import { ConfigurationError } from "@opencoredev/sms-sdk";
+
+type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+
+const ACME_CAPABILITIES: SmsCapabilities = {
+  sendText: true,
+  mms: false,
+  scheduling: false,
+  validityPeriod: null,
+  webhookUrlOverride: false,
+  inbound: false,
+  deliveryReceipts: false,
+  senderTypes: ["long_code", "alphanumeric"],
+  nativeIdempotency: false,
+};
+
+export type AcmeOptions = {
+  readonly apiKey: string;
+  readonly from?: SmsFrom;
+  readonly baseUrl?: string;
+  readonly fetch?: FetchLike;
+};
+
+export function acme(options: AcmeOptions): SmsAdapter {
+  if (options.apiKey.length === 0) {
+    throw new ConfigurationError("Acme apiKey is required.");
+  }
+  const url = `${options.baseUrl ?? "https://api.acme-sms.example"}/v1/messages`;
+  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+
+  return {
+    name: "acme",
+    capabilities: ACME_CAPABILITIES,
+    support: { status: "partial", notes: ["Error codes come from Acme's public error list; 5xx is treated as unknown."] },
+    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+
+    async send(message, context): Promise<AdapterSendOutcome> {
+      let response: Response;
+      try {
+        response = await fetcher(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: message.to, from: message.from.value, text: message.body }),
+          signal: context.signal, // required: timeouts and aborts depend on it
+        });
+      } catch (cause) {
+        return { kind: "unknown", reason: "network", cause };
+      }
+
+      const text = await response.text().catch(() => "");
+      let body: unknown;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = undefined;
+      }
+
+      if (response.ok) {
+        const id = typeof body === "object" && body !== null && "id" in body && typeof body.id === "string" ? body.id : undefined;
+        return id === undefined
+          ? { kind: "unknown", reason: "malformed_response", details: { provider: "acme", httpStatus: response.status } }
+          : { kind: "accepted", providerId: id, delivery: "queued" };
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        const code = typeof body === "object" && body !== null && "code" in body ? String(body.code) : undefined;
+        const category = acmeCategory(response.status, code);
+        if (response.status === 429 && category !== "rate_limited") {
+          // A 429 without Acme's rate-limit code may come from a proxy: it proves nothing.
+          return { kind: "unknown", reason: "unexpected_status", details: { provider: "acme", httpStatus: 429 } };
+        }
+        const retryAfterSec = Number(response.headers.get("retry-after"));
+        return {
+          kind: "rejected",
+          category,
+          ...(category === "rate_limited" && retryAfterSec > 0 ? { retryAfterMs: retryAfterSec * 1000 } : {}),
+          details: { provider: "acme", httpStatus: response.status, ...(code === undefined ? {} : { code }) },
+        };
+      }
+
+      return { kind: "unknown", reason: response.status >= 500 ? "server_error" : "unexpected_status", details: { provider: "acme", httpStatus: response.status } };
+    },
+  };
+}
+
+function acmeCategory(status: number, code: string | undefined): RejectionCategory {
+  if (status === 401 || status === 403) return "auth";
+  if (code === "rate_limited") return "rate_limited";
+  if (code === "invalid_sender") return "sender";
+  if (code === "opted_out") return "compliance";
+  return "request";
+}
+```
+
+Points to copy:
+
+- **Pass `context.signal` to `fetch`.** The client uses it for `timeoutMs` and caller aborts, and the contract harness checks it.
+- **Accept only with an ID.** A 2xx without the documented message ID is `unknown`.
+- **Map 5xx to `unknown`,** even when the provider says "try again". It may already have created the message.
+- **Treat a 429 as a rate limit only with the provider's documented rate-limit error.** A bare 429 can come from a proxy or load balancer in front of the provider, so it is `unknown`. The built-in adapters follow this rule.
+- **Classify conservatively.** Unlisted 4xx codes are `request`, which never falls back. Use `sender`, `account`, or `auth` only when the provider's documentation proves the problem is specific to this account, because those trigger fallback. Use `compliance` for opt-outs and blocks; it never falls back.
+- **Keep `details` log-safe.** No message bodies, no credentials. The client does not redact `details` for you. Pass provider error text through `redactText()` from `@opencoredev/sms-sdk`, which masks phone numbers and cuts it to 200 characters, as the built-in adapters do.
+- **Set `retryAfterMs`** on `rate_limited` rejections when the provider sends `Retry-After`.
+
+## 3. Add provider-specific checks
+
+The client already checks sender type and declared capabilities. Use the optional `validate(message)` for rules that need no network, such as a body length limit or a sender format:
+
+```ts
+import type { AdapterMessage, ValidationIssue } from "@opencoredev/sms-sdk";
+
+export function validateAcmeMessage(message: AdapterMessage): ValidationIssue[] {
+  return message.body.length > 918
+    ? [{ code: "invalid_field", field: "body", message: "Acme accepts bodies up to 918 characters." }]
+    : [];
+}
+```
+
+Issues returned here appear in `sms.validate()` and make `send()` throw before any request.
+
+## 4. Run the contract harness
+
+`@opencoredev/sms-sdk/testing` checks your adapter against the same contract the built-in adapters pass. You describe the provider's documented behavior as fixtures. The harness drives your adapter through a fake `fetch`.
+
+```ts acme.test.ts ignore="depends on the acme.ts module above and bun:test"
+import { expect, test } from "bun:test";
+import { smsAdapterContractCases, type AdapterContractFixtures } from "@opencoredev/sms-sdk/testing";
+import { acme } from "./acme";
+
+const fixtures: AdapterContractFixtures = {
+  message: { to: "+14155550123", from: { kind: "phone_number", value: "+15550100001" }, body: "Hi", mediaUrls: [] },
+  request: {
+    url: "https://api.acme-sms.example/v1/messages",
+    headers: { authorization: "Bearer test", "content-type": "application/json" },
+    body: { kind: "json", value: { to: "+14155550123", from: "+15550100001", text: "Hi" } },
+  },
+  accepted: { response: { status: 201, body: { id: "msg_1" } }, providerId: "msg_1", delivery: "queued" },
+  permanentRejection: { response: { status: 400, body: { code: "opted_out" } }, category: "compliance" },
+  eligibleRejection: { response: { status: 400, body: { code: "invalid_sender" } }, category: "sender" },
+  rateLimited: { response: { status: 429, body: { code: "rate_limited" }, headers: { "retry-after": "2" } }, retryAfterMs: 2000 },
+  malformedSuccess: { status: 201, body: {} },
+  serverError: { status: 503 },
+};
+
+for (const check of smsAdapterContractCases((fetch) => acme({ apiKey: "test", fetch }), fixtures)) {
+  test(check.name, check.run);
+}
+```
+
+Run it with `bun test acme.test.ts`. Every check passes for the example adapter above. Remove the `signal` line or the `Retry-After` handling from it and you see the matching check fail.
+
+The checks cover: consistent capabilities, the exact request, the abort signal reaching `fetch`, accepted normalization, a permanent rejection that is not fallback-eligible, an eligible rejection, rate limits with `Retry-After`, network errors, in-flight aborts, malformed and non-JSON 2xx responses, and 5xx (all unknown), undeclared capabilities throwing `UnsupportedFieldError` before any request, and, when you pass `webhooks`, parsed webhook cases plus a tampered request that must throw `WebhookSignatureError`.
+
+Use `runSmsAdapterContract(factory, fixtures)` instead to get one `ContractReport` with every result. See [Testing reference](/reference/testing#contract-harness).
+
+## 5. Webhooks
+
+The webhook parser in `/webhooks` covers only the four built-in providers. For a new provider, verify the signature yourself from the raw body before reading any field, then map the payload to the `SmsEvent` union from `@opencoredev/sms-sdk/webhooks` so the rest of your app handles it like the others.
+
+## Contribute it
+
+Community adapters are maintained by their authors. To propose one for the main package, open an issue with links to the provider's official API, error, and webhook documentation, and include contract fixtures built from those docs. See [Contributing](/community/contributing).
+
+## Next steps
+
+- [Adapter contract reference](/reference/adapter-contract)
+- [Testing reference](/reference/testing)

@@ -1,0 +1,89 @@
+---
+title: "MMS, scheduling, and validity"
+description: "Send media, schedule a message, set how long a provider keeps trying, and set a per-message status callback, with each provider's limits."
+---
+
+Some messages need more than text: an image, a send time in the future, an expiry, or a status callback URL for one message. These fields depend on the provider, so SMS SDK checks them against the adapter's capabilities and throws `UnsupportedFieldError` before any request instead of dropping them.
+
+## What each provider supports
+
+| Field | Twilio | Telnyx | Plivo | Vonage |
+| --- | --- | --- | --- | --- |
+| `mediaUrls` (MMS) | ✅ up to 10 URLs | ✅ | ✅ | ❌ |
+| `sendAt` (scheduling) | ✅ Messaging Service sender only | ✅ | ❌ | ❌ |
+| `validityPeriodSec` | 1 to 36000 s | ❌ | 5 to 10799 s | 20 to 604800 s |
+| `webhookUrl` (status callback) | ✅ | ✅ | ✅ | ✅ JWT auth only |
+
+Read the same data at runtime with `sms.capabilities()`.
+
+## Send media
+
+```ts
+import { sms } from "./sms";
+
+await sms.send({
+  to: "+14155550123",
+  body: "Here is your boarding pass.",
+  mediaUrls: ["https://example.com/passes/abc123.png"],
+});
+```
+
+Each URL must be absolute `http` or `https`, and the provider must be able to fetch it. The body may be empty when `mediaUrls` is set. MMS availability depends on the destination country and the sender; many countries outside the US and Canada do not support it, and the provider reports that as a rejection.
+
+## Schedule a message
+
+```ts
+import { sms } from "./sms";
+
+await sms.send({
+  to: "+14155550123",
+  from: { messagingService: "MG00000000000000000000000000000000" },
+  body: "Your appointment starts in one hour.",
+  sendAt: new Date("2026-12-01T08:00:00Z"),
+});
+```
+
+The provider holds the message and sends it at `sendAt`. `send()` resolves when the provider accepts the scheduled message, usually with `delivery: "queued"`.
+
+- Twilio schedules only from a Messaging Service sender. Any other sender with `sendAt` throws `UnsupportedFieldError` (`field: "sendAt"`). Twilio also sets its own minimum and maximum lead times, which it enforces as a rejection.
+- Telnyx accepts `send_at` with any sender type.
+- To cancel a scheduled message, use the provider's API or console. SMS SDK has no cancel call.
+
+## Set a validity period
+
+`validityPeriodSec` tells the provider how long it may keep trying to deliver. After that the message expires.
+
+```ts
+import { sms } from "./sms";
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your sign-in code is 482913. It expires in 10 minutes.",
+  validityPeriodSec: 600,
+});
+```
+
+A value outside the adapter's range throws `InvalidMessageError` (`field: "validityPeriodSec"`). Telnyx has no such field, so any value throws `UnsupportedFieldError`.
+
+## Set a status callback per message
+
+```ts
+import { sms } from "./sms";
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  webhookUrl: "https://example.com/webhooks/sms/status",
+});
+```
+
+The provider sends delivery status updates for this message to `webhookUrl` instead of the URL configured on your number or account. Vonage supports this only with JWT auth (`applicationId` and `privateKey`), because Vonage documents that Basic auth does not support webhooks.
+
+## With fallback
+
+Fallback adapters that cannot send a field are left out of the chain for that message. The primary adapter must support every field you set. See [Retries and fallback](/sending/retries-and-fallback).
+
+## Next steps
+
+- [Providers overview](/providers/overview)
+- [Delivery status webhooks](/receiving/delivery-status-webhooks)

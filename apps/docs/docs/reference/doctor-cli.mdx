@@ -1,6 +1,102 @@
 ---
 title: "Doctor CLI"
-description: "Check configuration and credentials with the sms-sdk doctor command."
+description: "Reference for sms-sdk doctor: check provider configuration without sending, preview encoding, and send one confirmed live message."
 ---
 
-TODO: write this page.
+`sms-sdk doctor` checks one provider's configuration from your environment variables and previews a message's encoding. By default it is a dry run: it makes no network calls and sends nothing. A live send happens only with `--live` and explicit confirmation of the recipient and sender.
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter twilio
+```
+
+Example output with valid configuration:
+
+```text
+SMS SDK doctor: twilio (dry run, no network calls)
+[ok]           TWILIO_ACCOUNT_SID set
+[ok]           TWILIO_AUTH_TOKEN set (value hidden)
+[info]         TWILIO_FROM set
+[ok]           adapter configuration is well-formed (support: supported)
+[info]         sender: +1********01
+[info]         body: GSM7, 33 septets, 1 segment (estimate, not a price quote)
+[ok]           message passes local validation for this adapter
+[not verified] credentials (the dry run does not call the provider)
+[not verified] sender provisioning, 10DLC/toll-free registration, and campaign status
+[not verified] webhook URL reachability and signing configuration
+Result: local checks passed. Nothing was sent.
+```
+
+## Usage
+
+```text
+sms-sdk doctor --adapter <twilio|telnyx|plivo|vonage> [options]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--adapter <name>` | Required. The provider to check. |
+| `--body <text>` | Message body to preview. Defaults to `Test message from SMS SDK doctor.` |
+| `--to <+E164>` | Recipient to validate (format only). |
+| `--from <sender>` | Sender to validate instead of the configured one. `+…` is a phone number, 3 to 8 digits a short code, anything else an alphanumeric sender ID. |
+| `--live` | Send one real, billable message. Requires `--to`, `--confirm-to`, and `--confirm-from`. |
+| `--confirm-to <+E164>` | Must equal `--to` when `--live` is set. |
+| `--confirm-from <sender>` | Must equal the sender being used (from `--from` or the environment, as printed). |
+| `--help` | Show usage. |
+
+The CLI reads variables from the process environment. It does not load `.env` files, so export them first, for example with `set -a; source .env; set +a` in a POSIX shell.
+
+## Environment variables
+
+| `--adapter` | Required | Optional |
+| --- | --- | --- |
+| `twilio` | `TWILIO_ACCOUNT_SID`; `TWILIO_AUTH_TOKEN` or `TWILIO_API_KEY_SID` (with `TWILIO_API_KEY_SECRET`) | `TWILIO_FROM`, `TWILIO_MESSAGING_SERVICE_SID` |
+| `telnyx` | `TELNYX_API_KEY` | `TELNYX_FROM`, `TELNYX_MESSAGING_PROFILE_ID` |
+| `plivo` | `PLIVO_AUTH_ID`, `PLIVO_AUTH_TOKEN` | `PLIVO_FROM`, `PLIVO_POWERPACK_UUID` |
+| `vonage` | `VONAGE_API_KEY` (with `VONAGE_API_SECRET`) or `VONAGE_APPLICATION_ID` (with `VONAGE_PRIVATE_KEY`) | `VONAGE_FROM` |
+
+The sender comes from `--from`, else `<PROVIDER>_FROM`, else `TWILIO_MESSAGING_SERVICE_SID` or `PLIVO_POWERPACK_UUID`. A Messaging Service or Powerpack cannot be passed with `--from`; set it in the environment. Secret values are never printed.
+
+## What the dry run checks
+
+1. Required environment variables are present.
+2. The adapter can be constructed: Account SID format, non-empty credentials, a PEM private key for Vonage. The adapter's support status and notes are printed.
+3. A sender is configured, and its format is valid.
+4. The body's encoding, units, and estimated segments, plus any characters that force UCS-2.
+5. The recipient is E.164, when `--to` is given.
+6. The message passes local validation for this adapter, using a placeholder recipient when `--to` is not given.
+
+It never reports credentials, sender registration, campaign status, or webhook reachability as passing. Those lines always say `[not verified]`, because checking them needs the provider.
+
+## Live send
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter twilio --live \
+  --to +14155550123 --confirm-to +14155550123 --confirm-from +15550100001
+```
+
+The live send runs only when every dry-run check passed, `--to` is E.164, `--confirm-to` equals `--to`, and `--confirm-from` equals the sender that will be used. It sends exactly one message and prints the provider's message ID and delivery status, or the error `code`, message, and `retrySafe`. It costs one message at your provider's rates.
+
+## Output labels and exit codes
+
+| Label | Meaning |
+| --- | --- |
+| `[ok]` | The check passed. |
+| `[fail]` | The check failed. The run exits with 1. |
+| `[info]` | Information, such as the sender or the segment estimate. |
+| `[not verified]` | The doctor cannot check this without calling the provider. |
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | All checks passed (and the live send, if requested, was accepted). |
+| `1` | A check failed, or the live send failed. |
+| `2` | Usage error: unknown flag, missing `--adapter`, or missing or mismatched confirmation for `--live`. |
+
+## Use it in CI
+
+The dry run is safe in CI: no network calls, no sends. Run it with your production variable names and test values to catch configuration mistakes before deploy:
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter telnyx --body "Your order has shipped." || exit 1
+```
+
+Never pass `--live` in CI.

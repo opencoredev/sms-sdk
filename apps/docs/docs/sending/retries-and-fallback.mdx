@@ -1,6 +1,109 @@
 ---
 title: "Retries and fallback"
-description: "Which failures retry, which fall back to another provider, and which never do."
+description: "Configure rate-limit retries and safe fallback to a second provider. SMS SDK never retries or fails over after an unknown outcome."
 ---
 
-TODO: write this page.
+You want a message to get through when a provider is rate limiting you or refuses your sender, without texting anyone twice. SMS SDK retries and fails over only when the provider proved it did not accept the message.
+
+:::warning[Unknown outcomes are never retried]
+A timeout, network error, 5xx, or malformed success response may mean the provider accepted the message. SMS SDK throws `HandoffUnknownError` and does not retry it or send it through another provider. No option changes this. Reconcile with the provider before you send again.
+:::
+
+## Retries on the same provider
+
+Only a documented rate-limit rejection (category `rate_limited`) is retried. By default each adapter gets 2 requests per send.
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+  retry: { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 10_000 },
+});
+```
+
+With this client, a rate-limited send is tried up to 3 times on Twilio before it throws `ProviderRateLimitedError`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `maxAttempts` | `2` | Requests per adapter, counting the first. `1` turns retries off. |
+| `baseDelayMs` | `500` | Base for exponential backoff with full jitter: a random wait up to `baseDelayMs * 2^(attempt - 1)`. |
+| `maxDelayMs` | `10000` | Longest wait. If the provider's `Retry-After` is longer, SMS SDK stops retrying that adapter instead of waiting. |
+
+A provider's `Retry-After` header is used as the wait when it fits within `maxDelayMs`. Aborting the send's signal during the wait throws `SendAbortedError`, which is retry safe.
+
+5xx responses are not retried, even when a provider says "try again later". A 5xx can come after the provider created the message.
+
+A 429 counts as a rate limit only when its body carries the provider's documented rate-limit error, such as Twilio error 20429. A bare 429, for example from a proxy in front of the provider, proves nothing about the message, so it is an unknown outcome: no retry, no fallback.
+
+## Fallback to another provider
+
+List adapters in priority order and set `fallback: "on-known-rejection"`:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
+  ],
+  fallback: "on-known-rejection",
+});
+
+const result = await sms.send({ to: "+14155550123", body: "Your code is 482913" });
+console.log(result.provider, result.attemptedProviders); // "telnyx" ["twilio", "telnyx"] if Twilio refused
+```
+
+Twilio sends first. If Twilio proves it did not accept the message for a reason specific to that account, Telnyx sends next. `attemptedProviders` and `attempts` show what happened.
+
+Each adapter sends from its own `from`. Do not pass `from` on the message when you use fallback, unless every adapter can send from that exact sender.
+
+### Which rejections fall back
+
+| Category | Falls back | Why | Examples |
+| --- | --- | --- | --- |
+| `auth` | Yes | Credentials are wrong for this account only. | 401, Twilio 20003, Telnyx 10009 |
+| `rate_limited` | Yes, after same-adapter retries | This account is throttled. | Twilio 20429, Telnyx 10011/40318, Plivo 429 with `api_id`, Vonage 1000/1241/`throttled` |
+| `sender` | Yes | This account's sender is not usable here. | Twilio 21606/21659, Telnyx 40305, Vonage 1420 |
+| `account` | Yes | Balance, trial, geographic permission, or spend limit. | Twilio 21408/21608, Telnyx 40333, Vonage 402 |
+| `recipient` | No | Another provider would reject the number too. | Twilio 21211/21614, Telnyx 40310, Vonage 1430 |
+| `compliance` | Never | The recipient opted out or the content was blocked. A second provider must not be used to get around it. | Twilio 21610, Telnyx 40300, Vonage 1240 |
+| `request` | No | The request itself is wrong. | Any other 4xx |
+
+`ProviderRejectedError.fallbackEligible` and `isFallbackEligible(category)` give the same answer in code.
+
+### What fallback never does
+
+- It never runs after an accepted outcome.
+- It never runs after an unknown outcome, even when another adapter is available.
+- It never runs after a `beforeSend` rejection.
+- It skips adapters that cannot send the message's fields or sender type.
+
+When every attempted adapter rejects, `send()` throws `AllProvidersRejectedError`, with one `ProviderRejectedError` per adapter in `errors`. When the chain stops at one non-eligible rejection, that rejection is thrown directly.
+
+## Before you turn fallback on
+
+Fallback moves a message to a different provider account. Make sure that account is ready:
+
+- A provisioned, registered sender on each provider. A US 10DLC number on Twilio does not make your Telnyx number registered.
+- Webhook URLs configured on each provider, so delivery receipts and inbound replies arrive from both. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
+- Opt-out records shared in your app. A STOP sent to your Twilio number is recorded by Twilio, not Telnyx. Use `beforeSend` to check your own suppression list. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+
+## Next steps
+
+- [Idempotency](/sending/idempotency)
+- [Errors reference](/reference/errors)

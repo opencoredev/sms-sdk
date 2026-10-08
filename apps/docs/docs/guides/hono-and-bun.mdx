@@ -1,6 +1,117 @@
 ---
-title: "Hono and Bun"
-description: "Send SMS and receive webhooks with Hono on Bun."
+title: "Use with Hono and Bun"
+description: "Send SMS and receive verified webhooks from a Hono app or a plain Bun.serve server."
 ---
 
-TODO: write this page.
+You run a Hono app, or a plain `Bun.serve` server, and want routes that send SMS and receive provider webhooks. Both hand you a web `Request`, which is what `parseSmsWebhook()` takes, so no adapter code is needed.
+
+The repository's [`examples/webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) has a framework-free handler that works the same way.
+
+## Hono
+
+```ts server.ts
+import { Hono } from "hono";
+import { createSmsClient, isE164, isSmsError } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: { messagingService: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "" },
+    }),
+  ],
+});
+
+const app = new Hono();
+
+app.post("/reminders", async (c) => {
+  const body: unknown = await c.req.json();
+  const to = typeof body === "object" && body !== null && "to" in body ? body.to : undefined;
+  if (typeof to !== "string" || !isE164(to)) {
+    return c.json({ error: "to must be an E.164 number" }, 400);
+  }
+  try {
+    const result = await sms.send({ to, body: "Reminder: your appointment is tomorrow." });
+    return c.json({ providerId: result.providerId });
+  } catch (error) {
+    if (isSmsError(error)) return c.json(error.toJSON(), error.retrySafe ? 422 : 500);
+    throw error;
+  }
+});
+
+app.post("/webhooks/sms/twilio", async (c) => {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "twilio",
+      request: c.req.raw,
+      publicUrl: "https://example.com/webhooks/sms/twilio",
+      credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+    });
+    if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
+      if (event.type === "message.delivered" || event.type === "message.undelivered") {
+        await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
+      } else if (event.type === "recipient.opted_out") {
+        await db.suppressions.add(event.from);
+      }
+    }
+    return c.body("<Response></Response>", 200, { "content-type": "text/xml" });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return c.text("Invalid signature", 401);
+    throw error;
+  }
+});
+
+export default app;
+```
+
+Run it with `bun run server.ts`. Bun serves the default export on port 3000.
+
+Pass `c.req.raw`, the untouched web `Request`. Do not call `c.req.json()`, `c.req.text()`, or `c.req.parseBody()` on a webhook route first, because the body can only be read once and the signature covers the raw bytes.
+
+The same app runs on Node.js with `@hono/node-server`, and on other Hono targets, as long as the runtime has `fetch` and Web Crypto. Only Node.js and Bun are tested.
+
+## Plain Bun.serve
+
+```ts server.ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+Bun.serve({
+  port: 3000,
+  async fetch(request) {
+    const { pathname } = new URL(request.url);
+    if (request.method !== "POST" || pathname !== "/webhooks/sms/telnyx") {
+      return new Response("Not found", { status: 404 });
+    }
+    try {
+      const event = await parseSmsWebhook({
+        provider: "telnyx",
+        request,
+        credentials: { publicKey: process.env.TELNYX_PUBLIC_KEY ?? "" },
+      });
+      if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
+        console.log(event.type, event.dedupeKey);
+      }
+      return new Response(null, { status: 200 });
+    } catch (error) {
+      if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+      throw error;
+    }
+  },
+});
+```
+
+Bun loads `.env` automatically, so `process.env.TELNYX_PUBLIC_KEY` is set from your `.env` file in development.
+
+## Behind a proxy
+
+Bun and Hono see the URL of the local listener, such as `http://localhost:3000/webhooks/sms/twilio`. Twilio and Plivo sign the public URL, so always pass `publicUrl` for them, or `trustProxy: true` when your own proxy sets `X-Forwarded-Proto` and `X-Forwarded-Host`. Telnyx and Vonage do not sign the URL. See [Webhook security](/receiving/webhook-security).
+
+## Next steps
+
+- [Receiving overview](/receiving/overview)
+- [Deploy with multiple instances](/guides/multiple-instances)

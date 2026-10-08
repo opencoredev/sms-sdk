@@ -4,7 +4,6 @@
 :root {
   --sms-status-supported: oklch(0.52 0.13 155);
   --sms-status-partial: oklch(0.58 0.13 75);
-  --sms-status-planned: var(--blume-muted-foreground);
   --sms-rule: var(--blume-border);
 }
 
@@ -166,6 +165,25 @@
   color: var(--blume-muted-foreground);
   font-size: 0.875rem;
   margin: 1.25rem 0 0;
+}
+
+.sms-notes {
+  color: var(--blume-muted-foreground);
+  display: grid;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 1.25rem 0 0;
+  max-inline-size: 72ch;
+  padding: 0;
+}
+
+.sms-notes a {
+  color: var(--blume-foreground);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+  text-underline-offset: 3px;
 }
 
 .sms-visually-hidden {
@@ -382,14 +400,6 @@
 
 .sms-status-partial::before {
   background-color: var(--sms-status-partial);
-}
-
-.sms-status-planned {
-  color: var(--sms-status-planned);
-}
-
-.sms-status-planned::before {
-  border: 1.5px solid var(--sms-status-planned);
 }
 
 /* FAQ. */

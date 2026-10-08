@@ -1,6 +1,99 @@
 ---
 title: "Delivery status webhooks"
-description: "Receive normalized delivery status events from every provider."
+description: "Learn whether an accepted message was delivered: configure status callbacks and map each provider's statuses to SmsEvent types."
 ---
 
-TODO: write this page.
+`send()` tells you the provider accepted a message. It does not tell you the phone received it. Delivery arrives later as a status webhook, which `parseSmsWebhook()` turns into a `message.*` event you can match to the send by `providerId`.
+
+## 1. Point the provider at your endpoint
+
+Status callbacks go to a URL you set per message or in the provider's console:
+
+| Provider | Where the status URL comes from |
+| --- | --- |
+| Twilio | `webhookUrl` on the message (sent as `StatusCallback`), or the Messaging Service's status callback. |
+| Telnyx | `webhookUrl` on the message, or the messaging profile's webhook URL. |
+| Plivo | `webhookUrl` on the message (sent as `url` with `method: "POST"`). |
+| Vonage | `webhookUrl` on the message, or the Vonage application's Status URL. Requires JWT auth. |
+
+Per message:
+
+```ts
+import { sms } from "./sms";
+
+const result = await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  webhookUrl: "https://example.com/webhooks/sms/twilio",
+});
+```
+
+Save `result.providerId` with the message. Status events carry the same ID.
+
+## 2. Parse the status event
+
+```ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "twilio",
+      request,
+      publicUrl: "https://example.com/webhooks/sms/twilio",
+      credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+    });
+
+    if (
+      event.type === "message.queued" ||
+      event.type === "message.sent" ||
+      event.type === "message.delivered" ||
+      event.type === "message.undelivered" ||
+      event.type === "message.filtered"
+    ) {
+      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
+    }
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+    throw error;
+  }
+}
+```
+
+Each status event has `providerId`, `providerStatus` (the provider's own word, such as `undelivered`), `errorCode` when the provider sent one, and `from`/`to` when present. Twilio and Plivo sign the public URL, so pass the exact URL configured with the provider as `publicUrl`. See [Webhook security](/receiving/webhook-security).
+
+## Status mapping
+
+| Event | Twilio `MessageStatus` | Telnyx `to[0].status` | Plivo `Status` | Vonage `status` |
+| --- | --- | --- | --- | --- |
+| `message.queued` | queued, accepted, scheduled, sending | queued, sending | queued | (none) |
+| `message.sent` | sent | sent, delivery_unconfirmed | sent | submitted |
+| `message.delivered` | delivered | delivered | delivered | delivered |
+| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed | rejected, undeliverable |
+| `message.filtered` | undelivered or failed with `ErrorCode` 30007 | a failure with error code 40002, 40003, or 40322 | never | rejected or undeliverable with error 1210, 1470, 1472, or 1480 to 1483 |
+
+Telnyx status events come from its `message.sent` and `message.finalized` webhooks.
+
+Any other status, such as Twilio `read` or `canceled` or Plivo `read`, becomes `{ type: "unrecognized", providerEventType }`. It never throws, so a provider adding a status does not break your handler.
+
+`message.filtered` is used only when the provider's error code says the message was filtered as spam or blocked content. A plain failure stays `message.undelivered`. Plivo has no documented filter signal, so its failures are always `message.undelivered`.
+
+## What "delivered" means
+
+`delivered` means the carrier reported delivery to the handset. Carriers do not report it everywhere. Some routes only reach `sent`, and Telnyx reports `delivery_unconfirmed` (mapped to `message.sent`) when the carrier gives no receipt. Treat `message.sent` with no later event as "probably delivered, not confirmed".
+
+## Limitations
+
+- Status webhooks repeat and arrive out of order. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+- Vonage with Basic auth (`apiKey` and `apiSecret`) does not send status webhooks. Use JWT auth.
+- Switching providers means configuring status URLs and webhook credentials on the new provider too.
+- SMS SDK does not poll providers for status. If a webhook never arrives, look the message up with the provider.
+
+## Next steps
+
+- [Inbound SMS](/receiving/inbound-sms)
+- [Webhook events reference](/reference/webhook-events)

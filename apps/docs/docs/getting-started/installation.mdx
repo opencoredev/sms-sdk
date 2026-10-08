@@ -1,6 +1,72 @@
 ---
 title: "Installation"
-description: "Install the package and check which runtimes it supports."
+description: "Install @opencoredev/sms-sdk, check runtime requirements, and import only the adapters you use."
 ---
 
-TODO: write this page.
+Install one package. It has no runtime or peer dependencies, so it adds nothing else to your lockfile.
+
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+## Requirements
+
+| Requirement | Version |
+| --- | --- |
+| Node.js | 20 or newer |
+| Bun | 1.1 or newer |
+| TypeScript (optional) | 5.x with `"moduleResolution"` set to `"bundler"`, `"node16"`, or `"nodenext"` so subpath exports resolve |
+| Module format | ESM only. There is no CommonJS build. |
+
+The package uses only web-standard APIs: `fetch`, `URL`, `URLSearchParams`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto (`crypto.subtle`). Telnyx webhook verification needs Ed25519 in Web Crypto, and Vonage JWT auth needs RSA signing. Node.js 20 and Bun 1.1 have both.
+
+Edge runtimes such as Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet. Treat them as unverified.
+
+:::warning[Server only]
+SMS SDK holds provider credentials. Run it on your server, in a route handler, a job worker, or a script. Never import it into browser code or expose its environment variables to the client.
+:::
+
+## Import what you use
+
+Each provider is its own subpath. Importing `@opencoredev/sms-sdk/telnyx` never loads the Twilio, Plivo, or Vonage code, and the package is marked `"sideEffects": false` for bundlers.
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" })],
+});
+
+console.log(sms.capabilities().map((adapter) => adapter.name)); // ["telnyx"]
+```
+
+The full list of subpaths is on the [Overview](/getting-started/overview#packages).
+
+## Environment variables
+
+Each provider page lists the variables its examples and the doctor CLI read. Keep them in your server environment or secret manager, not in source control.
+
+| Provider | Variables |
+| --- | --- |
+| Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (or `TWILIO_API_KEY_SID` and `TWILIO_API_KEY_SECRET`), `TWILIO_FROM` or `TWILIO_MESSAGING_SERVICE_SID` |
+| Telnyx | `TELNYX_API_KEY`, `TELNYX_FROM`, optional `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_PUBLIC_KEY` for webhooks |
+| Plivo | `PLIVO_AUTH_ID`, `PLIVO_AUTH_TOKEN`, `PLIVO_FROM` or `PLIVO_POWERPACK_UUID` |
+| Vonage | `VONAGE_API_KEY` and `VONAGE_API_SECRET`, or `VONAGE_APPLICATION_ID` and `VONAGE_PRIVATE_KEY`; `VONAGE_FROM`; `VONAGE_SIGNATURE_SECRET` for webhooks |
+
+The SDK never reads environment variables itself. You pass values to the adapter factory, so the names are a convention, not a requirement.
+
+## Check your setup
+
+The package includes a dry-run checker. It reads your environment, validates the adapter configuration and sender, and makes no network calls:
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter twilio
+```
+
+See [Doctor CLI](/reference/doctor-cli) for every flag.
+
+## Next steps
+
+- [Quick start](/getting-started/quick-start)
+- [Local testing](/guides/local-testing)

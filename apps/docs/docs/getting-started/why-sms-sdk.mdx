@@ -1,6 +1,129 @@
 ---
 title: "Why SMS SDK"
-description: "When one transport SDK across SMS providers is worth it, and when it is not."
+description: "SMS SDK vs the Twilio, Telnyx, Plivo, and Vonage SDKs: when each is the better fit, with a feature comparison and code."
 ---
 
-TODO: write this page.
+You can send SMS with a provider's own SDK, or with SMS SDK in front of one or more providers. This page helps you choose.
+
+**A provider SDK is a good fit** when you use one provider, need features beyond SMS (voice, verification, number lookup, number purchasing, TwiML), or want every option the provider's API has on the day it ships.
+
+**SMS SDK is a good fit** when you only send and receive SMS, want to change or add providers without touching call sites, and want timeouts and ambiguous responses handled conservatively by default.
+
+Compared on 2026-10-08: `@opencoredev/sms-sdk` 0.1.0, `twilio` 6.1.2, `telnyx` 7.25.0, `plivo` 4.79.0, and `@vonage/server-sdk` 3.30.1. Provider SDKs change often. If a row is wrong or out of date, [open an issue](https://github.com/opencoredev/sms-sdk/issues) with a link to the evidence and we will fix it.
+
+## Feature comparison
+
+Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
+
+| | SMS SDK | Provider SDK |
+| --- | --- | --- |
+| Send SMS | ✅ | ✅ |
+| Same send code across four providers | ✅ | ❌ |
+| Voice, verification, lookup, number management | ❌ | ✅ |
+| Every provider-specific SMS option | ❌ [1] | ✅ |
+| Typed errors that say whether a retry can duplicate a message | ✅ | 🟡 [2] |
+| Fallback to a second provider after a proven rejection | ✅ | ❌ |
+| Unsupported fields fail before the request | ✅ | 🟡 [3] |
+| Local segment and encoding estimate | ✅ | ❌ |
+| Webhook signature verification | ✅ | ✅ |
+| One event shape for delivery and inbound webhooks | ✅ | ❌ |
+| In-memory test adapter and signed webhook builders | ✅ | 🟡 |
+| Runtime dependencies | 0 | `twilio` 7, `plivo` 15, `telnyx` 0, `@vonage/server-sdk` 17 (Vonage packages) [4] |
+
+1. SMS SDK exposes the fields every adapter can map: `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, `idempotencyKey`. Options such as Twilio's `ShortenUrls` or Telnyx's `auto_detect` have no field. Use the provider SDK, or [build your own adapter](/providers/writing-an-adapter), if you need them.
+2. Provider SDKs throw their own error types with HTTP status and error codes. Deciding which ones are safe to retry is left to your code.
+3. Provider APIs validate fields on their side, so you learn about an unsupported field from a failed (sometimes billed) request.
+4. Direct `dependencies` in each package's `package.json` on the comparison date. Transitive counts are higher.
+
+## Where SMS SDK is stronger
+
+- **Portability.** `sms.send({ to, body })` is the same call for Twilio, Telnyx, Plivo, and Vonage. Webhooks parse to the same `SmsEvent` union.
+- **Conservative failure handling.** Each send ends as accepted, rejected, or unknown. Unknown outcomes throw `HandoffUnknownError` and are never retried or sent through another provider, so a timeout cannot quietly become a duplicate text.
+- **Preflight.** `sms.validate()` reports encoding, segment estimate, and capability problems with no network call.
+- **Small footprint.** No runtime dependencies. Each adapter is a separate subpath import.
+
+## Where provider SDKs are stronger
+
+- **Coverage.** They expose the whole platform and every SMS option. SMS SDK covers SMS send and receive only.
+- **Maturity.** They have years of production use and the provider's own support behind them. SMS SDK is at 0.1.0.
+- **Provider features.** Number lookup, verification products, and account management have no SMS SDK equivalent.
+- **Status.** Two of the four SMS SDK adapters are marked partial, because Plivo and Vonage do not document parts of their error behavior. See the [Providers overview](/providers/overview).
+
+## Side by side
+
+### Send a message
+
+With the Twilio SDK:
+
+```ts ignore="Twilio SDK code; the twilio package is not a docs dependency"
+import Twilio from "twilio";
+
+const client = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+const message = await client.messages.create({
+  to: "+14155550123",
+  from: "+15550100001",
+  body: "Your order has shipped.",
+});
+console.log(message.sid);
+```
+
+With SMS SDK:
+
+```ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+  ],
+});
+
+const result = await sms.send({ to: "+14155550123", body: "Your order has shipped." });
+console.log(result.providerId);
+```
+
+### Handle a timeout
+
+A provider SDK leaves the decision to you. With SMS SDK, the error tells you:
+
+```ts
+import { createSmsClient, HandoffUnknownError, isSmsError } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" })],
+});
+
+try {
+  await sms.send({ to: "+14155550123", body: "Your code is 123456" });
+} catch (error) {
+  if (error instanceof HandoffUnknownError) {
+    // May have been accepted. Do not resend; check the provider first.
+  } else if (isSmsError(error) && error.retrySafe) {
+    // Nothing was accepted. Sending again cannot create a duplicate.
+  }
+}
+```
+
+## When to choose SMS SDK
+
+- You send transactional SMS and may change providers or run two.
+- You want duplicate-safe error handling and webhook verification without writing it per provider.
+- You want tests that never touch a carrier.
+
+## When to choose a provider SDK
+
+- You need voice, verification, lookups, or provider options SMS SDK does not expose.
+- You are committed to one provider and want its full feature set and support.
+
+You can use both: SMS SDK for sending and webhooks, the provider SDK for everything else.
+
+## Get started
+
+Send your first message in the [Quick start](/getting-started/quick-start), or move existing code with [Migrate from the Twilio SDK](/migration/migrate-from-twilio).
