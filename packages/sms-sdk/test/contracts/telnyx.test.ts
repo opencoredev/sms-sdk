@@ -3,6 +3,18 @@ import { createSmsClient } from "../../src/core/client.js";
 import { buildTelnyxRequest, telnyx, telnyxDelivery, telnyxRejectionCategory } from "../../src/providers/telnyx.js";
 import { mockFetch } from "../../src/testing/fetch.js";
 import { smsAdapterContractCases, type AdapterContractFixtures } from "../../src/testing/contracts.js";
+import { generateTelnyxKeyPair, signedTelnyxRequest } from "../../src/testing/webhooks.js";
+import { parseSmsWebhook } from "../../src/webhooks/index.js";
+
+const telnyxKeys = await generateTelnyxKeyPair();
+const finalized = {
+  data: {
+    event_type: "message.finalized",
+    id: "evt-9",
+    occurred_at: "2026-10-08T12:00:00.000+00:00",
+    payload: { id: "40385f64-5717-4562-b3fc-2c963f66afa6", to: [{ phone_number: "+14155550123", status: "delivered" }] },
+  },
+};
 
 const MESSAGE_ID = "40385f64-5717-4562-b3fc-2c963f66afa6";
 
@@ -59,6 +71,21 @@ export const telnyxFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 200, body: { data: { record_type: "message" } } },
   serverError: { status: 500, body: { errors: [{ code: "10007", title: "Unexpected error" }] } },
+  webhooks: {
+    parse: (request) => parseSmsWebhook({ provider: "telnyx", request, credentials: { publicKey: telnyxKeys.publicKey } }),
+    cases: [
+      {
+        name: "message.finalized delivered",
+        request: () => signedTelnyxRequest({ privateKey: telnyxKeys.privateKey, url: "https://example.com/telnyx", body: finalized }),
+        expected: { type: "message.delivered", providerId: MESSAGE_ID, dedupeKey: "telnyx:evt-9" },
+      },
+    ],
+    tampered: async () => {
+      const signed = await signedTelnyxRequest({ privateKey: telnyxKeys.privateKey, url: "https://example.com/telnyx", body: finalized });
+      const body = (await signed.text()).replace("delivered", "delivery_failed");
+      return new Request("https://example.com/telnyx", { method: "POST", headers: signed.headers, body });
+    },
+  },
 };
 
 const factory = (fetch: Parameters<typeof telnyx>[0]["fetch"]) =>

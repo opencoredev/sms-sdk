@@ -4,6 +4,8 @@ import { HandoffUnknownError, ProviderAuthError, ProviderRateLimitedError, Provi
 import { buildTwilioForm, twilio, twilioDelivery, twilioRejectionCategory } from "../../src/providers/twilio.js";
 import { mockFetch } from "../../src/testing/fetch.js";
 import { smsAdapterContractCases, runSmsAdapterContract, type AdapterContractFixtures } from "../../src/testing/contracts.js";
+import { signedTwilioRequest } from "../../src/testing/webhooks.js";
+import { parseSmsWebhook } from "../../src/webhooks/index.js";
 import { rejection, TWILIO_MESSAGE_SID, TWILIO_SERVICE_SID, TWILIO_SID } from "../helpers.js";
 
 const AUTH = `Basic ${btoa(`${TWILIO_SID}:test-token`)}`;
@@ -53,6 +55,43 @@ export const twilioFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 201, body: { status: "queued" } },
   serverError: { status: 503, body: { message: "Service Unavailable", status: 503 } },
+  webhooks: {
+    parse: (request) => parseSmsWebhook({ provider: "twilio", request, credentials: { authToken: "test-token" } }),
+    cases: [
+      {
+        name: "status callback",
+        request: () =>
+          signedTwilioRequest({
+            authToken: "test-token",
+            url: "https://example.com/twilio",
+            params: { MessageSid: TWILIO_MESSAGE_SID, MessageStatus: "delivered", SmsStatus: "delivered" },
+          }),
+        expected: { type: "message.delivered", providerId: TWILIO_MESSAGE_SID },
+      },
+      {
+        name: "inbound STOP with Advanced Opt-Out",
+        request: () =>
+          signedTwilioRequest({
+            authToken: "test-token",
+            url: "https://example.com/twilio",
+            params: { MessageSid: TWILIO_MESSAGE_SID, From: "+14155550123", To: "+15005550006", Body: "STOP", OptOutType: "STOP" },
+          }),
+        expected: { type: "recipient.opted_out", source: "provider" },
+      },
+    ],
+    tampered: async () => {
+      const signed = await signedTwilioRequest({
+        authToken: "test-token",
+        url: "https://example.com/twilio",
+        params: { MessageSid: TWILIO_MESSAGE_SID, MessageStatus: "sent" },
+      });
+      return new Request(signed.url, {
+        method: "POST",
+        headers: signed.headers,
+        body: new URLSearchParams({ MessageSid: TWILIO_MESSAGE_SID, MessageStatus: "delivered" }).toString(),
+      });
+    },
+  },
 };
 
 const factory = (fetch: Parameters<typeof twilio>[0]["fetch"]) =>
