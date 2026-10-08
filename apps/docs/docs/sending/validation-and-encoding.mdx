@@ -87,7 +87,19 @@ Validation checks format and declared capabilities. It cannot see whether your s
 
 ## Encoding
 
-Every result includes the `estimateSegments()` fields: `encoding`, `units`, `segments`, `unitsPerSegment`, `remainingInSegment`, `containsUnicode`, and `nonGsmCharacters`. The [validate() reference](/reference/validate) describes each one.
+Every result includes the `estimateSegments()` fields:
+
+| Field | Meaning |
+| --- | --- |
+| `encoding` | `"gsm7"` when every character is in the GSM-7 alphabet or its extension table, otherwise `"ucs2"`. |
+| `units` | GSM-7 septets (extension characters such as `€`, `[`, `{` count 2) or UTF-16 code units. |
+| `segments` | Estimated segments. `0` for an empty body. |
+| `unitsPerSegment` | 160 or 153 for GSM-7, 70 or 67 for UCS-2. |
+| `remainingInSegment` | Units left before another segment starts. |
+| `containsUnicode` | `true` when at least one character forces UCS-2. |
+| `nonGsmCharacters` | The distinct characters that forced UCS-2, in order. |
+
+The [validate() reference](/reference/validate) has the full result type.
 
 SMS SDK never rewrites your text. One curly quote or emoji puts the whole message in UCS-2. For GSM-7, replace those characters yourself. [Segments and billing](/sending/segments-and-billing) covers the counting rules.
 

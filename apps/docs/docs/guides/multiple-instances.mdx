@@ -7,7 +7,15 @@ In one process, `memoryIdempotencyStore()` stops a retried job from sending twic
 
 ## Why get-then-set is not enough
 
-Two workers pick up the same job at the same time. Both read the key, both see nothing, and both send. Only one atomic compare-and-set prevents that, such as `INSERT ... ON CONFLICT` in SQL, `SET NX` in Redis, or a conditional write in DynamoDB. The `IdempotencyStore` contract requires it. `reserve` must claim the key atomically, and only when there is no record, the record has expired, or the record is `rejected` with the same fingerprint. `finalize` must write the final record only if its `reservationId` still owns the key. The store keeps `accepted` and `rejected` records for `ttlSec` and `unknown` records until an operator clears them. The [idempotency store reference](/reference/idempotency-store) has the full contract.
+Two workers pick up the same job at the same time. Both read the key, both see nothing, and both send. Only one atomic compare-and-set prevents that, such as `INSERT ... ON CONFLICT` in SQL, `SET NX` in Redis, or a conditional write in DynamoDB. The `IdempotencyStore` contract requires it:
+
+| Method | Must |
+| --- | --- |
+| `reserve` | Claim the key atomically, and only when there is no record, the record has expired, or the record is `rejected` with the same fingerprint. Otherwise return the existing record unchanged. |
+| `finalize` | Write the final record only if its `reservationId` still owns the key. |
+| Retention | Keep `accepted` and `rejected` records for `ttlSec`. Keep `unknown` records until an operator clears them. |
+
+The [idempotency store reference](/reference/idempotency-store) has the full contract.
 
 A reservation must never expire into a claimable state. An abandoned reservation means a process stopped mid-send, so nobody knows the outcome. The client turns a reservation older than `staleReservationSec` into `HandoffUnknownError`, never into a resend.
 

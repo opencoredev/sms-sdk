@@ -147,7 +147,7 @@ type AdapterMessage = {
 type ProviderWireField = { readonly wire: string; readonly value: string | number | boolean };
 ```
 
-`providerFields` is this adapter's `providerOptions` entry after parsing: typed options in the order the spec declares them, then `extra` in insertion order. It is absent when the caller passed no entry for this adapter. Send every field as is, applied last when you build the request. The client has already rejected unknown keys, wrong types, and collisions with reserved names.
+`providerFields` is this adapter's `providerOptions` entry after parsing: typed options in the order the spec declares them, then `extra` in insertion order. It is absent when the caller passed no entry for this adapter, or when the entry parses to no fields (for example `{ twilio: {} }`). Send every field as is, applied last when you build the request. The client has already rejected unknown keys, wrong types, and collisions with reserved names.
 
 ## `SmsSender`
 
