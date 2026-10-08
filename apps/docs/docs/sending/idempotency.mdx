@@ -51,7 +51,7 @@ A key names the message, not the attempt: `order:123:shipped:v1`, `appointment:8
 | `reserved`, younger than `staleReservationSec` | `IdempotencyInProgressError` (another process is sending) | `IdempotencyConflictError` |
 | `reserved`, older than `staleReservationSec` | `HandoffUnknownError` (`reason: "stale_reservation"`), never resends | `IdempotencyConflictError` |
 
-"Same payload" means the same `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, plus `providerOptions` when set, compared by a SHA-256 fingerprint.
+"Same payload" means the same `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, plus any `providerOptions` that apply to a configured adapter, compared by a SHA-256 fingerprint.
 
 Two concurrent `send()` calls with the same key on one client share one request, even without a store. The second gets the same result with `replayed: true`. Without a store, nothing is remembered once the first call finishes.
 

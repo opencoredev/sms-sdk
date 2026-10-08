@@ -180,7 +180,7 @@ await sms.send({
 
 Unknown keys, wrong types, and `extra` keys that name a field SMS SDK sets throw before any request. The options go out only when the `vonage` adapter sends. See [`providerOptions`](/reference/send#provideroptions) for fallback and idempotency.
 
-SMS SDK sets `message_type`, `channel`, `to`, `from`, `text`, `ttl`, `webhook_url`, and `sms` itself, so `extra` cannot (use `sms.<name>` keys instead of `sms`). `failover` is blocked too: Vonage would send further messages, possibly on other channels, that SMS SDK cannot track. `trusted_sender` is deprecated by Vonage in favor of `trusted_recipient`.
+SMS SDK sets `message_type`, `channel`, `to`, `from`, `text`, `ttl`, `webhook_url`, and `sms` itself, so `extra` cannot. Use `sms.<name>` keys instead of `sms`. An `sms.<name>` key is also checked without its prefix, so it cannot reach a reserved or typed name. `failover` is blocked too: Vonage would send further messages, possibly on other channels, that SMS SDK cannot track. `trusted_sender` is deprecated by Vonage in favor of `trusted_recipient`.
 
 ## Example: send and track delivery
 

@@ -84,7 +84,7 @@ Records hold no message body. `result` and `error` are the redacted `SmsSendResu
 
 ### Fingerprint
 
-`fingerprint` is the SHA-256 (hex) of the message's `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, plus `providerOptions` with its keys sorted when the send has it. A different fingerprint for an existing key throws `IdempotencyConflictError`. Store it as an opaque string.
+`fingerprint` is the SHA-256 (hex) of the message's `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, plus the parsed `providerOptions` entries for configured adapters, keys sorted, when any has fields. Empty entries and entries for adapters the client does not have are left out. A different fingerprint for an existing key throws `IdempotencyConflictError`. Store it as an opaque string.
 
 ## Types
 

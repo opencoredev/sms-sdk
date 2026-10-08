@@ -138,7 +138,7 @@ Rules:
 - **One adapter each.** An entry applies only when that adapter sends. With fallback, each adapter sends its own entry and never another's. Entries for adapters the client does not have are ignored. `sms.validate()` lists the candidates that have an entry in `providerOptionsFor`.
 - **Checked before sending.** For every configured adapter, before any request: an unknown option key throws `UnsupportedFieldError`, a wrong type or value throws `InvalidMessageError`, and an `extra` key that names a parameter SMS SDK sets (such as Twilio's `To` or `StatusCallback`, in any letter case) or a typed option's parameter throws `UnsupportedFieldError`. Each error has `field: "providerOptions"`.
 - **`extra` is not validated.** Its values must be strings, finite numbers, or booleans, and are sent as they are. Use it for parameters released after this SDK version, and check the provider's reference first.
-- **Part of the idempotency key.** Reusing an `idempotencyKey` with different options throws `IdempotencyConflictError`. Key order does not matter.
+- **Part of the idempotency key.** Reusing an `idempotencyKey` with different options throws `IdempotencyConflictError`. Key order does not matter, and empty entries or entries for adapters the client does not have are ignored.
 - **Values stay out of logs.** Error messages name option keys, never their values. Hook events and `SendAttempt` carry no options. `beforeSend` receives the whole input, options included, as it does `body`.
 
 An adapter you write can accept options too. Set `providerOptions` on the adapter to a `ProviderOptionsSpec` and add its key to `SmsProviderOptions` with `declare module "@opencoredev/sms-sdk"`. See [Adapter contract](/reference/adapter-contract#provideroptionsspec).

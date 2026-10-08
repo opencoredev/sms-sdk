@@ -81,6 +81,7 @@ Declares an adapter's provider-specific send options. The client parses the call
 type ProviderOptionsSpec = {
   readonly options: { readonly [option: string]: ProviderOptionField }; // keyed by camelCase name
   readonly reserved: readonly string[]; // wire names the adapter sets from portable fields
+  readonly nestedPrefixes?: readonly string[]; // wire-name prefixes sent as a nested object, such as "sms."
 };
 
 type ProviderOptionField =
@@ -94,12 +95,13 @@ type ProviderOptionField =
 | --- | --- |
 | `options` | Typed options by camelCase name. `wire` is the provider's own parameter name. Do not name an option `extra`, which is the passthrough. |
 | `reserved` | Wire names the adapter sets itself, such as `To` or `StatusCallback`. Neither a typed option nor `extra` may set them. |
+| `nestedPrefixes` | Optional. Wire-name prefixes the adapter sends as a nested object, such as `"sms."` for Vonage's `sms` object. An `extra` key under a prefix is also checked with the prefix removed. |
 
 For each adapter that has an entry, the client checks the entry before any request:
 
 - An entry for an adapter without a spec, or an unknown key, is `unsupported_field`.
 - An entry that is not an object, or a typed value of the wrong type, is `invalid_field`. Strings must be non-empty and within `maxLength` and `pattern`. Integers must be within `min` and `max`. Enums must be one of `values`.
-- An `extra` key that matches a `reserved` name or a typed option's `wire`, in any letter case, is `unsupported_field`.
+- An `extra` key that matches a `reserved` name or a typed option's `wire`, in any letter case, is `unsupported_field`. With `nestedPrefixes`, the key is also checked with the prefix removed, so Vonage's `sms.failover` is rejected like `failover`.
 - An `extra` value that is not a string, finite number, or boolean, or an empty `extra` key, is `invalid_field`.
 
 Every issue has `field: "providerOptions"` and the adapter's `provider`. Messages name option keys, never values.
