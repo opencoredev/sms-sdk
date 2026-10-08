@@ -534,10 +534,9 @@ body,
 /* Provider logos in the sidebar ------------------------------------------- */
 
 /* Blume's sidebar icons are Lucide names, so the provider marks are drawn
-   here. blume.config.ts picks the variant through the sms-provider-logos meta
-   tag: "mono" masks each mark with the row's text color, "color" shows the
-   official brand mark. Overview and the adapter guide get neutral Lucide
-   glyphs so the labels line up. Files and sources: public/providers/. */
+   here in their official brand colors. Overview and the adapter guide get
+   neutral glyphs, masked with the row's text color, so the labels line up.
+   Files and sources: public/providers/. */
 .blume-nav-link[href="/providers/overview"] {
   --sms-logo: url("/providers/neutral/overview.svg");
 }
@@ -547,25 +546,29 @@ body,
 }
 
 .blume-nav-link[href="/providers/twilio"] {
-  --sms-logo: url("/providers/mono/twilio.svg");
-  --sms-logo-color: url("/providers/color/twilio.svg");
+  --sms-logo: url("/providers/color/twilio.svg");
 }
 
 .blume-nav-link[href="/providers/telnyx"] {
-  --sms-logo: url("/providers/mono/telnyx.svg");
-  --sms-logo-color: url("/providers/color/telnyx.svg");
+  --sms-logo: url("/providers/color/telnyx.svg");
 }
 
 .blume-nav-link[href="/providers/plivo"] {
-  --sms-logo: url("/providers/mono/plivo.svg");
-  --sms-logo-color: url("/providers/color/plivo.svg");
-  --sms-logo-color-dark: url("/providers/color/plivo-dark.svg");
+  --sms-logo: url("/providers/color/plivo.svg");
 }
 
 .blume-nav-link[href="/providers/vonage"] {
-  --sms-logo: url("/providers/mono/vonage.svg");
-  --sms-logo-color: url("/providers/color/vonage.svg");
-  --sms-logo-color-dark: url("/providers/color/vonage-dark.svg");
+  --sms-logo: url("/providers/color/vonage.svg");
+}
+
+/* Plivo and Vonage publish black marks with white versions for dark
+   backgrounds. */
+:root[data-theme="dark"] .blume-nav-link[href="/providers/plivo"] {
+  --sms-logo: url("/providers/color/plivo-dark.svg");
+}
+
+:root[data-theme="dark"] .blume-nav-link[href="/providers/vonage"] {
+  --sms-logo: url("/providers/color/vonage-dark.svg");
 }
 
 /* Same box and gap as Blume's own 14px row icons. */
@@ -577,31 +580,25 @@ body,
     [href="/providers/vonage"],
     [href="/providers/writing-an-adapter"]
   )::before {
-  background-color: currentColor;
   block-size: 14px;
   content: "";
   display: inline-block;
   flex-shrink: 0;
   inline-size: 14px;
   margin-inline-end: 0.5rem;
-  mask: var(--sms-logo) center / contain no-repeat;
   vertical-align: -2px;
 }
 
-:root:has(meta[name="sms-provider-logos"][content="color"])
-  .blume-nav-link:is(
+.blume-nav-link:is([href="/providers/overview"], [href="/providers/writing-an-adapter"])::before {
+  background-color: currentColor;
+  mask: var(--sms-logo) center / contain no-repeat;
+}
+
+.blume-nav-link:is(
     [href="/providers/twilio"],
     [href="/providers/telnyx"],
     [href="/providers/plivo"],
     [href="/providers/vonage"]
   )::before {
-  background: var(--sms-logo-color) center / contain no-repeat;
-  mask: none;
-}
-
-/* Plivo and Vonage publish black marks with white versions for dark
-   backgrounds. */
-:root[data-theme="dark"]:has(meta[name="sms-provider-logos"][content="color"])
-  .blume-nav-link:is([href="/providers/plivo"], [href="/providers/vonage"])::before {
-  background-image: var(--sms-logo-color-dark);
+  background: var(--sms-logo) center / contain no-repeat;
 }

@@ -1,13 +1,10 @@
 # Provider logo sources
 
-Sidebar marks for the Providers section. `theme.css` draws them; `blume.config.ts`
-picks the variant with `PROVIDER_LOGOS=color|mono` (default `mono`).
+Sidebar marks for the Providers section, drawn by `theme.css`.
 
 - `color/` holds the official marks in brand colors. Plivo and Vonage publish
   black marks, so each has a white `-dark.svg` for dark mode, as their own
   sites do.
-- `mono/` holds the same paths with `fill="currentColor"`. The sidebar uses
-  them as CSS masks, so they take the row's text color.
 - `neutral/` holds Lucide glyphs (ISC license) for the Overview and adapter
   guide rows.
 
