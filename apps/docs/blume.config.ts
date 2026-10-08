@@ -1,5 +1,10 @@
 import { defineConfig } from "blume";
 
+// Provider logos in the sidebar: "mono" (default) draws each mark in the
+// sidebar text color, "color" uses the official brand colors. theme.css reads
+// the choice from the sms-provider-logos meta tag below.
+const providerLogos = process.env.PROVIDER_LOGOS === "color" ? "color" : "mono";
+
 export default defineConfig({
   title: "SMS SDK",
   description:
@@ -58,6 +63,10 @@ export default defineConfig({
     { from: "/guides/migrate-from-twilio", to: "/migration/migrate-from-twilio", status: 301 },
     { from: "/guides/switch-twilio-to-telnyx", to: "/migration/switch-twilio-to-telnyx", status: 301 },
   ],
+
+  seo: {
+    metatags: { "sms-provider-logos": providerLogos },
+  },
 
   // No analytics adapter is configured, so a rating would go nowhere.
   feedback: false,
