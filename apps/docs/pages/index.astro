@@ -1,0 +1,384 @@
+---
+// Landing page. Direction: code is the hero (Stripe API docs), quiet chrome
+// (Resend). One signature element: the segment ruler, which shows how a message
+// body is counted. Everything else stays plain: rules between sections, no
+// gradients, no icon card rows, no invented numbers.
+import CodeBlock from "blume/components/content/CodeBlock.astro";
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+
+import { estimateSegments } from "./_home/segments.ts";
+
+const { config } = data;
+const repoUrl = "https://github.com/opencoredev/sms-sdk";
+
+const sendExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID!,
+      authToken: process.env.TWILIO_AUTH_TOKEN!,
+      from: process.env.TWILIO_FROM as \`+\${string}\`,
+    }),
+  ],
+});
+
+const result = await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  idempotencyKey: "order:123:shipped:v1",
+});`;
+
+const switchExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio"; // [!code --]
+import { telnyx } from "@opencoredev/sms-sdk/telnyx"; // [!code ++]
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({ // [!code --]
+      accountSid: process.env.TWILIO_ACCOUNT_SID!, // [!code --]
+      authToken: process.env.TWILIO_AUTH_TOKEN!, // [!code --]
+      from: process.env.TWILIO_FROM as \`+\${string}\`, // [!code --]
+    }), // [!code --]
+    telnyx({ // [!code ++]
+      apiKey: process.env.TELNYX_API_KEY!, // [!code ++]
+      from: process.env.TELNYX_FROM as \`+\${string}\`, // [!code ++]
+    }), // [!code ++]
+  ],
+});
+
+// Unchanged
+await sms.send({ to, body, idempotencyKey });`;
+
+// TODO(docs-content): confirm the memory() adapter API against
+// packages/sms-sdk/src/testing once the SDK lands.
+const testingExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
+import { memory } from "@opencoredev/sms-sdk/testing";
+
+const sms = createSmsClient({ adapters: [memory()] });
+
+await sms.send({ to: "+14155550123", body: "Test message" });
+// No network calls. The adapter records every send.`;
+
+const rulerMessages = [
+  "Your order has shipped.",
+  "Your package is ready 📦",
+  "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule. Please arrive 10 minutes early to fill in the check-in forms.",
+].map((body) => {
+  const estimate = estimateSegments(body);
+  // Fill each segment cell in order: full cells, then the remainder.
+  const cells = Array.from({ length: estimate.segments }, (_, index) => {
+    const used = Math.min(estimate.perSegment, estimate.units - index * estimate.perSegment);
+    return used / estimate.perSegment;
+  });
+  return { body, cells, ...estimate };
+});
+
+const features = [
+  {
+    title: "Provider portability",
+    body: "Twilio, Telnyx, Plivo, and Vonage sit behind one typed send call. Changing providers means changing the adapter, not your app.",
+    code: `adapters: [telnyx({ apiKey, from })]`,
+  },
+  {
+    title: "Safe handoff and failover",
+    body: "Fallback is off by default. When you turn it on, it only moves to the next provider after a known rejection, never after an unclear outcome.",
+    code: `fallback: "on-known-rejection"`,
+  },
+  {
+    title: "Segment preview",
+    body: "validate() checks the number, picks GSM-7 or UCS-2, and estimates segments locally. It never sends a message or calls a provider.",
+    code: `sms.validate({ to, body }).segments`,
+  },
+  {
+    title: "Normalized webhooks",
+    body: "Delivery receipts and inbound messages arrive as one event shape, after the provider signature is verified.",
+    code: `import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks"`,
+  },
+];
+
+// TODO(docs-content): every provider is "planned" until the SDK's adapter
+// contract tests pass for it. Update these statuses from real test results.
+type Status = "supported" | "partial" | "planned";
+const capabilities = ["Send", "Delivery status", "Inbound", "Signature check"];
+const providers: { name: string; href: string; cells: Status[] }[] = [
+  { name: "Twilio", href: "/providers/twilio", cells: ["planned", "planned", "planned", "planned"] },
+  { name: "Telnyx", href: "/providers/telnyx", cells: ["planned", "planned", "planned", "planned"] },
+  { name: "Plivo", href: "/providers/plivo", cells: ["planned", "planned", "planned", "planned"] },
+  { name: "Vonage", href: "/providers/vonage", cells: ["planned", "planned", "planned", "planned"] },
+];
+const statusLabel: Record<Status, string> = {
+  supported: "Supported",
+  partial: "Partial",
+  planned: "Planned",
+};
+
+const faq = [
+  {
+    q: "Does switching providers move my phone number?",
+    a: "No. A number, short code, or sender ID belongs to a provider account, and so does its 10DLC or toll-free registration. Moving it is a port or a new registration you do with the providers. SMS SDK only changes the code that talks to them.",
+  },
+  {
+    q: "Will it ever send the same message twice?",
+    a: "It avoids it, but no SMS library can promise exactly once. If a provider times out after it may have accepted the message, SMS SDK reports an unknown outcome and does not retry or fall back. Use idempotency keys and a shared store when you run more than one instance.",
+  },
+  {
+    q: "Are segment counts exact prices?",
+    a: "No. Segment counts are estimates from the encoding rules. Providers and carriers decide what they bill, and pricing changes by country and sender type.",
+  },
+  {
+    q: "Is this a chat or OTP product?",
+    a: "No. SMS SDK sends and receives transactional SMS. It has no conversation threads, inbox, OTP verification service, WhatsApp, RCS, or hosted API.",
+  },
+];
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  fontCssVars={data.fontCssVars}
+  themeMode={config.theme.mode}
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  page={{ title: "SMS SDK: one TypeScript SDK for SMS providers", description: config.description }}
+>
+  <div class="sms-home">
+    <section class="sms-wrap sms-hero" aria-labelledby="hero-title">
+      <h1 id="hero-title">SMS, one SDK.</h1>
+      <p class="sms-lede">
+        Send with Twilio, Telnyx, Plivo, or Vonage. Switch providers without rewriting your app.
+      </p>
+      <p class="sms-sub">Open source. Type-safe. Safe fallbacks. Zero runtime dependencies.</p>
+      <div class="sms-ctas">
+        <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
+        <a class="sms-btn" href={repoUrl}>GitHub</a>
+        <a class="sms-btn sms-btn-quiet" href="/providers/overview">View providers</a>
+      </div>
+      <div class="sms-hero-code">
+        <div class="sms-code">
+          <CodeBlock lang="ts" title="send.ts" code={sendExample} icons={false} />
+          <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
+            <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+            <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sms-wrap sms-section" aria-labelledby="ruler-title">
+      <div class="sms-section-head">
+        <h2 id="ruler-title">Know the segment count before you send</h2>
+        <p>
+          One emoji switches a message from GSM-7 to UCS-2 and cuts each segment from 160 units to 70.
+          <code>validate()</code> works this out locally, with no provider call.
+        </p>
+      </div>
+      <ol class="sms-ruler">
+        {
+          rulerMessages.map((message) => (
+            <li class="sms-ruler-row">
+              <p class="sms-ruler-body">{message.body}</p>
+              <div class="sms-ruler-track" aria-hidden="true">
+                {message.cells.map((fill) => (
+                  <span class="sms-ruler-cell">
+                    <span class="sms-ruler-fill" style={`inline-size: ${(fill * 100).toFixed(1)}%`} />
+                  </span>
+                ))}
+              </div>
+              <dl class="sms-ruler-meta">
+                <div>
+                  <dt>Encoding</dt>
+                  <dd>{message.encoding}</dd>
+                </div>
+                <div>
+                  <dt>Units</dt>
+                  <dd>{message.units}</dd>
+                </div>
+                <div>
+                  <dt>Per segment</dt>
+                  <dd>{message.perSegment}</dd>
+                </div>
+                <div>
+                  <dt>Segments</dt>
+                  <dd>{message.segments}</dd>
+                </div>
+              </dl>
+            </li>
+          ))
+        }
+      </ol>
+      <p class="sms-note">
+        Counts follow the GSM 03.38 rules. They are estimates: your provider decides what it bills.
+      </p>
+    </section>
+
+    <section class="sms-wrap sms-section sms-split" aria-labelledby="switch-title">
+      <div class="sms-section-head">
+        <h2 id="switch-title">Switch Twilio to Telnyx</h2>
+        <p>
+          Swap the adapter. Every <code>sms.send()</code> call in your app stays the same.
+        </p>
+        <p>
+          Credentials, the sender number, its registration, and your webhook URLs belong to each
+          provider account. Set those up on Telnyx first.
+        </p>
+        <a class="sms-link" href="/guides/switch-twilio-to-telnyx">Read the switching guide</a>
+      </div>
+      <div class="sms-split-code">
+        <div class="sms-code">
+          <CodeBlock lang="ts" title="sms.ts" code={switchExample} icons={false} />
+          <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
+            <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+            <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sms-wrap sms-section" aria-labelledby="features-title">
+      <h2 id="features-title" class="sms-visually-hidden">What it does</h2>
+      <div class="sms-features">
+        {
+          features.map((feature) => (
+            <article class="sms-feature">
+              <h3>{feature.title}</h3>
+              <p>{feature.body}</p>
+              <code class="sms-feature-code">{feature.code}</code>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="sms-wrap sms-section" aria-labelledby="matrix-title">
+      <div class="sms-section-head">
+        <h2 id="matrix-title">Providers</h2>
+        <p>
+          A provider is marked supported only after it passes the adapter contract tests. Each
+          provider page lists its verified API version, sender types, and known limits.
+        </p>
+      </div>
+      <div class="sms-table-scroll">
+        <table class="sms-matrix">
+          <thead>
+            <tr>
+              <th scope="col">Provider</th>
+              {capabilities.map((capability) => <th scope="col">{capability}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {
+              providers.map((provider) => (
+                <tr>
+                  <th scope="row">
+                    <a href={provider.href}>{provider.name}</a>
+                  </th>
+                  {provider.cells.map((status) => (
+                    <td>
+                      <span class={`sms-status sms-status-${status}`}>{statusLabel[status]}</span>
+                    </td>
+                  ))}
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="sms-note">
+        SMS SDK is in early development. These statuses change as each adapter is tested.
+      </p>
+    </section>
+
+    <section class="sms-wrap sms-section sms-split" aria-labelledby="deps-title">
+      <div class="sms-section-head">
+        <h2 id="deps-title">No dependencies. Test without a carrier.</h2>
+        <p>
+          The package has no runtime or peer dependencies. Adapters call provider HTTP APIs with
+          <code>fetch</code>, and each one is its own import, so you only load the providers you use.
+        </p>
+        <p>
+          The <code>memory()</code> adapter records sends in process. Use it in unit tests and CI, where
+          real messages should never go out.
+        </p>
+        <a class="sms-link" href="/guides/local-testing">Local testing guide</a>
+      </div>
+      <div class="sms-split-code">
+        <div class="sms-code">
+          <CodeBlock lang="ts" title="send.test.ts" code={testingExample} icons={false} />
+          <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
+            <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+            <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sms-wrap sms-section" aria-labelledby="faq-title">
+      <div class="sms-section-head">
+        <h2 id="faq-title">Limits and questions</h2>
+      </div>
+      <dl class="sms-faq">
+        {
+          faq.map((item) => (
+            <div class="sms-faq-item">
+              <dt>{item.q}</dt>
+              <dd>{item.a}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </section>
+
+    <section class="sms-wrap sms-section sms-closing">
+      <h2>Start with one provider</h2>
+      <p>Install the package, add an adapter, and send your first message.</p>
+      <div class="sms-ctas">
+        <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
+        <a class="sms-btn" href={repoUrl}>GitHub</a>
+      </div>
+    </section>
+  </div>
+</PageLayout>
+
+<script>
+  // PageLayout does not ship the copy script RootLayout adds to fenced code,
+  // so the landing page wires its own. Removed diff lines are left out, so the
+  // switch example copies as the Telnyx version.
+  document.addEventListener("click", async (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>("[data-sms-copy]");
+    const pre = button?.parentElement?.querySelector("pre");
+    if (!button || !pre) return;
+    const lines = [...pre.querySelectorAll<HTMLElement>(".line")]
+      .filter((line) => !line.classList.contains("remove"))
+      .map((line) => line.textContent ?? "");
+    const text = lines.join("\n");
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // Plain-HTTP previews are not a secure context and have no Clipboard API.
+      const field = document.createElement("textarea");
+      field.value = text;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.append(field);
+      field.select();
+      document.execCommand("copy");
+      field.remove();
+    }
+    button.dataset.copied = "";
+    button.setAttribute("aria-label", "Copied");
+    window.setTimeout(() => {
+      delete button.dataset.copied;
+      button.setAttribute("aria-label", "Copy code");
+    }, 1600);
+  });
+</script>

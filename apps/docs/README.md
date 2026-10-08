@@ -1,14 +1,14 @@
-# Sandbox SDK documentation
+# SMS SDK docs
 
-The [sandbox-sdk.app](https://sandbox-sdk.app) website and documentation, built with TanStack Start
-and Fumadocs.
-
-From the repository root:
+The SMS SDK documentation site, built with [Blume](https://useblume.dev).
 
 ```bash
-bun install
-bun run dev
+bun install          # from the repository root
+bun run dev          # from the root, or `bun run dev` in apps/docs
+bun run build        # in apps/docs; writes static HTML to dist/
 ```
 
-The site is a prerendered SPA. Documentation lives in `content/docs`. Application routes and
-components live in `src`.
+- `docs/` holds the pages. Each folder is a sidebar group configured by its `meta.ts`.
+- `pages/index.astro` is the landing page at `/`.
+- `theme.css` holds the landing page styles and provider status colors.
+- `blume.config.ts` sets the title, theme, search, and llms.txt details.
