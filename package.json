@@ -7,13 +7,18 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@email-sdk/config": "workspace:*"
+    "@email-sdk/config": "workspace:*",
+    "@changesets/cli": "^2.31.1",
+    "@changesets/changelog-github": "^0.5.1"
   },
   "scripts": {
     "dev": "bun run --cwd apps/docs dev",
     "build": "bun run --cwd packages/sms-sdk build && bun run --cwd apps/docs build",
     "test": "bun run --cwd packages/sms-sdk test",
-    "typecheck": "bun run --cwd packages/sms-sdk check-types"
+    "typecheck": "bun run --cwd packages/sms-sdk check-types",
+    "changeset": "changeset",
+    "version-packages": "changeset version && bun install --lockfile-only",
+    "release": "changeset publish"
   },
   "packageManager": "bun@1.3.14"
 }
