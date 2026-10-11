@@ -4,9 +4,11 @@ import { plivo } from "../providers/plivo.js";
 import { telnyx } from "../providers/telnyx.js";
 import { twilio } from "../providers/twilio.js";
 import { vonage } from "../providers/vonage.js";
+import { bandwidth } from "../providers/bandwidth.js";
+import { sinch } from "../providers/sinch.js";
 
 /** Providers the doctor CLI can check. */
-export const DOCTOR_PROVIDERS = ["twilio", "telnyx", "plivo", "vonage"] as const;
+export const DOCTOR_PROVIDERS = ["twilio", "telnyx", "plivo", "vonage", "bandwidth", "sinch"] as const;
 
 /** A provider name accepted by `--adapter`. */
 export type DoctorProvider = (typeof DOCTOR_PROVIDERS)[number];
@@ -34,6 +36,16 @@ export const PROVIDER_ENV: Readonly<
     required: [["VONAGE_API_KEY", "VONAGE_APPLICATION_ID"]],
     optional: ["VONAGE_API_SECRET", "VONAGE_PRIVATE_KEY", "VONAGE_FROM"],
     secret: ["VONAGE_API_SECRET", "VONAGE_PRIVATE_KEY"],
+  },
+  bandwidth: {
+    required: [["BANDWIDTH_USER_ID"], ["BANDWIDTH_API_TOKEN"], ["BANDWIDTH_API_SECRET"], ["BANDWIDTH_APPLICATION_ID"]],
+    optional: ["BANDWIDTH_FROM"],
+    secret: ["BANDWIDTH_API_TOKEN", "BANDWIDTH_API_SECRET"],
+  },
+  sinch: {
+    required: [["SINCH_SERVICE_PLAN_ID"], ["SINCH_API_TOKEN"]],
+    optional: ["SINCH_FROM"],
+    secret: ["SINCH_API_TOKEN"],
   },
 };
 
@@ -114,6 +126,10 @@ export function adapterFromEnv(provider: DoctorProvider, env: Env, fetcher: Fetc
       return get("VONAGE_API_KEY").length > 0
         ? vonage({ apiKey: get("VONAGE_API_KEY"), apiSecret: get("VONAGE_API_SECRET"), ...common })
         : vonage({ applicationId: get("VONAGE_APPLICATION_ID"), privateKey: get("VONAGE_PRIVATE_KEY"), ...common });
+    case "bandwidth":
+      return bandwidth({ userId: get("BANDWIDTH_USER_ID"), apiToken: get("BANDWIDTH_API_TOKEN"), apiSecret: get("BANDWIDTH_API_SECRET"), applicationId: get("BANDWIDTH_APPLICATION_ID"), ...common });
+    case "sinch":
+      return sinch({ servicePlanId: get("SINCH_SERVICE_PLAN_ID"), apiToken: get("SINCH_API_TOKEN"), ...common });
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;

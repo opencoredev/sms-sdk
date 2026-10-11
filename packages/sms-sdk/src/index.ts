@@ -1,5 +1,5 @@
 /**
- * SMS SDK: one typed send API over Twilio, Telnyx, Plivo, and Vonage.
+ * SMS SDK: one typed send API over the built-in SMS providers.
  *
  * Adapters live in subpaths (`@opencoredev/sms-sdk/twilio`, `/telnyx`,
  * `/plivo`, `/vonage`), webhooks in `/webhooks`, test helpers in `/testing`,

@@ -174,7 +174,7 @@ describe("doctor arguments", () => {
     [["--help"], "help"],
     [["doctor", "--help"], "help"],
     [["doctor"], "error"],
-    [["doctor", "--adapter", "sinch"], "error"],
+    [["doctor", "--adapter", "unknown"], "error"],
     [["doctor", "--adapter"], "error"],
     [["doctor", "--adapter", "twilio", "--bogus"], "error"],
     [["send"], "error"],
@@ -186,7 +186,7 @@ describe("doctor arguments", () => {
   test("usage errors exit 2", async () => {
     const run = await doctor(["doctor", "--adapter", "nope"], {});
     expect(run.code).toBe(2);
-    expect(run.err).toContain("--adapter must be one of twilio, telnyx, plivo, vonage");
+    expect(run.err).toContain("--adapter must be one of twilio, telnyx, plivo, vonage, bandwidth, sinch");
   });
 
   test("help exits 0", async () => {

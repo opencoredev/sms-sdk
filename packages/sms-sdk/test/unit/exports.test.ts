@@ -5,6 +5,8 @@ import * as twilio from "../../src/providers/twilio.js";
 import * as telnyx from "../../src/providers/telnyx.js";
 import * as plivo from "../../src/providers/plivo.js";
 import * as vonage from "../../src/providers/vonage.js";
+import * as bandwidth from "../../src/providers/bandwidth.js";
+import * as sinch from "../../src/providers/sinch.js";
 import * as webhooks from "../../src/webhooks/index.js";
 import * as testing from "../../src/testing/index.js";
 
@@ -22,6 +24,8 @@ describe("public exports", () => {
     expect(typeof telnyx.telnyx).toBe("function");
     expect(typeof plivo.plivo).toBe("function");
     expect(typeof vonage.vonage).toBe("function");
+    expect(typeof bandwidth.bandwidth).toBe("function");
+    expect(typeof sinch.sinch).toBe("function");
     expect(typeof webhooks.parseSmsWebhook).toBe("function");
     expect(typeof testing.memory).toBe("function");
     expect(typeof testing.runSmsAdapterContract).toBe("function");

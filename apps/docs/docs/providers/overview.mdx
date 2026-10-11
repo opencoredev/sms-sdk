@@ -1,6 +1,6 @@
 ---
 title: "Providers overview"
-description: "Compare the Twilio, Telnyx, Plivo, and Vonage adapters: support status, sender types, MMS, scheduling, webhooks, and limits."
+description: "Compare the built-in SMS adapters: support status, sender types, MMS, scheduling, webhooks, and limits."
 sidebar:
   label: "Overview"
 ---
@@ -15,24 +15,26 @@ Every adapter uses the same `send()` call and the same webhook events. Pick a pr
 | [Telnyx](/providers/telnyx) | Messaging API v2, `POST /v2/messages` | Supported | Request, response, error catalog, and Ed25519 webhook signing come from Telnyx's docs and official SDK source. |
 | [Plivo](/providers/plivo) | Message API, `POST /v1/Account/{auth_id}/Message/` | Partial | Plivo does not document its API error body, so only 401 (auth) and 429 with Plivo's `api_id` (rate limit) are told apart. Other 4xx responses are `request` rejections and never fall back. |
 | [Vonage](/providers/vonage) | Messages API v1, `POST /v1/messages`, channel `sms` | Partial | Vonage does not document the HTTP status for each error code. Classification uses the documented 401, 402, and 422 statuses and the error code in the response. No short codes, no MMS. |
+| Bandwidth | Messaging API v2, `POST /api/v2/users/{userId}/messages` | Partial | SMS-only adapter. Callbacks have no provider signature; configure the optional Basic-auth boundary and deduplicate events. |
+| Sinch | SMS API, `POST /xms/v1/{servicePlanId}/batches` | Partial | Batch SMS with delivery reports. Callback authentication is deployment-specific, so verification and deduplication remain explicit. |
 
 Supported adapters implement requests, responses, error mapping, and webhooks from official documentation and pass the adapter contract tests. Partial adapters pass the same tests, but some provider behavior could not be confirmed from official documentation. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
 
-None of the four providers documents send idempotency for SMS, so no adapter has native idempotency. See [Idempotency](/sending/idempotency).
+None of the providers documents send idempotency for SMS, so no adapter has native idempotency. See [Idempotency](/sending/idempotency).
 
 ## Capabilities
 
-| | Twilio | Telnyx | Plivo | Vonage (JWT) | Vonage (Basic) |
-| --- | --- | --- | --- | --- | --- |
-| Send text | ✅ | ✅ | ✅ | ✅ | ✅ |
-| MMS (`mediaUrls`) | ✅ max 10 | ✅ | ✅ | ❌ | ❌ |
-| Scheduling (`sendAt`) | ✅ Messaging Service only | ✅ | ❌ | ❌ | ❌ |
-| Validity period (`validityPeriodSec`) | 1 to 36000 s | ❌ | 5 to 10799 s | 20 to 604800 s | 20 to 604800 s |
-| Per-message `webhookUrl` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Delivery status webhooks | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Inbound webhooks | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Provider-declared STOP/HELP | ✅ `OptOutType` | Keyword only | Keyword only | Keyword only | ❌ |
-| Webhook replay window | None | 300 s | None | 300 s | n/a |
+| | Twilio | Telnyx | Plivo | Vonage (JWT) | Vonage (Basic) | Bandwidth | Sinch |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Send text | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| MMS (`mediaUrls`) | ✅ max 10 | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Scheduling (`sendAt`) | ✅ Messaging Service only | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Validity period (`validityPeriodSec`) | 1 to 36000 s | ❌ | 5 to 10799 s | 20 to 604800 s | 20 to 604800 s | ❌ | 1 to 2592000 s |
+| Per-message `webhookUrl` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Delivery status webhooks | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Inbound webhooks | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Provider-declared STOP/HELP | ✅ `OptOutType` | Keyword only | Keyword only | Keyword only | ❌ | Keyword only | Keyword only |
+| Webhook replay window | None | 300 s | None | 300 s | n/a | n/a | configurable |
 
 ## Sender types
 

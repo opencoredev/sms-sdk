@@ -74,7 +74,7 @@ export type SmsCapabilities = {
   readonly senderTypes: readonly SenderType[];
   /**
    * The provider deduplicates sends by key on its side, and the adapter uses
-   * it. `false` for every built-in adapter: none of the four providers
+   * it. `false` for every built-in adapter: none of the providers
    * document send idempotency for their SMS endpoint.
    */
   readonly nativeIdempotency: boolean;

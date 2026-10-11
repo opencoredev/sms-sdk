@@ -1,6 +1,6 @@
 # SMS SDK
 
-One TypeScript SDK for SMS providers. Send through Twilio, Telnyx, Plivo, or Vonage with one `send()` call, fail over only when a provider proves it rejected the message, and verify webhooks from all four.
+One TypeScript SDK for SMS providers. Send through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one `send()` call, fail over only when a provider proves it rejected the message, and verify webhooks through one normalized API.
 
 Zero runtime dependencies. ESM. Node 20+ and Bun. Server-side only.
 
@@ -136,6 +136,8 @@ The parser reads the raw body once and verifies the signature before reading any
 | Telnyx | supported | Messaging v2 | long code, toll-free, short code, alphanumeric, messaging profile | yes | yes | no | Ed25519 |
 | Plivo | partial | Message API | long code, toll-free, short code, alphanumeric, Powerpack | yes | no | 5-10799 s | HMAC-SHA256 V2 |
 | Vonage | partial | Messages API v1 | long code, toll-free, alphanumeric | no | no | 20-604800 s | HS256 JWT (JWT auth only) |
+| Bandwidth | partial | Messaging API v2 | long code, toll-free, short code | no | no | no | application boundary |
+| Sinch | partial | SMS API batches | long code, toll-free, short code, alphanumeric | no | yes | 1-2592000 s | configurable callback auth |
 
 Plivo and Vonage are partial because parts of their error responses are undocumented, so fewer rejections can be classified for fallback. [PROVIDERS.md](./PROVIDERS.md) lists every fact used, its source, and what could not be confirmed.
 
