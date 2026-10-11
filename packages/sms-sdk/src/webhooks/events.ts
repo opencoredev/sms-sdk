@@ -1,5 +1,5 @@
 /** Providers with a built-in webhook parser. */
-export type WebhookProvider = "twilio" | "telnyx" | "plivo" | "vonage";
+export type WebhookProvider = "twilio" | "telnyx" | "plivo" | "vonage" | "bandwidth";
 
 /** Fields every parsed webhook event carries. */
 export type SmsEventBase = {

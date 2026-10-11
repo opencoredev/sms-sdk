@@ -54,6 +54,10 @@
       "types": "./dist/providers/vonage.d.ts",
       "import": "./dist/providers/vonage.js"
     },
+    "./bandwidth": {
+      "types": "./dist/providers/bandwidth.d.ts",
+      "import": "./dist/providers/bandwidth.js"
+    },
     "./webhooks": {
       "types": "./dist/webhooks/index.d.ts",
       "import": "./dist/webhooks/index.js"
