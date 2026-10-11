@@ -18,7 +18,7 @@ export type ParseSmsWebhookOptions =
   | ({ readonly provider: "plivo" } & PlivoWebhookOptions)
   | ({ readonly provider: "vonage" } & VonageWebhookOptions)
   | ({ readonly provider: "bandwidth" } & BandwidthWebhookOptions);
-  
+
 
 /**
  * Reads the raw request body once, verifies the provider's signature, then
