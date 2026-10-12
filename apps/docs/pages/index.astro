@@ -149,7 +149,10 @@ const outbox = memory();
 const sms = createSmsClient({ adapters: [outbox] });
 
 await sms.send({ to: "+14155550123", body: "Test message" });
-outbox.sent.length; // 1, and nothing left the process`;
+
+outbox.sent.length; // 1, and nothing left the process
+outbox.sent[0]?.message.body; // "Test message"
+outbox.reset();`;
 
 const testingNarrowExample = `import { createSmsClient } from "@opencoredev/sms-sdk"; // [!code hide]
 import { memory } from "@opencoredev/sms-sdk/testing"; // [!code hide]
@@ -162,7 +165,10 @@ await sms.send({
   to: "+14155550123",
   body: "Test message",
 });
-outbox.sent.length; // 1`;
+
+outbox.sent.length; // 1
+outbox.sent[0]?.message.body;
+outbox.reset();`;
 
 const samples = [
   { label: "Short", body: "Your order has shipped." },
@@ -463,7 +469,7 @@ const art = (name: string) => ({
           <p class="sms-more"><a class="sms-link" href="/guides/local-testing">Local testing</a></p>
         </div>
         <div class="sms-local-grid">
-          <CodeCard title="send.test.ts" code={testingExample} narrow={testingNarrowExample} />
+          <CodeCard title="send.test.ts" code={testingExample} narrow={testingNarrowExample} class="sms-flat-card" />
           <div class="sms-counter" data-sms-counter>
             <div class="sms-counter-head">
               <label for="sms-counter-body">Message</label>

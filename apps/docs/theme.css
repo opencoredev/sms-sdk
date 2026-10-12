@@ -35,6 +35,14 @@
   --sms-dusk: oklch(0.255 0.05 265);
   --sms-wrap: 76rem;
   --sms-gutter: clamp(1.25rem, 4vw, 3rem);
+  --sms-h2-size: clamp(2rem, 3vw, 2.625rem);
+  --sms-h2-leading: 1.1;
+  --sms-h2-tracking: -0.025em;
+  --sms-h2-weight: 500;
+  --sms-h2-measure: 12.5em;
+  --sms-space-ledger: clamp(4rem, 7vw, 6.25rem);
+  --sms-space-test: clamp(4rem, 7vw, 6rem);
+  --sms-space-closing: clamp(6.5rem, 11vw, 10rem);
 }
 
 :root[data-theme="dark"] :is(.sms-landing, .sms-footer) {
@@ -526,11 +534,21 @@
   filter: contrast(1.12) saturate(1.25) brightness(0.97);
 }
 
+/* Wide screens: the plate zooms in from its lower right corner, so the
+   nearest telegraph pole and its wires stand clear of the code card on the
+   left and the lit village sits beside it on the right. */
+@media (min-width: 64rem) {
+  .sms-hero-art img {
+    scale: 1.24;
+    transform-origin: 100% 100%;
+  }
+}
+
 /* Light: the painting as painted, its foot dissolving into the page. Dark:
    the shared dim, a sky-tone veil only behind the type, and the same foot
    blend as every other plate. */
 .sms-hero-art::before {
-  background: linear-gradient(to bottom, transparent 74%, var(--sms-ground) 98%);
+  background: linear-gradient(to bottom, transparent 88%, var(--sms-ground) 100%);
   content: "";
   inset: 0;
   position: absolute;
@@ -569,7 +587,7 @@
 }
 
 :root[data-theme="dark"] .sms-landing {
-  --sms-scrim: oklch(0.15 0.025 258 / 0.45);
+  --sms-scrim: oklch(0.15 0.025 258 / 0.62);
 }
 
 .sms-hero h1 {
@@ -718,32 +736,32 @@
 }
 
 .sms-landing .sms-card .line.diff.remove::before {
-  color: oklch(0.58 0.15 25);
+  color: oklch(0.52 0.12 42);
   content: "−" / "removed: ";
 }
 
 .sms-landing .sms-card .line.diff.add::before {
-  color: oklch(0.52 0.12 155);
+  color: oklch(0.48 0.08 165);
   content: "+" / "added: ";
 }
 
 :root[data-theme="dark"] .sms-landing .sms-card .line.diff.remove::before {
-  color: oklch(0.72 0.14 25);
+  color: oklch(0.76 0.11 55);
 }
 
 :root[data-theme="dark"] .sms-landing .sms-card .line.diff.add::before {
-  color: oklch(0.78 0.13 155);
+  color: oklch(0.8 0.08 165);
 }
 
 .sms-landing .sms-card .line.diff.remove {
   opacity: 0.55;
   text-decoration: line-through;
-  text-decoration-color: oklch(0.58 0.15 25 / 0.5);
+  text-decoration-color: oklch(from currentColor l c h / 0.45);
   text-decoration-thickness: 1px;
 }
 
 .sms-landing .sms-card .line.diff.add {
-  background-color: oklch(0.72 0.12 155 / 0.07) !important;
+  background-color: oklch(0.7 0.06 165 / 0.08) !important;
 }
 
 /* Promises -------------------------------------------------------------------
@@ -753,10 +771,12 @@
 
 /* One H2 size for the three promises, one clearly smaller H3 for the
    blocks inside them. */
-.sms-promise h2 {
-  font-size: clamp(2rem, 3vw, 2.625rem);
-  letter-spacing: -0.025em;
-  line-height: 1.1;
+.sms-landing .sms-promise h2 {
+  font-size: var(--sms-h2-size);
+  font-weight: var(--sms-h2-weight);
+  letter-spacing: var(--sms-h2-tracking);
+  line-height: var(--sms-h2-leading);
+  max-inline-size: var(--sms-h2-measure);
   text-wrap: balance;
 }
 
@@ -807,6 +827,22 @@
   content: "";
   inset: 0;
   mix-blend-mode: screen;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+/* Light: the lamp's warmth tints the snow around it, multiplied in so it
+   reads on pale paint, with a brighter core screened over the glass. */
+:root:not([data-theme="dark"]) .sms-switch-art::before {
+  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.96 0.09 85 / 0.85) 0, oklch(0.9 0.11 75 / 0.35) 1.25rem, transparent 3.25rem);
+}
+
+:root:not([data-theme="dark"]) .sms-switch-art::after {
+  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.86 0.09 70 / 0.55) 0, oklch(0.9 0.06 72 / 0.28) 5rem, transparent 11rem);
+  content: "";
+  inset: 0;
+  mix-blend-mode: multiply;
   pointer-events: none;
   position: absolute;
   z-index: 1;
@@ -956,18 +992,13 @@
 .sms-outcomes {
   display: grid;
   gap: 2.5rem clamp(3rem, 6vw, 6rem);
-  padding-block: clamp(5rem, 9vw, 7.5rem);
+  padding-block: var(--sms-space-ledger) var(--sms-space-test);
 }
 
 .sms-outcomes-intro {
   align-content: start;
-  align-self: start;
   display: grid;
   gap: 1.25rem;
-}
-
-.sms-outcomes-intro h2 {
-  text-wrap: balance;
 }
 
 .sms-outcomes-art {
@@ -989,14 +1020,21 @@
   filter: brightness(0.95) contrast(1.3);
 }
 
+/* Desktop: the intro column stretches to the ledger's height and the
+   harbour takes whatever is left, so both columns end on the same line. */
 @media (min-width: 64rem) {
   .sms-outcomes {
+    align-items: stretch;
     grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
   }
 
   .sms-outcomes-intro {
-    position: sticky;
-    inset-block-start: 6rem;
+    grid-template-rows: auto auto auto minmax(14rem, 1fr);
+  }
+
+  .sms-outcomes-art {
+    aspect-ratio: auto;
+    max-inline-size: none;
   }
 }
 
@@ -1074,17 +1112,18 @@
   color: var(--sms-warm);
 }
 
+/* The unknown outcome keeps the rules' width: no fill, only a warm rule
+   down its left edge and the warm label. */
 .sms-ledger li.sms-ledger-hold {
-  background: linear-gradient(to right, oklch(from var(--sms-warm) l c h / 0.07), transparent 70%);
-  border-block-start-color: oklch(from var(--sms-warm) l c h / 0.55);
-  margin-inline: -1rem;
-  padding-inline: 1rem;
+  border-inline-start: 2px solid var(--sms-warm);
+  padding-inline-start: 1.125rem;
 }
 
-/* (c) Local testing: no painting and no band. The code card and the live
-   counter, which sits on the page between hairlines, are the visuals. */
+/* (c) Local testing: no painting and no band. The heading and lede stack
+   above one row: the sample sits flat on the page between hairlines, and the
+   live counter beside it shares its top and bottom edges. */
 .sms-local {
-  padding-block: clamp(2rem, 4vw, 3rem) clamp(5rem, 9vw, 7.5rem);
+  padding-block: clamp(2rem, 4vw, 3rem) var(--sms-space-closing);
 }
 
 .sms-local-inner {
@@ -1094,30 +1133,35 @@
 
 .sms-local-head {
   display: grid;
-  gap: 1.25rem 4rem;
-}
-
-@media (min-width: 64rem) {
-  .sms-local-head {
-    align-items: end;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  }
-
-  .sms-local-head .sms-more {
-    grid-column: 2;
-  }
+  gap: 1.25rem;
+  max-inline-size: 38rem;
 }
 
 .sms-local-grid {
-  align-items: start;
   display: grid;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 @media (min-width: 64rem) {
   .sms-local-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    column-gap: clamp(2.5rem, 4.5vw, 4rem);
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   }
+}
+
+/* Flat sample: page surface, one hairline frame, no shadow. Its pre grows
+   with the row so the frame always ends where the counter does. */
+.sms-flat-card {
+  background-color: transparent;
+  border-color: var(--sms-line);
+  border-radius: 0.625rem;
+  box-shadow: none;
+}
+
+.sms-flat-card > .prose,
+.sms-flat-card .prose > pre {
+  block-size: 100%;
 }
 
 .sms-counter {
@@ -1125,7 +1169,8 @@
   display: flex;
   flex-direction: column;
   gap: 1.125rem;
-  padding-block: 1.25rem 1.375rem;
+  justify-content: space-between;
+  padding-block: 1.125rem 1.25rem;
 }
 
 .sms-counter-head {
@@ -1170,24 +1215,27 @@
   color: var(--sms-ink);
 }
 
+/* The message is written straight onto the page, over one hairline. */
 .sms-counter textarea {
-  background-color: var(--sms-card);
-  border: 1px solid var(--sms-line);
-  border-radius: 0.55rem;
+  background: transparent;
+  border: 0;
+  border-block-end: 1px solid var(--sms-line);
+  border-radius: 0;
   color: var(--sms-ink);
   field-sizing: content;
   font: inherit;
-  font-size: 1rem;
+  font-size: 1.0625rem;
   line-height: 1.55;
-  min-block-size: 6.25rem;
-  padding: 0.75rem 0.875rem;
+  min-block-size: 5.25rem;
+  padding: 0.25rem 0 0.75rem;
   resize: none;
+  transition: border-color 150ms ease-out;
 }
 
 .sms-counter textarea:focus-visible {
-  border-color: var(--sms-accent);
-  outline: 1px solid var(--sms-accent);
-  outline-offset: 0;
+  border-block-end-color: var(--sms-accent);
+  box-shadow: 0 1px 0 var(--sms-accent);
+  outline: none;
 }
 
 .sms-track {
@@ -1244,10 +1292,8 @@
 }
 
 .sms-counter-note {
-  border-block-start: 1px solid var(--sms-line);
   color: var(--sms-body);
   font-size: 0.875rem;
-  padding-block-start: 0.875rem;
 }
 
 /* Closing -------------------------------------------------------------------
@@ -1651,8 +1697,7 @@
 
 
   .sms-ledger li.sms-ledger-hold {
-    margin-inline: -0.625rem;
-    padding-inline: 0.625rem;
+    padding-inline-start: 0.875rem;
   }
 
   .sms-closing {
