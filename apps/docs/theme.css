@@ -31,7 +31,7 @@
   --sms-card-line: oklch(0.22 0.03 258 / 0.12);
   --sms-shadow: 0 1px 2px oklch(0.25 0.05 260 / 0.06), 0 28px 56px -28px oklch(0.25 0.06 262 / 0.45);
   --sms-glass: oklch(0.99 0.003 250 / 0.66);
-  --sms-band: oklch(0.945 0.009 252);
+  --sms-warm: oklch(0.52 0.12 62);
   --sms-dusk: oklch(0.255 0.05 265);
   --sms-wrap: 76rem;
   --sms-gutter: clamp(1.25rem, 4vw, 3rem);
@@ -49,7 +49,7 @@
   --sms-card-line: oklch(0.95 0.008 250 / 0.12);
   --sms-shadow: 0 1px 2px oklch(0 0 0 / 0.3), 0 28px 56px -24px oklch(0 0 0 / 0.7);
   --sms-glass: oklch(0.2 0.013 255 / 0.66);
-  --sms-band: oklch(0.225 0.02 258);
+  --sms-warm: oklch(0.83 0.12 75);
 }
 
 /* Blume's stock header stays in the DOM, hidden, so its search dialog, ⌘K
@@ -125,7 +125,7 @@
   align-items: center;
   display: grid;
   gap: 1rem;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   margin-inline: auto;
   max-inline-size: calc(var(--sms-wrap) + 2 * var(--sms-gutter));
   min-block-size: 4rem;
@@ -150,7 +150,8 @@
 .sms-nav::after {
   background-color: oklch(from var(--sms-ground) l c h / 0.86);
   backdrop-filter: blur(14px) saturate(1.2);
-  border-block-end: 1px solid var(--sms-line);
+  border-block-end: 1px solid oklch(from var(--sms-ink) l c h / 0.16);
+  box-shadow: 0 1px 0 oklch(from var(--sms-ground) l c h / 0.6), 0 8px 24px -16px oklch(0.25 0.05 260 / 0.25);
   opacity: 0;
 }
 
@@ -168,7 +169,7 @@
 }
 
 .sms-landing {
-  --sms-veil: oklch(0.95 0.012 245 / 0.72);
+  --sms-veil: oklch(0.95 0.012 245 / 0.5);
 }
 
 :root[data-theme="dark"] .sms-landing {
@@ -188,6 +189,7 @@
 .sms-nav-links {
   display: flex;
   gap: 0.25rem;
+  margin-inline-start: 1.75rem;
 }
 
 .sms-nav-links a,
@@ -311,6 +313,17 @@
 
   .sms-menu-btn {
     display: inline-flex;
+  }
+
+  .sms-nav-cta {
+    transition: opacity 200ms ease-out, visibility 0s linear 0s;
+  }
+
+  .sms-nav:not([data-past-hero-cta]) .sms-nav-cta {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease-out, visibility 0s linear 200ms;
+    visibility: hidden;
   }
 }
 
@@ -498,11 +511,15 @@
   object-position: 50% 100%;
 }
 
+:root:not([data-theme="dark"]) .sms-hero-art img {
+  filter: contrast(1.12) saturate(1.25) brightness(0.97);
+}
+
 /* Light: the painting as painted, its foot dissolving into the page. Dark:
    the shared dim, a sky-tone veil only behind the type, and the same foot
    blend as every other plate. */
 .sms-hero-art::before {
-  background: linear-gradient(to bottom, transparent 60%, var(--sms-ground) 96%);
+  background: linear-gradient(to bottom, transparent 74%, var(--sms-ground) 98%);
   content: "";
   inset: 0;
   position: absolute;
@@ -510,7 +527,7 @@
 }
 
 :root[data-theme="dark"] .sms-hero-art::after {
-  background: linear-gradient(to bottom, oklch(0.17 0.02 258 / 0.45) 0%, transparent 55%);
+  background: linear-gradient(to bottom, oklch(0.15 0.025 258 / 0.8) 0%, oklch(0.15 0.025 258 / 0.7) 40%, transparent 66%);
 }
 
 .sms-hero-copy {
@@ -524,6 +541,24 @@
   position: relative;
   text-align: center;
   z-index: 1;
+}
+
+/* A soft scrim local to the type: the painting stays as painted around it. */
+.sms-hero-copy::before {
+  background: radial-gradient(closest-side, var(--sms-scrim) 0%, oklch(from var(--sms-scrim) l c h / calc(alpha * 0.7)) 45%, oklch(from var(--sms-scrim) l c h / calc(alpha * 0.25)) 75%, transparent 100%);
+  content: "";
+  inset: -3rem -6rem;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+.sms-landing {
+  --sms-scrim: oklch(0.97 0.008 245 / 0.62);
+}
+
+:root[data-theme="dark"] .sms-landing {
+  --sms-scrim: oklch(0.15 0.025 258 / 0.45);
 }
 
 .sms-hero h1 {
@@ -555,23 +590,21 @@
 
 .sms-install {
   align-items: center;
-  background-color: var(--sms-glass);
-  backdrop-filter: blur(6px);
-  border: 1px solid var(--sms-line);
-  border-radius: 0.55rem;
+  background: none;
+  border: 0;
+  border-radius: 0.4rem;
   color: var(--sms-ink);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
   gap: 0.625rem;
   min-block-size: 2.875rem;
-  padding: 0 0.875rem 0 1rem;
+  padding: 0 0.5rem;
   position: relative;
-  transition: border-color 150ms ease-out;
 }
 
-.sms-install:hover {
-  border-color: oklch(from var(--sms-ink) l c h / 0.28);
+.sms-install:hover svg {
+  color: var(--sms-ink);
 }
 
 .sms-landing .sms-install code {
@@ -601,7 +634,7 @@
 }
 
 .sms-install .sms-check-icon {
-  inset-inline-end: 0.875rem;
+  inset-inline-end: 0.5rem;
   position: absolute;
 }
 
@@ -707,10 +740,18 @@
    painting tells the switch; (b) a ledger with a small harbour crop beside
    it; (c) data-led, on a plain band with no painting at all. */
 
+/* One H2 size for the three promises, one clearly smaller H3 for the
+   blocks inside them. */
 .sms-promise h2 {
-  font-size: clamp(2rem, 3.4vw, 3rem);
-  letter-spacing: -0.026em;
-  line-height: 1.08;
+  font-size: clamp(2rem, 3vw, 2.625rem);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.sms-landing .sms-h3 {
+  font-size: clamp(1.375rem, 1.8vw, 1.5rem);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
 }
 
 .sms-section-lede {
@@ -742,28 +783,36 @@
   object-position: 66% 50%;
 }
 
-.sms-switch-art figcaption {
-  background: linear-gradient(to top, oklch(0.2 0.03 258 / 0.78) 0%, oklch(0.2 0.03 258 / 0.4) 55%, transparent);
-  text-shadow: 0 1px 8px oklch(0.15 0.03 258 / 0.5);
-  bottom: 0;
-  color: oklch(0.98 0.005 250);
-  font-family: var(--blume-font-display);
-  font-size: 1rem;
-  font-style: italic;
-  inset-inline: 0;
-  line-height: 1.45;
-  padding: 3rem 1.5rem 1.25rem;
+/* The signal lamp is the page's first warm light, a quiet setup for the
+   dusk plate at the end. --sms-lamp-x/y track the lamp through each crop. */
+.sms-switch-art {
+  --sms-lamp-x: 87.2%;
+  --sms-lamp-y: 42.5%;
+}
+
+.sms-switch-art::before {
+  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.88 0.13 75 / 0.55) 0, oklch(0.85 0.12 70 / 0.18) 2.2rem, transparent 4.5rem);
+  content: "";
+  inset: 0;
+  mix-blend-mode: screen;
+  pointer-events: none;
   position: absolute;
   z-index: 1;
+}
+
+:root[data-theme="dark"] .sms-art.sms-switch-art {
+  background:
+    radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.97 0.06 80) 0, oklch(0.9 0.08 75 / 0.5) 0.6rem, transparent 1.75rem),
+    var(--sms-art-wash);
+}
+
+:root[data-theme="dark"] .sms-switch-art::before {
+  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.85 0.14 70 / 0.42) 0, oklch(0.75 0.13 65 / 0.12) 1.5rem, transparent 3.5rem);
 }
 
 .sms-switch-body {
   display: grid;
   gap: 1.25rem;
-}
-
-.sms-switch-body h2 {
-  max-inline-size: 15ch;
 }
 
 .sms-diff-card {
@@ -793,11 +842,7 @@
   gap: 1rem;
 }
 
-.sms-providers-head h3 {
-  font-size: clamp(1.625rem, 2.4vw, 2rem);
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
+
 
 .sms-providers-head p {
   color: var(--sms-body);
@@ -843,87 +888,59 @@
   font-weight: 500;
 }
 
+/* Supported is a quiet ink check. Only Partial gets a pill, and the reason
+   sits in a note row right under that provider. */
+.sms-check {
+  block-size: 1.125rem;
+  color: var(--sms-ink);
+  display: block;
+  fill: none;
+  inline-size: 1.125rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+
 .sms-pill {
-  align-items: center;
+  background-color: oklch(from var(--sms-status-partial) l c h / 0.16);
   border-radius: 999px;
-  display: inline-flex;
+  color: oklch(from var(--sms-status-partial) calc(l - 0.2) c h);
+  display: inline-block;
   font-size: 0.8125rem;
   font-weight: 600;
-  gap: 0.375rem;
   line-height: 1;
-  padding: 0.35rem 0.625rem 0.35rem 0.5rem;
+  padding: 0.35rem 0.625rem;
 }
 
-.sms-pill::before {
-  block-size: 0.4375rem;
-  border-radius: 50%;
-  content: "";
-  inline-size: 0.4375rem;
-}
-
-.sms-pill-supported {
-  background-color: oklch(from var(--sms-status-supported) l c h / 0.12);
-  color: oklch(from var(--sms-status-supported) calc(l - 0.12) c h);
-}
-
-.sms-pill-supported::before {
-  background-color: var(--sms-status-supported);
-}
-
-.sms-pill-partial {
-  background-color: oklch(from var(--sms-status-partial) l c h / 0.16);
-  color: oklch(from var(--sms-status-partial) calc(l - 0.2) c h);
-}
-
-.sms-pill-partial::before {
-  background-color: var(--sms-status-partial);
-}
-
-:root[data-theme="dark"] .sms-pill-supported {
-  color: var(--sms-status-supported);
-}
-
-:root[data-theme="dark"] .sms-pill-partial {
+:root[data-theme="dark"] .sms-pill {
   color: var(--sms-status-partial);
+}
+
+.sms-matrix tr.sms-has-note > * {
+  border-block-end: 0;
+  padding-block-end: 0.375rem;
+}
+
+.sms-matrix thead th:first-child {
+  inline-size: 7.5rem;
+}
+
+.sms-matrix-note td {
+  color: var(--sms-body);
+  padding-inline-start: 7.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  padding-block: 0 0.875rem;
 }
 
 .sms-short {
   display: none;
 }
 
-.sms-notes {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0;
-}
-
-.sms-notes div {
-  display: grid;
-  gap: 0.25rem 1rem;
-  grid-template-columns: 5rem minmax(0, 1fr);
-}
-
-.sms-notes dt {
-  color: var(--sms-ink);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.sms-notes dd {
-  color: var(--sms-body);
-  font-size: 0.875rem;
-  line-height: 1.55;
-  margin: 0;
-}
-
-@media (min-width: 64rem) {
-  .sms-notes {
-    grid-column: 2;
-  }
-}
-
 /* (b) The ledger: the promise and a small harbour crop on the left, four
-   outcomes on the right, each led by a status pill. */
+   outcomes on the right, each under a small mono label. Normal outcomes are
+   neutral; the unknown outcome, the point of the section, is the warm one. */
 .sms-outcomes {
   display: grid;
   gap: 2.5rem clamp(3rem, 6vw, 6rem);
@@ -932,6 +949,7 @@
 
 .sms-outcomes-intro {
   align-content: start;
+  align-self: start;
   display: grid;
   gap: 1.25rem;
 }
@@ -948,7 +966,15 @@
 }
 
 .sms-outcomes-art img {
-  object-position: 80% 60%;
+  object-position: 78% 72%;
+  scale: 1.25;
+  transform-origin: 72% 70%;
+}
+
+/* Dark: the harbour is mostly pale sky and ice, so it takes a little more
+   contrast than the shared filter to keep the pier and the house reading. */
+:root[data-theme="dark"] .sms-outcomes-art img {
+  filter: brightness(0.95) contrast(1.3);
 }
 
 @media (min-width: 64rem) {
@@ -971,32 +997,30 @@
 .sms-ledger li {
   border-block-start: 1px solid var(--sms-line);
   display: grid;
-  gap: 0.75rem 2rem;
-  padding-block: 2rem;
+  gap: 0.375rem;
+  padding-block: 1.375rem;
 }
 
 .sms-ledger li:last-child {
   border-block-end: 1px solid var(--sms-line);
 }
 
-@media (min-width: 40rem) {
-  .sms-ledger li {
-    grid-template-columns: 9.5rem minmax(0, 1fr);
-  }
+.sms-landing .sms-ledger-meta {
+  align-items: center;
+  color: var(--sms-quiet);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--blume-font-mono);
+  font-size: 0.8125rem;
+  gap: 0.25rem 0.75rem;
 }
 
 .sms-outcome {
   align-items: center;
-  align-self: start;
-  border-radius: 999px;
+  color: var(--sms-body);
   display: inline-flex;
-  font-size: 0.8125rem;
   font-weight: 600;
   gap: 0.375rem;
-  inline-size: fit-content;
-  line-height: 1;
-  margin-block-start: 0.375rem;
-  padding: 0.375rem 0.75rem 0.375rem 0.5rem;
 }
 
 .sms-outcome svg {
@@ -1009,65 +1033,46 @@
   stroke-width: 2;
 }
 
-.sms-landing {
-  --sms-tone-ok: oklch(0.52 0.12 155);
-  --sms-tone-next: oklch(0.47 0.15 258);
-  --sms-tone-stop: oklch(0.5 0.14 30);
-  --sms-tone-hold: oklch(0.5 0.11 70);
-}
-
-:root[data-theme="dark"] .sms-landing {
-  --sms-tone-ok: oklch(0.8 0.13 155);
-  --sms-tone-next: oklch(0.8 0.11 250);
-  --sms-tone-stop: oklch(0.78 0.12 30);
-  --sms-tone-hold: oklch(0.84 0.12 80);
-}
-
-.sms-outcome-ok { --sms-tone: var(--sms-tone-ok); }
-.sms-outcome-next { --sms-tone: var(--sms-tone-next); }
-.sms-outcome-stop { --sms-tone: var(--sms-tone-stop); }
-.sms-outcome-hold { --sms-tone: var(--sms-tone-hold); }
-
-.sms-outcome {
-  background-color: oklch(from var(--sms-tone) l c h / 0.12);
-  box-shadow: inset 0 0 0 1px oklch(from var(--sms-tone) l c h / 0.22);
-  color: var(--sms-tone);
-}
-
-.sms-ledger-body {
-  display: grid;
-  gap: 0.375rem;
-}
-
-.sms-ledger h3 {
-  font-size: clamp(1.5rem, 2.2vw, 1.75rem);
-  font-weight: 600;
-  letter-spacing: -0.018em;
-  line-height: 1.2;
-}
-
 .sms-landing .sms-ledger code {
   background: none;
-  color: var(--sms-ink);
-  font-size: 0.875rem;
-  font-weight: 500;
+  color: var(--sms-quiet);
+  font-size: 1em;
   padding: 0;
 }
 
-.sms-ledger p {
+.sms-ledger-meta code::before {
+  content: "·";
+  margin-inline-end: 0.75rem;
+}
+
+.sms-ledger h3 {
+  font-size: 1.3125rem;
+  letter-spacing: -0.012em;
+  line-height: 1.25;
+}
+
+.sms-landing .sms-ledger li > p:last-child {
   color: var(--sms-body);
-  font-size: 1rem;
-  line-height: 1.65;
-  margin-block-start: 0.25rem;
+  font-size: 0.96875rem;
+  line-height: 1.6;
   max-inline-size: 34rem;
 }
 
-/* (c) Local testing: a plain band, no painting. The code and the live
-   counter are the visuals. */
+.sms-ledger-hold .sms-outcome {
+  color: var(--sms-warm);
+}
+
+.sms-ledger li.sms-ledger-hold {
+  background: linear-gradient(to right, oklch(from var(--sms-warm) l c h / 0.07), transparent 70%);
+  border-block-start-color: oklch(from var(--sms-warm) l c h / 0.55);
+  margin-inline: -1rem;
+  padding-inline: 1rem;
+}
+
+/* (c) Local testing: no painting and no band. The code card and the live
+   counter, which sits on the page between hairlines, are the visuals. */
 .sms-local {
-  background-color: var(--sms-band);
-  border-block: 1px solid var(--sms-line);
-  padding-block: clamp(4.5rem, 8vw, 6.5rem);
+  padding-block: clamp(2rem, 4vw, 3rem) clamp(5rem, 9vw, 7.5rem);
 }
 
 .sms-local-inner {
@@ -1092,7 +1097,7 @@
 }
 
 .sms-local-grid {
-  align-items: stretch;
+  align-items: start;
   display: grid;
   gap: 1.5rem;
 }
@@ -1104,10 +1109,11 @@
 }
 
 .sms-counter {
+  border-block: 1px solid var(--sms-line);
   display: flex;
   flex-direction: column;
   gap: 1.125rem;
-  padding: 1.25rem 1.5rem 1.5rem;
+  padding-block: 1.25rem 1.375rem;
 }
 
 .sms-counter-head {
@@ -1153,7 +1159,7 @@
 }
 
 .sms-counter textarea {
-  background-color: oklch(from var(--sms-ground) l c h / 0.6);
+  background-color: var(--sms-card);
   border: 1px solid var(--sms-line);
   border-radius: 0.55rem;
   color: var(--sms-ink);
@@ -1251,6 +1257,17 @@
 .sms-closing-art img {
   filter: none;
   object-position: 55% 72%;
+}
+
+/* Dark: the plate rises out of the page ground instead of starting on a
+   hard edge. */
+:root[data-theme="dark"] .sms-closing-art::before {
+  background: linear-gradient(to bottom, var(--sms-ground) 0%, oklch(from var(--sms-ground) l c h / 0.6) 7%, transparent 22%);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
 }
 
 .sms-closing-art::after {
@@ -1552,11 +1569,7 @@
   }
 
   .sms-install {
-    backdrop-filter: blur(6px);
-    background-color: oklch(from var(--sms-ground) l c h / 0.72);
-    border-color: transparent;
     min-block-size: 2.5rem;
-    padding-inline: 0.875rem;
   }
 
   .sms-landing .sms-install code,
@@ -1567,6 +1580,10 @@
 
   .sms-switch-art {
     aspect-ratio: 4 / 3;
+  }
+
+  .sms-switch-art {
+    --sms-lamp-x: 79.2%;
   }
 
   .sms-switch-art img {
@@ -1593,8 +1610,11 @@
 
   .sms-pill {
     font-size: 0.75rem;
-    gap: 0.25rem;
-    padding: 0.3rem 0.4rem 0.3rem 0.3rem;
+    padding: 0.3rem 0.45rem;
+  }
+
+  .sms-landing .sms-matrix-note td {
+    padding-inline: 0;
   }
 
   .sms-matrix td {
@@ -1617,12 +1637,10 @@
     display: inline;
   }
 
-  .sms-notes div {
-    grid-template-columns: 1fr;
-  }
 
-  .sms-ledger li {
-    padding-block: 1.5rem;
+  .sms-ledger li.sms-ledger-hold {
+    margin-inline: -0.625rem;
+    padding-inline: 0.625rem;
   }
 
   .sms-closing {
