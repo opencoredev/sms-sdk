@@ -13,307 +13,48 @@
   --sms-status-partial: oklch(0.82 0.13 85);
 }
 
-/* Landing page ------------------------------------------------------------ */
+/* Landing page ------------------------------------------------------------
+   The landing page owns its header and footer. Its palette comes from the
+   paintings: snow for the ground, slate ink for type and the one filled
+   button, a pale rose that only the paintings carry. */
 
-.sms-home {
-  padding-block-end: 4rem;
+.sms-landing,
+.sms-footer {
+  --sms-ground: oklch(0.973 0.004 250);
+  --sms-ink: oklch(0.22 0.03 258);
+  --sms-body: oklch(0.38 0.03 258);
+  --sms-quiet: oklch(0.5 0.025 258);
+  --sms-line: oklch(0.22 0.03 258 / 0.13);
+  --sms-accent: oklch(0.33 0.075 262);
+  --sms-accent-ink: oklch(0.98 0.005 250);
+  --sms-card: oklch(0.99 0.002 250);
+  --sms-card-line: oklch(0.22 0.03 258 / 0.12);
+  --sms-shadow: 0 1px 2px oklch(0.25 0.05 260 / 0.06), 0 28px 56px -28px oklch(0.25 0.06 262 / 0.45);
+  --sms-glass: oklch(0.99 0.003 250 / 0.66);
+  --sms-art-filter: none;
+  --sms-wrap: 76rem;
+  --sms-gutter: clamp(1.25rem, 4vw, 3rem);
 }
 
-.sms-wrap {
-  margin-inline: auto;
-  max-width: 68rem;
-  padding-inline: 1.5rem;
+:root[data-theme="dark"] :is(.sms-landing, .sms-footer) {
+  --sms-ground: oklch(0.17 0.012 255);
+  --sms-ink: oklch(0.95 0.008 250);
+  --sms-body: oklch(0.8 0.015 250);
+  --sms-quiet: oklch(0.7 0.018 250);
+  --sms-line: oklch(0.95 0.008 250 / 0.13);
+  --sms-accent: oklch(0.82 0.06 262);
+  --sms-accent-ink: oklch(0.2 0.03 260);
+  --sms-card: oklch(0.2 0.013 255);
+  --sms-card-line: oklch(0.95 0.008 250 / 0.12);
+  --sms-shadow: 0 1px 2px oklch(0 0 0 / 0.3), 0 28px 56px -24px oklch(0 0 0 / 0.7);
+  --sms-glass: oklch(0.2 0.013 255 / 0.66);
+  --sms-art-filter: brightness(0.74) saturate(0.95) contrast(1.08);
 }
 
-.sms-hero {
-  padding-block: 4.5rem 3rem;
-}
-
-/* Editorial labels: a dated masthead above the hero, numbered kickers above
-   each section. */
-.sms-masthead,
-.sms-kicker,
-.sms-plate-caption {
-  color: var(--blume-muted-foreground);
-  font-family: var(--blume-font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.sms-masthead {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.625rem;
-  margin: 0 0 1.5rem;
-}
-
-.sms-kicker {
-  margin: 0 0 0.75rem;
-}
-
-.sms-hero h1 {
-  font-family: var(--blume-font-display);
-  font-size: clamp(2.5rem, 6vw, 4.25rem);
-  font-weight: 500;
-  letter-spacing: -0.025em;
-  line-height: 1.04;
-  margin: 0;
-  max-width: 18ch;
-  text-wrap: balance;
-}
-
-.sms-lede {
-  color: var(--blume-muted-foreground);
-  font-size: clamp(1.0625rem, 2vw, 1.25rem);
-  line-height: 1.55;
-  margin: 1.25rem 0 0;
-  max-width: 34rem;
-  text-wrap: pretty;
-}
-
-.sms-ctas {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.625rem;
-  margin-block-start: 2rem;
-}
-
-.sms-btn {
-  align-items: center;
-  border: 1px solid var(--blume-border);
-  border-radius: var(--blume-radius);
-  color: var(--blume-foreground);
-  display: inline-flex;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  min-height: 2.5rem;
-  padding: 0 1rem;
-  text-decoration: none;
-  transition-duration: 150ms;
-  transition-property: background-color, border-color, color, scale;
-  transition-timing-function: ease-out;
-}
-
-.sms-btn:hover {
-  background-color: var(--blume-muted);
-}
-
-.sms-btn:active {
-  scale: 0.96;
-}
-
-.sms-btn:focus-visible,
-.sms-link:focus-visible,
-.sms-matrix a:focus-visible {
-  outline: 2px solid var(--blume-accent);
-  outline-offset: 2px;
-}
-
-.sms-btn-primary {
-  background-color: var(--blume-accent);
-  border-color: var(--blume-accent);
-  color: var(--blume-accent-foreground);
-}
-
-.sms-btn-primary:hover {
-  background-color: color-mix(in oklch, var(--blume-accent) 88%, var(--blume-foreground));
-}
-
-.sms-btn-paper {
-  background-color: color-mix(in oklch, var(--blume-background) 82%, transparent);
-  backdrop-filter: blur(6px);
-}
-
-.sms-home .sms-install {
-  align-self: center;
-  background: none;
-  color: var(--blume-muted-foreground);
-  font-size: 0.875rem;
-  margin-inline-start: 0.5rem;
-  padding: 0;
-  user-select: all;
-}
-
-/* Painted plates ------------------------------------------------------------
-   Original winter oil paintings, framed like book plates. The art sits behind
-   the product, never in front of the words. */
-.sms-plate {
-  margin: 3rem 0 0;
-  position: relative;
-}
-
-.sms-plate-art {
-  aspect-ratio: 16 / 7;
-  border-radius: calc(var(--blume-radius) * 1.5);
-  overflow: hidden;
-  position: relative;
-}
-
-.sms-plate-art img {
-  block-size: 100%;
-  display: block;
-  inline-size: 100%;
-  object-fit: cover;
-  object-position: 50% 62%;
-}
-
-/* A faint paper grain and an inner hairline keep the painting flat on the page. */
-.sms-plate-art::after {
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--blume-foreground) 10%, transparent);
-  content: "";
-  inset: 0;
-  pointer-events: none;
-  position: absolute;
-}
-
-:root[data-theme="dark"] .sms-plate-art img {
-  filter: brightness(0.82) saturate(0.9);
-}
-
-/* The closing copy sits on the painting's sky, so it keeps the light sky in
-   dark mode to hold text contrast. */
-:root[data-theme="dark"] .sms-closing-plate .sms-plate-art img {
-  filter: saturate(0.9);
-}
-
-.sms-plate-caption {
-  display: flex;
-  font-size: 0.6875rem;
-  gap: 1rem;
-  justify-content: space-between;
-  margin-block-start: 0.75rem;
-}
-
-.sms-hero-code {
-  margin-block-start: 1rem;
-}
-
-@media (min-width: 60rem) {
-  .sms-hero-plate .sms-plate-art {
-    aspect-ratio: auto;
-    block-size: 38rem;
-  }
-
-  .sms-hero-plate .sms-hero-code {
-    background-color: var(--blume-background);
-    border-radius: var(--blume-radius);
-    box-shadow:
-      0 1px 2px rgb(15 23 42 / 0.06),
-      0 24px 48px -12px rgb(15 23 42 / 0.28);
-    inset-block-start: 5rem;
-    inset-inline-start: 2.5rem;
-    margin: 0;
-    max-inline-size: 34rem;
-    position: absolute;
-    width: calc(100% - 5rem);
-  }
-}
-
-/* Load-in: the painting settles, then the code arrives. Once, on entry only. */
-@media (prefers-reduced-motion: no-preference) {
-  .sms-hero-plate .sms-plate-art img {
-    animation: sms-settle 1600ms var(--sms-ease-out) both;
-  }
-
-  .sms-hero-code {
-    animation: sms-rise 700ms var(--sms-ease-out) 350ms both;
-  }
-}
-
-@keyframes sms-settle {
-  from {
-    opacity: 0;
-    scale: 1.035;
-  }
-}
-
-@keyframes sms-rise {
-  from {
-    opacity: 0;
-    translate: 0 12px;
-  }
-}
-
-/* Blume's code block carries its own top margin from prose styles. */
-.sms-home .prose > :first-child {
-  margin-block: 0;
-}
-
-/* The rule spans the content column, not the gutter padding. */
-.sms-section {
-  background: linear-gradient(var(--sms-rule), var(--sms-rule)) top center / calc(100% - 3rem) 1px
-    no-repeat;
-  padding-block: 3.5rem;
-}
-
-.sms-section h2 {
-  font-family: var(--blume-font-display);
-  font-size: clamp(1.625rem, 3vw, 2.125rem);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-  margin: 0;
-  text-wrap: balance;
-}
-
-.sms-section-head {
-  max-width: 38rem;
-}
-
-.sms-section-head p,
-.sms-closing p {
-  color: var(--blume-muted-foreground);
-  line-height: 1.6;
-  margin: 0.75rem 0 0;
-  text-wrap: pretty;
-}
-
-.sms-home :not(pre) > code {
-  background-color: var(--blume-muted);
-  border-radius: calc(var(--blume-radius) * 0.5);
-  font-family: var(--blume-font-mono);
-  font-size: 0.875em;
-  padding: 0.1em 0.35em;
-}
-
-.sms-link {
-  color: var(--blume-accent);
-  display: inline-block;
-  font-weight: 500;
-  margin-block-start: 1rem;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-
-.sms-note {
-  color: var(--blume-muted-foreground);
-  font-size: 0.875rem;
-  margin: 1.25rem 0 0;
-}
-
-.sms-notes {
-  color: var(--blume-muted-foreground);
-  display: grid;
-  font-size: 0.875rem;
-  gap: 0.5rem;
-  list-style: none;
-  margin: 1.25rem 0 0;
-  max-inline-size: 72ch;
-  padding: 0;
-}
-
-.sms-notes a {
-  color: var(--blume-foreground);
-  font-weight: 500;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
-  text-underline-offset: 3px;
-}
-
-.sms-visually-hidden {
+/* Blume's stock header stays in the DOM, hidden, so its search dialog, ⌘K
+   shortcut, and theme script keep working for the custom header. A dialog
+   opened with showModal() renders in the top layer, outside this clip. */
+:root:has(.sms-landing) [data-blume-header] {
   block-size: 1px;
   clip-path: inset(50%);
   inline-size: 1px;
@@ -322,185 +63,935 @@
   white-space: nowrap;
 }
 
-/* Two columns: copy on the left, code on the right. */
-.sms-split {
+:root:has(.sms-landing) body {
+  background-color: var(--sms-ground, var(--blume-background));
+}
+
+:root:has(.sms-landing) {
+  background-color: oklch(0.973 0.004 250);
+}
+
+:root[data-theme="dark"]:has(.sms-landing) {
+  background-color: oklch(0.17 0.012 255);
+}
+
+.sms-landing {
+  background-color: var(--sms-ground);
+  color: var(--sms-ink);
+  overflow-x: clip;
+}
+
+.sms-landing h1,
+.sms-landing h2,
+.sms-landing h3 {
+  color: var(--sms-ink);
+  font-family: var(--blume-font-display);
+  font-weight: 500;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.sms-landing p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.sms-landing :not(pre) > code {
+  background-color: oklch(from var(--sms-ink) l c h / 0.07);
+  border-radius: 0.3rem;
+  font-family: var(--blume-font-mono);
+  font-size: 0.86em;
+  padding: 0.08em 0.32em;
+}
+
+.sms-wrap {
+  margin-inline: auto;
+  max-inline-size: calc(var(--sms-wrap) + 2 * var(--sms-gutter));
+  padding-inline: var(--sms-gutter);
+}
+
+/* Header ------------------------------------------------------------------ */
+
+.sms-nav {
+  inset-block-start: 0;
+  position: sticky;
+  z-index: 40;
+}
+
+.sms-nav-inner {
+  align-items: center;
   display: grid;
-  gap: 2rem;
+  gap: 1rem;
+  grid-template-columns: 1fr auto 1fr;
+  margin-inline: auto;
+  max-inline-size: calc(var(--sms-wrap) + 2 * var(--sms-gutter));
+  min-block-size: 4.25rem;
+  padding-inline: var(--sms-gutter);
 }
 
-.sms-split-code {
-  min-width: 0;
+.sms-nav::before {
+  background-color: oklch(from var(--sms-ground) l c h / 0.82);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border-block-end: 1px solid var(--sms-line);
+  content: "";
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  transition: opacity 200ms ease-out;
+  z-index: -1;
 }
 
-@media (min-width: 60rem) {
-  .sms-split {
-    align-items: start;
-    gap: 3rem;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+.sms-nav[data-scrolled]::before {
+  opacity: 1;
+}
+
+.sms-wordmark {
+  color: var(--sms-ink);
+  font-family: var(--blume-font-display);
+  font-size: 1.3125rem;
+  font-weight: 600;
+  justify-self: start;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.sms-nav-links {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.sms-nav-links a,
+.sms-menu > a {
+  border-radius: 0.5rem;
+  color: var(--sms-body);
+  font-size: 0.9375rem;
+  padding: 0.4rem 0.75rem;
+  text-decoration: none;
+  transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.sms-nav-links a:hover {
+  background-color: oklch(from var(--sms-ink) l c h / 0.06);
+  color: var(--sms-ink);
+}
+
+.sms-nav-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.375rem;
+  justify-self: end;
+}
+
+.sms-search {
+  align-items: center;
+  background-color: var(--sms-glass);
+  border: 1px solid var(--sms-line);
+  border-radius: 0.5rem;
+  color: var(--sms-quiet);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+  block-size: 2.25rem;
+  margin-inline-end: 0.25rem;
+  padding: 0 0.5rem 0 0.625rem;
+  transition: border-color 150ms ease-out, color 150ms ease-out;
+}
+
+.sms-search:hover {
+  border-color: oklch(from var(--sms-ink) l c h / 0.25);
+  color: var(--sms-ink);
+}
+
+.sms-search svg,
+.sms-icon-btn svg {
+  block-size: 1.05rem;
+  fill: none;
+  inline-size: 1.05rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+
+.sms-search kbd {
+  border: 1px solid var(--sms-line);
+  border-radius: 0.3rem;
+  font-family: var(--blume-font-mono);
+  font-size: 0.6875rem;
+  padding: 0.05rem 0.3rem;
+}
+
+.sms-search-label {
+  padding-inline-end: 1.5rem;
+}
+
+.sms-icon-btn {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0.5rem;
+  color: var(--sms-body);
+  cursor: pointer;
+  display: inline-flex;
+  block-size: 2.25rem;
+  inline-size: 2.25rem;
+  justify-content: center;
+  transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.sms-icon-btn:hover {
+  background-color: oklch(from var(--sms-ink) l c h / 0.07);
+  color: var(--sms-ink);
+}
+
+.sms-icon-btn .sms-mark {
+  fill: currentColor;
+  stroke: none;
+}
+
+.sms-moon,
+.sms-moon-label {
+  display: none;
+}
+
+:root[data-theme="dark"] .sms-landing .sms-sun,
+:root[data-theme="dark"] .sms-landing .sms-sun-label {
+  display: none;
+}
+
+:root[data-theme="dark"] .sms-landing .sms-moon,
+:root[data-theme="dark"] .sms-landing .sms-moon-label {
+  display: inline;
+}
+
+.sms-menu-btn {
+  display: none;
+}
+
+.sms-menu {
+  background-color: var(--sms-ground);
+  border-block-end: 1px solid var(--sms-line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem var(--sms-gutter) 1.25rem;
+}
+
+.sms-menu[hidden] {
+  display: none;
+}
+
+.sms-menu > a {
+  font-size: 1.0625rem;
+  padding: 0.7rem 0;
+}
+
+.sms-menu-row {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr 1fr;
+  padding-block-start: 0.75rem;
+}
+
+.sms-menu-row .sms-btn {
+  justify-content: center;
+}
+
+@media (max-width: 56rem) {
+  .sms-nav-inner {
+    grid-template-columns: 1fr auto;
+  }
+
+  .sms-nav-links,
+  .sms-hide-sm {
+    display: none;
+  }
+
+  .sms-menu-btn {
+    display: inline-flex;
+  }
+
+  .sms-search-label,
+  .sms-search kbd {
+    display: none;
+  }
+
+  .sms-search {
+    background: transparent;
+    border-color: transparent;
+    color: var(--sms-body);
+    justify-content: center;
+    inline-size: 2.25rem;
+    margin: 0;
+    padding: 0;
   }
 }
 
-/* Segment ruler: the signature element. */
-.sms-ruler {
+/* Buttons ----------------------------------------------------------------- */
+
+.sms-btn {
+  align-items: center;
+  background-color: var(--sms-glass);
+  border: 1px solid var(--sms-line);
+  border-radius: 0.55rem;
+  color: var(--sms-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  gap: 0.5rem;
+  min-block-size: 2.5rem;
+  padding: 0 1rem;
+  text-decoration: none;
+  transition-duration: 150ms;
+  transition-property: background-color, border-color, color, scale;
+  transition-timing-function: ease-out;
+}
+
+.sms-btn:hover {
+  border-color: oklch(from var(--sms-ink) l c h / 0.28);
+}
+
+.sms-btn:active {
+  scale: 0.97;
+}
+
+.sms-btn-primary {
+  background-color: var(--sms-accent);
+  border-color: var(--sms-accent);
+  color: var(--sms-accent-ink);
+}
+
+.sms-btn-primary:hover {
+  background-color: oklch(from var(--sms-accent) calc(l - 0.05) c h);
+  border-color: oklch(from var(--sms-accent) calc(l - 0.05) c h);
+}
+
+:root[data-theme="dark"] .sms-btn-primary:hover {
+  background-color: oklch(from var(--sms-accent) calc(l + 0.05) c h);
+  border-color: oklch(from var(--sms-accent) calc(l + 0.05) c h);
+}
+
+.sms-btn-sm {
+  font-size: 0.875rem;
+  margin-inline-start: 0.375rem;
+  min-block-size: 2.25rem;
+  padding: 0 0.875rem;
+}
+
+.sms-btn-lg {
+  min-block-size: 2.875rem;
+  padding: 0 1.375rem;
+}
+
+.sms-landing :is(a, button, textarea):focus-visible,
+.sms-footer a:focus-visible {
+  outline: 2px solid var(--sms-accent);
+  outline-offset: 2px;
+}
+
+.sms-link {
+  color: var(--sms-accent);
+  display: inline-flex;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  gap: 0.35rem;
+  text-decoration: none;
+}
+
+.sms-link::after {
+  content: "→";
+  transition: translate 150ms ease-out;
+}
+
+.sms-link:hover::after {
+  translate: 3px 0;
+}
+
+/* Hero -------------------------------------------------------------------- */
+
+.sms-hero {
   display: grid;
-  gap: 1.75rem;
+  margin-block-start: -4.25rem;
+  padding-block-start: clamp(8.5rem, 15vh, 10.5rem);
+  position: relative;
+}
+
+.sms-hero-art {
+  block-size: min(62rem, 66vw + 22rem);
+  inset: 0 0 auto;
+  overflow: hidden;
+  position: absolute;
+  z-index: 0;
+}
+
+.sms-hero-art img {
+  block-size: 100%;
+  display: block;
+  filter: var(--sms-art-filter);
+  inline-size: 100%;
+  object-fit: cover;
+  object-position: 50% 100%;
+}
+
+/* The painting dissolves into the page's snow at its foot, and in dark mode
+   the sky darkens behind the headline so light type holds its contrast. */
+.sms-hero-art::after {
+  background: linear-gradient(to bottom, transparent 55%, var(--sms-ground) 92%);
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+:root[data-theme="dark"] .sms-hero-art::after {
+  background:
+    linear-gradient(to bottom, oklch(0.17 0.012 255 / 0.8) 0%, oklch(0.17 0.012 255 / 0.68) 45%, transparent 72%),
+    linear-gradient(to bottom, transparent 55%, var(--sms-ground) 92%);
+}
+
+.sms-hero-copy {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-inline: auto;
+  max-inline-size: 58rem;
+  padding-inline: var(--sms-gutter);
+  position: relative;
+  text-align: center;
+}
+
+.sms-hero h1 {
+  font-size: clamp(2.75rem, 6.4vw, 5rem);
+  letter-spacing: -0.032em;
+  line-height: 1.03;
+}
+
+.sms-lede {
+  color: var(--sms-body);
+  font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
+  line-height: 1.55;
+  max-inline-size: 36rem;
+}
+
+.sms-ctas {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  padding-block-start: 0.5rem;
+}
+
+.sms-install {
+  align-items: center;
+  background-color: var(--sms-glass);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--sms-line);
+  border-radius: 0.55rem;
+  color: var(--sms-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 0.625rem;
+  min-block-size: 2.875rem;
+  padding: 0 0.875rem 0 1rem;
+  position: relative;
+  transition: border-color 150ms ease-out;
+}
+
+.sms-install:hover {
+  border-color: oklch(from var(--sms-ink) l c h / 0.28);
+}
+
+.sms-landing .sms-install code {
+  background: none;
+  padding: 0;
+  font-family: var(--blume-font-mono);
+  font-size: 0.875rem;
+}
+
+.sms-install-prompt {
+  color: var(--sms-quiet);
+  font-family: var(--blume-font-mono);
+  font-size: 0.875rem;
+}
+
+.sms-install svg {
+  block-size: 0.95rem;
+  color: var(--sms-quiet);
+  fill: none;
+  inline-size: 0.95rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  transition-duration: 200ms;
+  transition-property: opacity, scale;
+}
+
+.sms-install .sms-check-icon {
+  inset-inline-end: 0.875rem;
+  position: absolute;
+}
+
+.sms-hero-code {
+  margin-block-start: clamp(9rem, 25vw, 23rem);
+  margin-inline: auto;
+  max-inline-size: min(48rem, calc(100% - 2 * var(--sms-gutter)));
+  inline-size: 100%;
+  position: relative;
+}
+
+/* Cards: code and the counter sit on the paintings like paper on a desk. */
+.sms-card {
+  background-color: var(--sms-card);
+  border: 1px solid var(--sms-card-line);
+  border-radius: 0.875rem;
+  box-shadow: var(--sms-shadow);
+  overflow: hidden;
+}
+
+.sms-card .prose > pre {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+.sms-card .prose > pre::before {
+  border-color: var(--sms-card-line);
+}
+
+.sms-code {
+  position: relative;
+}
+
+.sms-code pre > code {
+  max-height: none;
+}
+
+/* Diff tints span the full scroll width, with a gap between bar and text. */
+.sms-landing .sms-card pre > code {
+  display: grid;
+  min-inline-size: max-content;
+}
+
+.sms-landing .sms-card .line.diff {
+  margin-inline: -0.625rem -1.25rem;
+  padding-inline: 0.625rem 1.25rem;
+}
+
+.sms-short {
+  display: none;
+}
+
+/* Quieter diff tints, so the switch reads as one card on the painting. */
+.sms-card {
+  --blume-code-add: oklch(0.72 0.12 150 / 0.12);
+  --blume-code-remove: oklch(0.7 0.14 22 / 0.1);
+}
+
+:root[data-theme="dark"] .sms-card {
+  --blume-code-add: oklch(0.72 0.12 150 / 0.14);
+  --blume-code-remove: oklch(0.7 0.14 22 / 0.13);
+}
+
+/* Sections ---------------------------------------------------------------- */
+
+.sms-section {
+  padding-block: clamp(5.5rem, 11vw, 9rem) 0;
+}
+
+.sms-section h2 {
+  font-size: clamp(2rem, 3.6vw, 3.25rem);
+  letter-spacing: -0.026em;
+  line-height: 1.08;
+}
+
+.sms-intro {
+  align-items: end;
+  display: grid;
+  gap: 1.25rem 4rem;
+  margin-block-end: clamp(2.25rem, 4vw, 3.5rem);
+}
+
+.sms-intro h2 {
+  max-inline-size: 15ch;
+}
+
+.sms-segments .sms-intro h2 {
+  max-inline-size: none;
+}
+
+.sms-intro-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sms-intro-body p,
+.sms-outcomes-side > p {
+  color: var(--sms-body);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+
+@media (min-width: 56rem) {
+  .sms-intro {
+    column-gap: 4.5rem;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+}
+
+/* A scene is a painting with one piece of product set on it. */
+.sms-scene {
+  border-radius: 1.125rem;
+  isolation: isolate;
+  overflow: hidden;
+  position: relative;
+}
+
+.sms-scene > img {
+  block-size: 100%;
+  display: block;
+  filter: var(--sms-art-filter);
+  inline-size: 100%;
+  inset: 0;
+  object-fit: cover;
+  position: absolute;
+  z-index: -1;
+}
+
+:root[data-theme="dark"] .sms-scene::before {
+  background: radial-gradient(ellipse at 40% 40%, transparent 40%, oklch(0.13 0.012 255 / 0.45));
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+.sms-scene::after {
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px oklch(from var(--sms-ink) l c h / 0.08);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.sms-scene-switch {
+  padding: clamp(1rem, 4vw, 3.5rem);
+  padding-block-end: clamp(14rem, 30vw, 22rem);
+}
+
+.sms-scene-switch > img {
+  object-position: 50% 100%;
+}
+
+.sms-scene-switch .sms-card {
+  max-inline-size: 38rem;
+}
+
+/* Segments: copy on the left, the fence and the live counter on the right. */
+.sms-segments {
+  align-items: center;
+  display: grid;
+  gap: 2.5rem 4.5rem;
+}
+
+.sms-intro-stacked {
+  align-items: start;
+  grid-template-columns: 1fr;
+  margin: 0;
+}
+
+.sms-scene-fence {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-block-size: 36rem;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  padding-block-start: clamp(12rem, 22vw, 16rem);
+}
+
+.sms-scene-fence > img {
+  object-position: 62% 50%;
+}
+
+@media (min-width: 64rem) {
+  .sms-segments {
+    grid-template-columns: minmax(0, 27rem) minmax(0, 1fr);
+  }
+
+}
+
+.sms-counter {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+  padding: 1.375rem 1.5rem 1.5rem;
+}
+
+.sms-counter-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+}
+
+.sms-counter label {
+  color: var(--sms-ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.sms-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.sms-samples button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--sms-quiet);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.2rem 0.65rem;
+  transition: color 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out;
+}
+
+.sms-samples button:hover {
+  color: var(--sms-ink);
+}
+
+.sms-samples button[aria-pressed="true"] {
+  background-color: oklch(from var(--sms-ink) l c h / 0.06);
+  border-color: var(--sms-line);
+  color: var(--sms-ink);
+}
+
+.sms-counter textarea {
+  background-color: oklch(from var(--sms-ground) l c h / 0.6);
+  border: 1px solid var(--sms-line);
+  border-radius: 0.55rem;
+  color: var(--sms-ink);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.55;
+  field-sizing: content;
+  min-block-size: 6.25rem;
+  padding: 0.75rem 0.875rem;
+  resize: none;
+}
+
+.sms-counter textarea:focus-visible {
+  border-color: var(--sms-accent);
+  outline: 1px solid var(--sms-accent);
+  outline-offset: 0;
+}
+
+.sms-track {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.sms-track-cell {
+  background-color: oklch(from var(--sms-accent) l c h / 0.14);
+  block-size: 0.75rem;
+  border-radius: 0.2rem;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sms-track-fill {
+  background-color: var(--sms-accent);
+  block-size: 100%;
+  display: block;
+  transition: inline-size 220ms var(--sms-ease-out);
+}
+
+.sms-readout {
+  align-items: end;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  column-gap: clamp(1.5rem, 5vw, 3rem);
+  margin: 0;
+}
+
+.sms-readout div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.15rem;
+}
+
+.sms-readout dt {
+  color: var(--sms-quiet);
+  font-size: 0.8125rem;
+}
+
+.sms-readout dd {
+  color: var(--sms-ink);
+  font-family: var(--blume-font-display);
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+
+.sms-counter-note {
+  border-block-start: 1px solid var(--sms-line);
+  color: var(--sms-quiet);
+  font-size: 0.875rem;
+  padding-block-start: 0.875rem;
+}
+
+/* Outcomes: a ledger, one ruled row per result the SDK can give you. */
+.sms-outcomes {
+  align-items: start;
+  display: grid;
+  gap: 3rem 5rem;
+}
+
+.sms-outcomes-side {
+  align-content: start;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.sms-outcomes-side h2 {
+  max-inline-size: 11em;
+}
+
+.sms-outcomes-art {
+  aspect-ratio: 5 / 4;
+  border-radius: 1rem;
+  margin-block-start: 1.25rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.sms-outcomes-art img {
+  block-size: 100%;
+  display: block;
+  filter: var(--sms-art-filter);
+  inline-size: 100%;
+  object-fit: cover;
+  object-position: 74% 50%;
+}
+
+.sms-ledger {
+  border-block-end: 1px solid var(--sms-line);
   list-style: none;
-  margin: 2rem 0 0;
+  margin: 0;
   padding: 0;
 }
 
-.sms-ruler-row {
+.sms-ledger li {
+  border-block-start: 1px solid var(--sms-line);
   display: grid;
-  gap: 0.75rem;
-}
-
-.sms-ruler-body {
-  font-family: var(--blume-font-mono);
-  font-size: 0.875rem;
-  line-height: 1.6;
-  margin: 0;
-  max-width: 52rem;
-  overflow-wrap: anywhere;
-}
-
-.sms-ruler-track {
-  display: flex;
-  gap: 4px;
-}
-
-.sms-ruler-cell {
-  background-color: var(--blume-muted);
-  block-size: 0.625rem;
-  border-radius: 2px;
-  flex: 1 1 0;
-  max-width: 22rem;
-  overflow: hidden;
-}
-
-.sms-ruler-fill {
-  background-color: var(--blume-accent);
-  block-size: 100%;
-  display: block;
-}
-
-.sms-ruler-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1.5rem;
-  margin: 0;
-}
-
-.sms-ruler-meta div {
-  align-items: baseline;
-  display: flex;
   gap: 0.5rem;
+  padding-block: 1.75rem;
 }
 
-.sms-ruler-meta dt {
-  color: var(--blume-muted-foreground);
-  font-size: 0.8125rem;
-}
-
-.sms-ruler-meta dd {
-  font-family: var(--blume-font-mono);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  margin: 0;
-}
-
-/* Features: a ruled 2x2 grid, not floating cards. */
-.sms-features {
-  border: 1px solid var(--sms-rule);
-  border-radius: var(--blume-radius);
-  display: grid;
-  overflow: hidden;
-}
-
-.sms-feature {
+.sms-ledger-head {
+  align-items: flex-start;
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
-  padding: 1.5rem;
+  gap: 0.25rem;
 }
 
-.sms-feature + .sms-feature {
-  border-block-start: 1px solid var(--sms-rule);
+.sms-ledger h3 {
+  font-size: clamp(1.375rem, 2vw, 1.625rem);
+  letter-spacing: -0.015em;
+  line-height: 1.25;
 }
 
-.sms-feature h3 {
-  font-size: 1.0625rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin: 0;
-}
-
-.sms-feature p {
-  color: var(--blume-muted-foreground);
-  flex: 1;
-  line-height: 1.6;
-  margin: 0;
-}
-
-.sms-home .sms-feature-code {
-  align-self: flex-start;
+.sms-landing .sms-ledger code {
+  background: none;
+  color: var(--sms-accent);
   font-size: 0.8125rem;
-  max-width: 100%;
-  overflow-wrap: anywhere;
+  padding: 0;
 }
 
-@media (min-width: 48rem) {
-  .sms-features {
-    grid-template-columns: 1fr 1fr;
+.sms-ledger p {
+  color: var(--sms-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  max-inline-size: 36rem;
+}
+
+@media (min-width: 64rem) {
+  .sms-outcomes {
+    grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
   }
 
-  .sms-feature + .sms-feature {
-    border-block-start: 0;
-  }
-
-  .sms-feature:nth-child(even) {
-    border-inline-start: 1px solid var(--sms-rule);
-  }
-
-  .sms-feature:nth-child(n + 3) {
-    border-block-start: 1px solid var(--sms-rule);
+  .sms-ledger {
+    margin-block-start: 0.5rem;
   }
 }
 
-/* Provider matrix. */
+/* Providers and testing. */
+.sms-providers {
+  display: grid;
+  gap: 3rem 4.5rem;
+}
+
+@media (min-width: 64rem) {
+  .sms-providers {
+    align-items: start;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+}
+
 .sms-table-scroll {
-  margin-block-start: 2rem;
   overflow-x: auto;
 }
 
 .sms-matrix {
   border-collapse: collapse;
   font-size: 0.9375rem;
-  min-width: 36rem;
-  width: 100%;
+  min-inline-size: 34rem;
+  inline-size: 100%;
 }
 
 .sms-matrix th,
 .sms-matrix td {
-  border-block-end: 1px solid var(--sms-rule);
-  padding: 0.75rem 1rem 0.75rem 0;
+  border-block-end: 1px solid var(--sms-line);
+  padding: 1rem 1rem 1rem 0;
   text-align: start;
 }
 
 .sms-matrix thead th {
-  color: var(--blume-muted-foreground);
+  color: var(--sms-quiet);
   font-size: 0.8125rem;
   font-weight: 500;
+  padding-block-start: 0;
 }
 
 .sms-matrix tbody th {
+  font-family: var(--blume-font-display);
+  font-size: 1.1875rem;
   font-weight: 500;
 }
 
 .sms-matrix a {
-  color: var(--blume-foreground);
+  color: var(--sms-ink);
   text-decoration: underline;
-  text-decoration-color: var(--sms-rule);
-  text-underline-offset: 3px;
+  text-decoration-color: var(--sms-line);
+  text-underline-offset: 4px;
 }
 
 .sms-matrix a:hover {
@@ -509,6 +1000,7 @@
 
 .sms-status {
   align-items: center;
+  color: var(--sms-body);
   display: inline-flex;
   font-size: 0.875rem;
   gap: 0.5rem;
@@ -529,135 +1021,193 @@
   background-color: var(--sms-status-partial);
 }
 
-/* FAQ. */
-.sms-faq {
-  display: grid;
-  gap: 1.75rem;
-  margin: 2rem 0 0;
+.sms-legend {
+  display: none;
 }
 
-@media (min-width: 48rem) {
-  .sms-faq {
-    column-gap: 3rem;
-    grid-template-columns: 1fr 1fr;
+.sms-testing {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.sms-testing h3 {
+  font-size: 1.625rem;
+  letter-spacing: -0.015em;
+}
+
+.sms-testing > p {
+  color: var(--sms-body);
+  line-height: 1.6;
+}
+
+.sms-testing .sms-card {
+  margin-block-start: 0.5rem;
+}
+
+/* Closing: the post office at dusk, the page's last painting. */
+.sms-closing {
+  display: grid;
+  margin-block-start: clamp(6rem, 12vw, 10rem);
+  min-block-size: clamp(38rem, 62vw, 54rem);
+  position: relative;
+}
+
+.sms-closing-art {
+  inset: 0;
+  overflow: hidden;
+  position: absolute;
+}
+
+.sms-closing-art img {
+  block-size: 100%;
+  display: block;
+  filter: var(--sms-art-filter);
+  inline-size: 100%;
+  object-fit: cover;
+  object-position: 60% 70%;
+}
+
+.sms-closing-art::after {
+  background: linear-gradient(to bottom, var(--sms-ground) 0%, oklch(from var(--sms-ground) l c h / 0.7) 30%, transparent 58%);
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+.sms-closing-copy {
+  align-items: center;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+  padding: 0 var(--sms-gutter);
+  position: relative;
+  text-align: center;
+}
+
+.sms-closing h2 {
+  font-size: clamp(2.25rem, 4.5vw, 3.75rem);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.sms-closing-copy > p {
+  color: var(--sms-body);
+  font-size: 1.125rem;
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.sms-footer {
+  background-color: oklch(0.2 0.03 258);
+  color: oklch(0.8 0.02 255);
+}
+
+:root[data-theme="dark"] .sms-footer {
+  background-color: oklch(0.13 0.012 255);
+  border-block-start: 1px solid oklch(0.95 0.008 250 / 0.08);
+}
+
+.sms-footer-inner {
+  display: grid;
+  gap: 2.5rem 4rem;
+  margin-inline: auto;
+  max-inline-size: calc(var(--sms-wrap) + 2 * var(--sms-gutter));
+  padding: 4rem var(--sms-gutter) 4.5rem;
+}
+
+@media (min-width: 56rem) {
+  .sms-footer-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 }
 
-.sms-faq dt {
-  font-weight: 600;
+.sms-footer .sms-wordmark {
+  color: oklch(0.96 0.006 250);
 }
 
-.sms-faq dd {
-  color: var(--blume-muted-foreground);
+.sms-footer-brand {
+  align-content: start;
+  display: grid;
+  gap: 0.75rem;
+  max-inline-size: 22rem;
+}
+
+.sms-footer-brand p {
+  font-size: 0.9375rem;
   line-height: 1.6;
-  margin: 0.5rem 0 0;
-  text-wrap: pretty;
-}
-
-.sms-closing .sms-plate {
-  display: flex;
-  flex-direction: column;
   margin: 0;
 }
 
-.sms-closing-plate .sms-plate-caption {
-  order: 1;
+.sms-footer-cols {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(3, minmax(7rem, auto));
 }
 
-.sms-closing-copy {
-  order: 2;
+.sms-footer h2 {
+  color: oklch(0.72 0.03 255);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin: 0 0 0.875rem;
 }
 
-.sms-closing-copy {
-  padding-block-start: 1.5rem;
+.sms-footer ul {
+  display: grid;
+  gap: 0.625rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.sms-closing-copy p {
-  color: var(--blume-muted-foreground);
-  line-height: 1.6;
-  margin: 0.75rem 0 0;
+.sms-footer ul a {
+  color: oklch(0.9 0.012 250);
+  font-size: 0.9375rem;
+  text-decoration: none;
 }
 
-@media (min-width: 48rem) {
-  .sms-closing-plate .sms-plate-art {
-    aspect-ratio: 16 / 8;
-  }
+.sms-footer ul a:hover {
+  color: oklch(1 0 0);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
 
-  .sms-closing-plate .sms-plate-art img {
-    object-position: 50% 70%;
-  }
-
-  /* The copy sits in the painting's open sky, where contrast is highest. */
-  .sms-closing-copy {
-    color: oklch(0.22 0.03 255);
-    inset-block-start: 2.5rem;
-    inset-inline-start: 2.5rem;
-    max-inline-size: 26rem;
-    padding: 0;
-    position: absolute;
-  }
-
-  .sms-closing-copy p {
-    color: oklch(0.3 0.03 255);
-  }
-
-  .sms-closing-copy .sms-btn-paper {
-    background-color: oklch(0.98 0.005 255 / 0.78);
-    border-color: oklch(0.22 0.03 255 / 0.2);
-    color: oklch(0.22 0.03 255);
-  }
-
-  .sms-closing-copy .sms-btn-paper:hover {
-    background-color: oklch(0.98 0.005 255 / 0.95);
+@media (max-width: 30rem) {
+  .sms-footer-cols {
+    gap: 1.25rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sms-btn {
-    transition: none;
-  }
-
-  .sms-btn:active {
-    scale: none;
-  }
-}
-
-/* Copy button for landing code blocks. Sits in the code block's title strip. */
-.sms-code {
-  position: relative;
-}
+/* Copy buttons ------------------------------------------------------------ */
 
 .sms-copy {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: calc(var(--blume-radius) * 0.75);
-  color: var(--blume-muted-foreground);
+  border-radius: 0.4rem;
+  color: var(--sms-quiet);
   cursor: pointer;
   display: inline-flex;
-  height: 2rem;
+  block-size: 2rem;
+  inline-size: 2rem;
   inset-block-start: 0.375rem;
   inset-inline-end: 0.5rem;
   justify-content: center;
   position: absolute;
   transition-duration: 150ms;
   transition-property: background-color, color;
-  width: 2rem;
 }
 
 .sms-copy:hover {
-  background-color: var(--blume-muted);
-  color: var(--blume-foreground);
-}
-
-.sms-copy:focus-visible {
-  outline: 2px solid var(--blume-accent);
-  outline-offset: 1px;
+  background-color: oklch(from var(--sms-ink) l c h / 0.07);
+  color: var(--sms-ink);
 }
 
 .sms-copy svg {
+  block-size: 1rem;
   fill: none;
-  height: 1rem;
+  inline-size: 1rem;
   position: absolute;
   stroke: currentColor;
   stroke-linecap: round;
@@ -666,38 +1216,209 @@
   transition-duration: 200ms;
   transition-property: opacity, scale, filter;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-  width: 1rem;
 }
 
-.sms-check-icon {
+.sms-landing .sms-check-icon {
   filter: blur(4px);
   opacity: 0;
   scale: 0.25;
 }
 
-.sms-copy[data-copied] .sms-copy-icon {
+.sms-landing [data-copied] .sms-copy-icon {
   filter: blur(4px);
   opacity: 0;
   scale: 0.25;
 }
 
-.sms-copy[data-copied] .sms-check-icon {
+.sms-landing [data-copied] .sms-check-icon {
   color: var(--sms-status-supported);
   filter: blur(0);
   opacity: 1;
   scale: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sms-copy svg {
-    transition: none;
+/* Motion ------------------------------------------------------------------
+   One-time entrances only: the hero painting settles, the copy and code
+   arrive, and the closing painting drifts very slowly. */
+@media (prefers-reduced-motion: no-preference) {
+  .sms-hero-art img {
+    animation: sms-settle 1800ms var(--sms-ease-out) both;
+  }
+
+  .sms-hero-copy {
+    animation: sms-rise 800ms var(--sms-ease-out) 150ms both;
+  }
+
+  .sms-hero-code {
+    animation: sms-rise 800ms var(--sms-ease-out) 450ms both;
   }
 }
 
-/* Blume caps prose code at 24rem and scrolls the rest. Landing snippets are
-   short and should show whole. */
-.sms-code pre > code {
-  max-height: none;
+@keyframes sms-settle {
+  from {
+    opacity: 0;
+    scale: 1.04;
+  }
+}
+
+@keyframes sms-rise {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sms-landing *,
+  .sms-landing *::before,
+  .sms-landing *::after {
+    transition: none !important;
+  }
+
+  .sms-btn:active {
+    scale: none;
+  }
+}
+
+/* Mobile ------------------------------------------------------------------ */
+
+@media (max-width: 40rem) {
+  .sms-hero {
+    padding-block-start: 7rem;
+  }
+
+  .sms-hero-art {
+    block-size: 44rem;
+  }
+
+  .sms-hero-art img {
+    object-position: 34% 100%;
+  }
+
+  :root[data-theme="dark"] .sms-hero-art::after {
+    background:
+      linear-gradient(to bottom, oklch(0.17 0.012 255 / 0.82) 0%, oklch(0.17 0.012 255 / 0.7) 50%, transparent 78%),
+      linear-gradient(to bottom, transparent 60%, var(--sms-ground) 94%);
+  }
+
+  .sms-ctas {
+    align-self: stretch;
+    flex-direction: column;
+  }
+
+  .sms-ctas > * {
+    justify-content: center;
+    inline-size: 100%;
+  }
+
+  .sms-hero-code {
+    margin-block-start: 9rem;
+  }
+
+  .sms-landing .sms-card pre {
+    font-size: 0.6875rem;
+    mask-image: linear-gradient(to right, #000 82%, transparent);
+  }
+
+  .sms-install {
+    backdrop-filter: none;
+    background-color: var(--sms-card);
+  }
+
+  .sms-nav .sms-btn-sm {
+    display: none;
+  }
+
+  .sms-scene-switch {
+    padding: 0 0 12rem;
+  }
+
+  .sms-scene-switch .sms-card {
+    border-inline: 0;
+    border-block-start: 0;
+    border-radius: 1.125rem 1.125rem 0 0;
+  }
+
+  .sms-scene-switch > img {
+    object-position: 58% 100%;
+  }
+
+  .sms-scene-fence {
+    min-block-size: 0;
+    padding: 0.75rem;
+    padding-block-start: 11rem;
+  }
+
+  .sms-counter {
+    padding: 1.125rem;
+  }
+
+  .sms-closing {
+    min-block-size: 36rem;
+  }
+
+  /* The matrix keeps its dots and drops the words, with a legend below, so
+     all four columns fit a phone without scrolling. */
+  .sms-matrix {
+    min-inline-size: 0;
+  }
+
+  .sms-matrix th,
+  .sms-matrix td {
+    padding-inline-end: 0.5rem;
+  }
+
+  .sms-matrix tbody th {
+    font-size: 1.0625rem;
+  }
+
+  .sms-matrix thead th {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    vertical-align: bottom;
+  }
+
+  .sms-matrix td,
+  .sms-matrix thead th:not(:first-child) {
+    text-align: center;
+  }
+
+  .sms-matrix td .sms-status {
+    font-size: 0;
+  }
+
+  .sms-matrix td .sms-status::before {
+    block-size: 0.625rem;
+    inline-size: 0.625rem;
+  }
+
+  .sms-legend {
+    display: flex;
+    gap: 1.25rem;
+    margin: 0;
+    padding-block-start: 1.25rem;
+  }
+
+  .sms-closing-art {
+    inset-block-start: 4.5rem;
+  }
+
+  .sms-closing .sms-btn-quiet {
+    backdrop-filter: none;
+    background-color: var(--sms-card);
+  }
+
+  .sms-long {
+    display: none;
+  }
+
+  .sms-short {
+    display: inline;
+  }
+
+  .sms-closing-art img {
+    object-position: 66% 100%;
+  }
 }
 
 /* Scrolling ---------------------------------------------------------------- */

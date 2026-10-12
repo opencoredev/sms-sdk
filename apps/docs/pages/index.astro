@@ -1,18 +1,28 @@
 ---
-// Landing page. Direction: code is the hero (Stripe API docs), quiet chrome
-// (Resend). One signature element: the segment ruler, which shows how a message
-// body is counted. Everything else stays plain: rules between sections, no
-// gradients, no icon card rows, no invented numbers.
+// Landing page. The page owns its header and footer; docs pages keep Blume's
+// chrome. Four winter oil paintings from one series run through the page, and
+// each one carries a piece of the product: the send call, the provider switch,
+// the segment counter, and the outcomes ledger.
 import CodeBlock from "blume/components/content/CodeBlock.astro";
 import PageLayout from "blume/components/layout/PageLayout.astro";
 import data from "blume:data";
 
-// The segment ruler uses the SDK's own estimator, so the landing page and
-// sms.validate() can never disagree.
+// The segment counter uses the SDK's own estimator, on the server for the
+// first paint and in the browser as you type, so the page and sms.validate()
+// can never disagree.
 import { estimateSegments } from "../../../packages/sms-sdk/src/core/encoding.ts";
 
 const { config } = data;
 const repoUrl = "https://github.com/opencoredev/sms-sdk";
+const githubMark =
+  '<path fill-rule="evenodd" clip-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>';
+
+const navLinks = [
+  { label: "Docs", href: "/getting-started/overview" },
+  { label: "Providers", href: "/providers/overview" },
+  { label: "Examples", href: "/examples/overview" },
+  { label: "Changelog", href: "/community/changelog" },
+];
 
 const sendExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
 import { twilio } from "@opencoredev/sms-sdk/twilio";
@@ -22,7 +32,7 @@ const sms = createSmsClient({
     twilio({
       accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
       authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
-      from: "+15550100001", // a number on your Twilio account
+      from: "+15550100001",
     }),
   ],
 });
@@ -49,107 +59,114 @@ export const sms = createSmsClient({
       from: "+15550100002", // [!code ++]
     }), // [!code ++]
   ],
-});
-
-// Unchanged
-await sms.send({
-  to: "+14155550123",
-  body: "Your order has shipped.",
-  idempotencyKey: "order:123:shipped:v1",
 });`;
 
 const testingExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
 import { memory } from "@opencoredev/sms-sdk/testing";
 
-const sms = createSmsClient({ adapters: [memory()] });
-
-await sms.send({ to: "+14155550123", body: "Test message" });
-// No network calls. The adapter records every send.`;
-
-const rulerMessages = [
-  "Your order has shipped.",
-  "Your package is ready 📦",
-  "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule. Please arrive 10 minutes early to fill in the check-in forms.",
-].map((body) => {
-  const estimate = estimateSegments(body);
-  const perSegment = estimate.unitsPerSegment;
-  // Fill each segment cell in order: full cells, then the remainder.
-  const cells = Array.from({ length: estimate.segments }, (_, index) => {
-    const used = Math.min(perSegment, estimate.units - index * perSegment);
-    return used / perSegment;
-  });
-  const encoding = estimate.encoding === "gsm7" ? "GSM-7" : "UCS-2";
-  return { body, cells, encoding, perSegment, units: estimate.units, segments: estimate.segments };
+const sms = createSmsClient({
+  adapters: [memory()],
 });
 
-const features = [
+await sms.send({
+  to: "+14155550123",
+  body: "Test message",
+});
+// No network. memory() records each send.`;
+
+const samples = [
+  { label: "Short", body: "Your order has shipped." },
   {
-    title: "Provider portability",
-    body: "Twilio, Telnyx, Plivo, and Vonage sit behind one typed send call. Changing providers means changing the adapter, not your app.",
-    code: `adapters: [telnyx({ apiKey, from })]`,
+    label: "With an emoji",
+    body: "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule 🙂",
   },
   {
-    title: "Safe handoff and failover",
-    body: "Fallback is off by default. Turned on, it moves to the next provider only after a known rejection, never after an unknown outcome.",
-    code: `fallback: "on-known-rejection"`,
+    label: "Long",
+    body: "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule. Please arrive 10 minutes early to fill in the check-in forms.",
+  },
+];
+const initialBody = samples[1]?.body ?? "";
+const initial = estimateSegments(initialBody);
+const initialCells = Array.from({ length: initial.segments }, (_, index) =>
+  Math.min(1, (initial.units - index * initial.unitsPerSegment) / initial.unitsPerSegment),
+);
+const encodingLabel = (encoding: string) => (encoding === "gsm7" ? "GSM-7" : "UCS-2");
+
+// Each outcome maps to the SDK's real result and error types.
+const outcomes = [
+  {
+    name: "Accepted",
+    code: `handoff: "accepted"`,
+    body: "The provider created or queued the message. You get its ID to match delivery webhooks.",
   },
   {
-    title: "Segment preview",
-    body: "validate() checks the number, picks GSM-7 or UCS-2, and estimates segments locally, without calling a provider.",
-    code: `sms.validate({ to, body }).segments`,
+    name: "Known rejection",
+    code: "fallbackEligible: true",
+    body: "Auth, rate limit, sender, or account. With fallback on, the next adapter tries. Rate limits retry first and honor Retry-After.",
   },
   {
-    title: "Normalized webhooks",
-    body: "Delivery receipts and inbound messages arrive as one event shape, only after the provider signature checks out.",
-    code: `import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks"`,
+    name: "Rejected message",
+    code: "fallbackEligible: false",
+    body: "A recipient, compliance, or request problem. Another provider would refuse it too, so the send stops.",
+  },
+  {
+    name: "Unknown outcome",
+    code: "HandoffUnknownError",
+    body: "A timeout, network failure, or 5xx after the request left. No retry and no fallback, so nobody gets the text twice. Reconcile first.",
   },
 ];
 
 // Statuses mirror the adapters' own `support` values and the Providers
-// overview page. Partial cells say why in `partialNotes` below the table.
+// overview page.
 type Status = "supported" | "partial";
-const capabilities = ["Send", "Delivery status", "Inbound", "Signature check"];
+const capabilities = [
+  { long: "Send", short: "Send" },
+  { long: "Delivery status", short: "Status" },
+  { long: "Inbound", short: "Inbound" },
+  { long: "Signature check", short: "Signatures" },
+];
 const providers: { name: string; href: string; cells: Status[] }[] = [
   { name: "Twilio", href: "/providers/twilio", cells: ["supported", "supported", "supported", "supported"] },
   { name: "Telnyx", href: "/providers/telnyx", cells: ["supported", "supported", "supported", "supported"] },
-  { name: "Plivo", href: "/providers/plivo", cells: ["partial", "supported", "supported", "partial"] },
-  { name: "Vonage", href: "/providers/vonage", cells: ["partial", "partial", "partial", "partial"] },
+  { name: "Plivo", href: "/providers/plivo#support-status", cells: ["partial", "supported", "supported", "partial"] },
+  { name: "Vonage", href: "/providers/vonage#support-status", cells: ["partial", "partial", "partial", "partial"] },
 ];
-const statusLabel: Record<Status, string> = {
-  supported: "Supported",
-  partial: "Partial",
-};
-const partialNotes = [
+const statusLabel: Record<Status, string> = { supported: "Supported", partial: "Partial" };
+
+const footerColumns = [
   {
-    name: "Plivo",
-    href: "/providers/plivo#support-status",
-    note: "Plivo does not document its error body, so only auth and rate-limit rejections are classified. Its callback signature covers the URL and a nonce, not the body or a timestamp.",
+    title: "Docs",
+    links: [
+      { label: "Quick start", href: "/getting-started/quick-start" },
+      { label: "Sending", href: "/sending/overview" },
+      { label: "Receiving", href: "/receiving/overview" },
+      { label: "Reference", href: "/reference/create-sms-client" },
+    ],
   },
   {
-    name: "Vonage",
-    href: "/providers/vonage#support-status",
-    note: "Error classification is inferred because Vonage does not document the HTTP status per error code. Webhooks need JWT auth. No short codes or MMS.",
+    title: "Providers",
+    links: [
+      { label: "Twilio", href: "/providers/twilio" },
+      { label: "Telnyx", href: "/providers/telnyx" },
+      { label: "Plivo", href: "/providers/plivo" },
+      { label: "Vonage", href: "/providers/vonage" },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { label: "GitHub", href: repoUrl },
+      { label: "npm", href: "https://www.npmjs.com/package/@opencoredev/sms-sdk" },
+      { label: "Changelog", href: "/community/changelog" },
+      { label: "Contributing", href: "/community/contributing" },
+    ],
   },
 ];
 
-const faq = [
-  {
-    q: "Does switching providers move my phone number?",
-    a: "No. A number, short code, or sender ID belongs to a provider account, and so does its 10DLC or toll-free registration. Moving it is a port or a new registration you do with the providers. SMS SDK only changes the code that talks to them.",
-  },
-  {
-    q: "Will it ever send the same message twice?",
-    a: "It avoids it, but no SMS library can promise exactly once. If a provider times out after it may have accepted the message, SMS SDK reports an unknown outcome and does not retry or fall back. Use idempotency keys and a shared store when you run more than one instance.",
-  },
-  {
-    q: "Are segment counts exact prices?",
-    a: "No. Segment counts are estimates from the encoding rules. Providers and carriers decide what they bill, and pricing changes by country and sender type.",
-  },
-  {
-    q: "Is this a chat or OTP product?",
-    a: "No. SMS SDK sends and receives transactional SMS. It has no conversation threads, inbox, OTP verification service, WhatsApp, RCS, or hosted API.",
-  },
-];
+const art = (name: string) => ({
+  src: `/art/${name}.webp`,
+  srcset: `/art/${name}-760.webp 760w, /art/${name}.webp 1264w`,
+});
 ---
 
 <PageLayout
@@ -167,114 +184,112 @@ const faq = [
   ogEnabled={config.og.enabled}
   page={{ title: "SMS SDK: one TypeScript SDK for SMS providers", description: config.description }}
 >
-  <div class="sms-home">
-    <section class="sms-wrap sms-hero" aria-labelledby="hero-title">
-      <p class="sms-masthead">
-        <span>Open source</span>
-        <span aria-hidden="true">·</span>
-        <span>TypeScript</span>
-        <span aria-hidden="true">·</span>
-        <span>Winter 2026</span>
-      </p>
-      <h1 id="hero-title">One SDK for every SMS provider.</h1>
-      <p class="sms-lede">
-        Send through Twilio, Telnyx, Plivo, or Vonage with the same typed call. Switching
-        providers means changing one adapter, not your app.
-      </p>
-      <div class="sms-ctas">
-        <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
-        <a class="sms-btn" href={repoUrl}>GitHub</a>
-        <code class="sms-install">npm i @opencoredev/sms-sdk</code>
-      </div>
-      <figure class="sms-plate sms-hero-plate">
-        <div class="sms-plate-art">
-          <img
-            src="/art/winter-wires.webp"
-            srcset="/art/winter-wires-760.webp 760w, /art/winter-wires.webp 1264w"
-            sizes="(min-width: 68rem) 65rem, 100vw"
-            width="1264"
-            height="848"
-            alt="An oil painting of telegraph poles carrying wires across a snowy valley at dawn toward a farmhouse with one lit window."
-            fetchpriority="high"
-          />
+  <div class="sms-landing">
+    <header class="sms-nav" data-sms-nav>
+      <div class="sms-nav-inner">
+        <a class="sms-wordmark" href="/" aria-label="SMS SDK home">SMS SDK</a>
+        <nav class="sms-nav-links" aria-label="Main">
+          {navLinks.map((link) => <a href={link.href}>{link.label}</a>)}
+        </nav>
+        <div class="sms-nav-actions">
+          {
+            config.search.enabled && (
+              <button type="button" class="sms-search" data-sms-search aria-label="Search the docs">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                <span class="sms-search-label">Search</span>
+                <kbd data-sms-kbd>⌘K</kbd>
+              </button>
+            )
+          }
+          <a class="sms-icon-btn sms-hide-sm" href={repoUrl} aria-label="SMS SDK on GitHub">
+            <svg viewBox="0 0 16 16" class="sms-mark" aria-hidden="true" set:html={githubMark} />
+          </a>
+          <button type="button" class="sms-icon-btn sms-hide-sm" data-blume-theme-toggle aria-label="Toggle dark mode">
+            <svg viewBox="0 0 24 24" class="sms-sun" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+            <svg viewBox="0 0 24 24" class="sms-moon" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" /></svg>
+          </button>
+          <a class="sms-btn sms-btn-primary sms-btn-sm" href="/getting-started/quick-start">Get started</a>
+          <button
+            type="button"
+            class="sms-icon-btn sms-menu-btn"
+            data-sms-menu
+            aria-expanded="false"
+            aria-controls="sms-menu"
+            aria-label="Menu"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
         </div>
-        <div class="sms-code sms-hero-code">
-          <CodeBlock lang="ts" title="send.ts" code={sendExample} icons={false} />
-          <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
+      </div>
+      <div class="sms-menu" id="sms-menu" hidden>
+        {navLinks.map((link) => <a href={link.href}>{link.label}</a>)}
+        <a href={repoUrl}>GitHub</a>
+        <div class="sms-menu-row">
+          <button type="button" class="sms-btn" data-blume-theme-toggle>
+            <span class="sms-sun-label">Dark mode</span><span class="sms-moon-label">Light mode</span>
+          </button>
+          <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="sms-hero" aria-labelledby="hero-title">
+      <div class="sms-hero-art" aria-hidden="true">
+        <img
+          {...art("winter-valley")}
+          sizes="100vw"
+          width="1264"
+          height="848"
+          alt=""
+          fetchpriority="high"
+        />
+      </div>
+      <div class="sms-hero-copy">
+        <h1 id="hero-title">One send call for four SMS&nbsp;providers</h1>
+        <p class="sms-lede">
+          Send through Twilio, Telnyx, Plivo, or Vonage with one typed API. Fallback stays off
+          until you turn it on, and the package has no runtime dependencies.
+        </p>
+        <div class="sms-ctas">
+          <a class="sms-btn sms-btn-primary sms-btn-lg" href="/getting-started/quick-start">Get started</a>
+          <button type="button" class="sms-install" data-sms-copy-text="npm i @opencoredev/sms-sdk" aria-label="Copy install command">
+            <span class="sms-install-prompt" aria-hidden="true">$</span>
+            <code>npm i @opencoredev/sms-sdk</code>
             <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
             <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
           </button>
         </div>
-        <figcaption class="sms-plate-caption">
-          <span>Plate I</span>
-          <span>Wires across a snowfield, first light</span>
-        </figcaption>
-      </figure>
+      </div>
+      <div class="sms-card sms-hero-code sms-code">
+        <CodeBlock lang="ts" title="send.ts" code={sendExample} icons={false} />
+        <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
+          <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+          <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+        </button>
+      </div>
     </section>
 
-    <section class="sms-wrap sms-section" aria-labelledby="ruler-title">
-      <div class="sms-section-head">
-        <p class="sms-kicker">01 / Segments</p>
-        <h2 id="ruler-title">Know the segment count before you send</h2>
-        <p>
-          One emoji switches a message from GSM-7 to UCS-2 and cuts each segment from 160 units to 70.
-          <code>validate()</code> works this out locally, with no provider call.
-        </p>
+    <section class="sms-wrap sms-section" aria-labelledby="switch-title">
+      <div class="sms-intro">
+        <h2 id="switch-title">Change providers without touching your app</h2>
+        <div class="sms-intro-body">
+          <p>
+            Swap the adapter and every <code>sms.send()</code> call stays the same. Your number, its
+            registration, and webhook URLs belong to each provider account, so set those up first.
+          </p>
+          <a class="sms-link" href="/migration/switch-twilio-to-telnyx">Switching guide</a>
+        </div>
       </div>
-      <ol class="sms-ruler">
-        {
-          rulerMessages.map((message) => (
-            <li class="sms-ruler-row">
-              <p class="sms-ruler-body">{message.body}</p>
-              <div class="sms-ruler-track" aria-hidden="true">
-                {message.cells.map((fill) => (
-                  <span class="sms-ruler-cell">
-                    <span class="sms-ruler-fill" style={`inline-size: ${(fill * 100).toFixed(1)}%`} />
-                  </span>
-                ))}
-              </div>
-              <dl class="sms-ruler-meta">
-                <div>
-                  <dt>Encoding</dt>
-                  <dd>{message.encoding}</dd>
-                </div>
-                <div>
-                  <dt>Units</dt>
-                  <dd>{message.units}</dd>
-                </div>
-                <div>
-                  <dt>Per segment</dt>
-                  <dd>{message.perSegment}</dd>
-                </div>
-                <div>
-                  <dt>Segments</dt>
-                  <dd>{message.segments}</dd>
-                </div>
-              </dl>
-            </li>
-          ))
-        }
-      </ol>
-      <p class="sms-note">
-        Counts follow the GSM 03.38 rules. They are estimates: your provider decides what it bills.
-      </p>
-    </section>
-
-    <section class="sms-wrap sms-section sms-split" aria-labelledby="switch-title">
-      <div class="sms-section-head">
-        <p class="sms-kicker">02 / Switching</p>
-        <h2 id="switch-title">Switch Twilio to Telnyx</h2>
-        <p>
-          Swap the adapter. Every <code>sms.send()</code> call in your app stays the same.
-        </p>
-        <p>
-          Credentials, the sender number, its registration, and your webhook URLs belong to each
-          provider account. Set those up on Telnyx first.
-        </p>
-        <a class="sms-link" href="/migration/switch-twilio-to-telnyx">Read the switching guide</a>
-      </div>
-      <div class="sms-split-code">
-        <div class="sms-code">
+      <div class="sms-scene sms-scene-switch">
+        <img
+          {...art("winter-junction")}
+          sizes="(min-width: 76rem) 72rem, 100vw"
+          width="1264"
+          height="848"
+          alt="An oil painting of a snowy railway junction at first light, with a switch lever, a lamp on a post, and a signal cabin."
+          loading="lazy"
+        />
+        <div class="sms-card sms-code">
           <CodeBlock lang="ts" title="sms.ts" code={switchExample} icons={false} />
           <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
             <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
@@ -284,171 +299,354 @@ const faq = [
       </div>
     </section>
 
-    <section class="sms-wrap sms-section" aria-labelledby="features-title">
-      <h2 id="features-title" class="sms-visually-hidden">What it does</h2>
-      <div class="sms-features">
-        {
-          features.map((feature) => (
-            <article class="sms-feature">
-              <h3>{feature.title}</h3>
-              <p>{feature.body}</p>
-              <code class="sms-feature-code">{feature.code}</code>
-            </article>
-          ))
-        }
+    <section class="sms-wrap sms-section sms-segments" aria-labelledby="segments-title">
+      <div class="sms-intro sms-intro-stacked">
+        <h2 id="segments-title">Count segments before you send</h2>
+        <div class="sms-intro-body">
+          <p>
+            One emoji moves a message from GSM-7 to UCS-2, and a segment drops from 160 units to 70.
+            <code>validate()</code> works this out locally, with no provider call.
+          </p>
+          <p>Try it. The counter runs the SDK's own estimator in your browser.</p>
+          <a class="sms-link" href="/sending/segments-and-billing">Segments and billing</a>
+        </div>
       </div>
-    </section>
-
-    <section class="sms-wrap sms-section" aria-labelledby="matrix-title">
-      <div class="sms-section-head">
-        <p class="sms-kicker">03 / Providers</p>
-        <h2 id="matrix-title">Providers</h2>
-        <p>
-          All four adapters pass the same contract tests. Supported means requests, errors, and
-          webhooks follow the provider's official documentation. Partial means part of the
-          provider's behavior is undocumented, and the SDK treats that part conservatively.
-        </p>
-      </div>
-      <div class="sms-table-scroll">
-        <table class="sms-matrix">
-          <thead>
-            <tr>
-              <th scope="col">Provider</th>
-              {capabilities.map((capability) => <th scope="col">{capability}</th>)}
-            </tr>
-          </thead>
-          <tbody>
+      <div class="sms-scene sms-scene-fence">
+        <img
+          {...art("winter-fence")}
+          sizes="(min-width: 76rem) 46rem, 100vw"
+          width="1264"
+          height="848"
+          alt="An oil painting of a split-rail fence running in even sections across deep snow, with bare birches and low hills."
+          loading="lazy"
+        />
+        <div class="sms-card sms-counter" data-sms-counter>
+          <div class="sms-counter-head">
+            <label for="sms-counter-body">Message</label>
+            <div class="sms-samples" role="group" aria-label="Sample messages">
+              {
+                samples.map((sample) => (
+                  <button type="button" data-sms-sample={sample.body} aria-pressed={sample.body === initialBody ? "true" : "false"}>
+                    {sample.label}
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+          <textarea id="sms-counter-body" rows="3" maxlength="640" spellcheck="false" data-sms-input>{initialBody}</textarea>
+          <div class="sms-track" aria-hidden="true" data-sms-track>
             {
-              providers.map((provider) => (
-                <tr>
-                  <th scope="row">
-                    <a href={provider.href}>{provider.name}</a>
-                  </th>
-                  {provider.cells.map((status) => (
-                    <td>
-                      <span class={`sms-status sms-status-${status}`}>{statusLabel[status]}</span>
-                    </td>
-                  ))}
-                </tr>
+              initialCells.map((fill) => (
+                <span class="sms-track-cell">
+                  <span class="sms-track-fill" style={`inline-size: ${(fill * 100).toFixed(1)}%`} />
+                </span>
               ))
             }
-          </tbody>
-        </table>
-      </div>
-      <ul class="sms-notes">
-        {
-          partialNotes.map((item) => (
-            <li>
-              <a href={item.href}>{item.name}</a>: {item.note}
-            </li>
-          ))
-        }
-      </ul>
-    </section>
-
-    <section class="sms-wrap sms-section sms-split" aria-labelledby="deps-title">
-      <div class="sms-section-head">
-        <p class="sms-kicker">04 / Testing</p>
-        <h2 id="deps-title">No dependencies. Test without a carrier.</h2>
-        <p>
-          The package has no runtime or peer dependencies. Adapters call provider HTTP APIs with
-          <code>fetch</code>, and each one is its own import, so you only load the providers you use.
-        </p>
-        <p>
-          The <code>memory()</code> adapter records sends in process. Use it in unit tests and CI, so
-          no real message goes out.
-        </p>
-        <a class="sms-link" href="/guides/local-testing">Local testing guide</a>
-      </div>
-      <div class="sms-split-code">
-        <div class="sms-code">
-          <CodeBlock lang="ts" title="send.test.ts" code={testingExample} icons={false} />
-          <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
-            <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
-            <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
-          </button>
+          </div>
+          <dl class="sms-readout" aria-live="polite">
+            <div>
+              <dt>Segments</dt>
+              <dd data-sms-out="segments">{initial.segments}</dd>
+            </div>
+            <div>
+              <dt>Encoding</dt>
+              <dd data-sms-out="encoding">{encodingLabel(initial.encoding)}</dd>
+            </div>
+            <div>
+              <dt>Units</dt>
+              <dd data-sms-out="units">{initial.units}</dd>
+            </div>
+          </dl>
+          <p class="sms-counter-note" data-sms-out="note">
+            {
+              initial.nonGsmCharacters.length > 0
+                ? `UCS-2 because of ${initial.nonGsmCharacters.join(" ")}. ${initial.unitsPerSegment} units per segment.`
+                : `Every character fits GSM-7. ${initial.unitsPerSegment} units per segment.`
+            }
+          </p>
         </div>
       </div>
     </section>
 
-    <section class="sms-wrap sms-section" aria-labelledby="faq-title">
-      <div class="sms-section-head">
-        <p class="sms-kicker">05 / Limits</p>
-        <h2 id="faq-title">Limits and questions</h2>
-      </div>
-      <dl class="sms-faq">
-        {
-          faq.map((item) => (
-            <div class="sms-faq-item">
-              <dt>{item.q}</dt>
-              <dd>{item.a}</dd>
-            </div>
-          ))
-        }
-      </dl>
-    </section>
-
-    <section class="sms-wrap sms-section sms-closing" aria-labelledby="closing-title">
-      <figure class="sms-plate sms-closing-plate">
-        <div class="sms-plate-art">
+    <section class="sms-wrap sms-section sms-outcomes" aria-labelledby="outcomes-title">
+      <div class="sms-outcomes-side">
+        <h2 id="outcomes-title">It never guesses about a send</h2>
+        <p>
+          Fallback is off by default. Turned on, it moves to the next provider only after a known
+          rejection. When the SDK can't tell whether a message went out, it stops and tells you.
+        </p>
+        <a class="sms-link" href="/sending/retries-and-fallback">Retries and fallback</a>
+        <div class="sms-outcomes-art">
           <img
-            src="/art/winter-harbour.webp"
-            srcset="/art/winter-harbour-760.webp 760w, /art/winter-harbour.webp 1264w"
-            sizes="(min-width: 68rem) 65rem, 100vw"
+            {...art("winter-harbour")}
+            sizes="(min-width: 76rem) 28rem, 100vw"
             width="1264"
             height="848"
             alt="An oil painting of a stone signal house with a lit lantern beside a snowy pier on a frozen harbour at dusk."
             loading="lazy"
           />
         </div>
-        <div class="sms-closing-copy">
-          <h2 id="closing-title">Start with one provider</h2>
-          <p>Install the package, add an adapter, and send your first message.</p>
-          <div class="sms-ctas">
-            <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
-            <a class="sms-btn sms-btn-paper" href={repoUrl}>GitHub</a>
+      </div>
+      <ol class="sms-ledger">
+        {
+          outcomes.map((outcome) => (
+            <li>
+              <div class="sms-ledger-head">
+                <h3>{outcome.name}</h3>
+                <code>{outcome.code}</code>
+              </div>
+              <p>{outcome.body}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+
+    <section class="sms-wrap sms-section" aria-labelledby="providers-title">
+      <div class="sms-intro">
+        <h2 id="providers-title">Four providers. No runtime dependencies.</h2>
+        <div class="sms-intro-body">
+          <p>
+            Each adapter is its own import and calls the provider's HTTP API with <code>fetch</code>.
+            Partial means the provider leaves some behavior undocumented or the adapter skips a
+            feature. The provider pages list exactly what.
+          </p>
+          <a class="sms-link" href="/providers/overview">Provider details</a>
+        </div>
+      </div>
+      <div class="sms-providers">
+        <div class="sms-table-scroll">
+          <table class="sms-matrix">
+            <thead>
+              <tr>
+                <th scope="col">Provider</th>
+                {
+                  capabilities.map((capability) => (
+                    <th scope="col">
+                      <span class="sms-long">{capability.long}</span>
+                      <span class="sms-short">{capability.short}</span>
+                    </th>
+                  ))
+                }
+              </tr>
+            </thead>
+            <tbody>
+              {
+                providers.map((provider) => (
+                  <tr>
+                    <th scope="row">
+                      <a href={provider.href}>{provider.name}</a>
+                    </th>
+                    {provider.cells.map((status) => (
+                      <td>
+                        <span class={`sms-status sms-status-${status}`}>{statusLabel[status]}</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+          <p class="sms-legend" aria-hidden="true">
+            <span class="sms-status sms-status-supported">Supported</span>
+            <span class="sms-status sms-status-partial">Partial</span>
+          </p>
+        </div>
+        <div class="sms-testing">
+          <h3>Test without a carrier</h3>
+          <p>
+            The <code>memory()</code> adapter records sends in process, so unit tests and CI never
+            send a real message.
+          </p>
+          <div class="sms-card sms-code">
+            <CodeBlock lang="ts" title="send.test.ts" code={testingExample} icons={false} />
+            <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
+              <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+              <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            </button>
           </div>
         </div>
-        <figcaption class="sms-plate-caption">
-          <span>Plate II</span>
-          <span>Signal house, frozen harbour</span>
-        </figcaption>
-      </figure>
+      </div>
+    </section>
+
+    <section class="sms-closing" aria-labelledby="closing-title">
+      <div class="sms-closing-art">
+        <img
+          {...art("winter-post-office")}
+          sizes="100vw"
+          width="1264"
+          height="848"
+          alt="An oil painting of a timber village post office at dusk after snowfall, with lamplight in its windows and footprints leading to the door."
+          loading="lazy"
+        />
+      </div>
+      <div class="sms-closing-copy">
+        <h2 id="closing-title">Send your first message</h2>
+        <p>Install the package, add one adapter, and call <code>send()</code>.</p>
+        <div class="sms-ctas">
+          <a class="sms-btn sms-btn-primary sms-btn-lg" href="/getting-started/quick-start">Read the quick start</a>
+          <a class="sms-btn sms-btn-quiet sms-btn-lg" href={repoUrl}>View on GitHub</a>
+        </div>
+      </div>
     </section>
   </div>
+
+  <footer class="sms-footer" slot="footer">
+    <div class="sms-footer-inner">
+      <div class="sms-footer-brand">
+        <a class="sms-wordmark" href="/">SMS SDK</a>
+        <p>A TypeScript SDK for transactional SMS. MIT licensed, built on fetch, with no runtime dependencies.</p>
+      </div>
+      <nav class="sms-footer-cols" aria-label="Footer">
+        {
+          footerColumns.map((column) => (
+            <div>
+              <h2>{column.title}</h2>
+              <ul>
+                {column.links.map((link) => (
+                  <li>
+                    <a href={link.href}>{link.label}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        }
+      </nav>
+    </div>
+  </footer>
 </PageLayout>
 
 <script>
-  // PageLayout does not ship the copy script RootLayout adds to fenced code,
-  // so the landing page wires its own. Removed diff lines are left out, so the
-  // switch example copies as the Telnyx version.
-  document.addEventListener("click", async (event) => {
-    const button = (event.target as Element | null)?.closest<HTMLButtonElement>("[data-sms-copy]");
-    const pre = button?.parentElement?.querySelector("pre");
-    if (!button || !pre) return;
-    const lines = [...pre.querySelectorAll<HTMLElement>(".line")]
-      .filter((line) => !line.classList.contains("remove"))
-      .map((line) => line.textContent ?? "");
-    const text = lines.join("\n");
+  import { estimateSegments } from "../../../packages/sms-sdk/src/core/encoding.ts";
+
+  const copyText = async (text: string) => {
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(text);
-    } else {
-      // Plain-HTTP previews are not a secure context and have no Clipboard API.
-      const field = document.createElement("textarea");
-      field.value = text;
-      field.setAttribute("readonly", "");
-      field.style.position = "fixed";
-      field.style.opacity = "0";
-      document.body.append(field);
-      field.select();
-      document.execCommand("copy");
-      field.remove();
+      return;
     }
+    // Plain-HTTP previews are not a secure context and have no Clipboard API.
+    const field = document.createElement("textarea");
+    field.value = text;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.append(field);
+    field.select();
+    document.execCommand("copy");
+    field.remove();
+  };
+
+  const flash = (button: HTMLElement, label: string) => {
     button.dataset.copied = "";
     button.setAttribute("aria-label", "Copied");
     window.setTimeout(() => {
       delete button.dataset.copied;
-      button.setAttribute("aria-label", "Copy code");
+      button.setAttribute("aria-label", label);
     }, 1600);
+  };
+
+  document.addEventListener("click", async (event) => {
+    const target = event.target as Element | null;
+
+    // Code blocks copy without removed diff lines, so the switch example
+    // copies as the Telnyx version.
+    const codeButton = target?.closest<HTMLButtonElement>("[data-sms-copy]");
+    const pre = codeButton?.parentElement?.querySelector("pre");
+    if (codeButton && pre) {
+      const lines = [...pre.querySelectorAll<HTMLElement>(".line")]
+        .filter((line) => !line.classList.contains("remove"))
+        .map((line) => line.textContent ?? "");
+      await copyText(lines.join("\n"));
+      flash(codeButton, "Copy code");
+      return;
+    }
+
+    const textButton = target?.closest<HTMLButtonElement>("[data-sms-copy-text]");
+    if (textButton) {
+      await copyText(textButton.dataset.smsCopyText ?? "");
+      flash(textButton, "Copy install command");
+      return;
+    }
+
+    // The custom header opens Blume's own search dialog, which lives in the
+    // hidden stock header so ⌘K and the index keep working.
+    if (target?.closest("[data-sms-search]")) {
+      document.querySelector<HTMLButtonElement>("[data-blume-header] [data-blume-search-open]")?.click();
+      return;
+    }
+
+    const menuButton = target?.closest<HTMLButtonElement>("[data-sms-menu]");
+    if (menuButton) {
+      const menu = document.getElementById("sms-menu");
+      const open = menuButton.getAttribute("aria-expanded") !== "true";
+      menuButton.setAttribute("aria-expanded", String(open));
+      if (menu) menu.hidden = !open;
+    }
   });
+
+  // The header sits over the painting at the top and frosts once the page
+  // scrolls. Looked up on each call because the client router swaps the body.
+  const syncNav = () =>
+    document.querySelector("[data-sms-nav]")?.toggleAttribute("data-scrolled", window.scrollY > 8);
+  window.addEventListener("scroll", syncNav, { passive: true });
+
+  const renderCounter = (counter: HTMLElement) => {
+    const input = counter.querySelector<HTMLTextAreaElement>("[data-sms-input]");
+    const track = counter.querySelector<HTMLElement>("[data-sms-track]");
+    if (!input || !track) return;
+    const estimate = estimateSegments(input.value);
+    track.replaceChildren(
+      ...Array.from({ length: Math.max(1, estimate.segments) }, (_, index) => {
+        const cell = document.createElement("span");
+        cell.className = "sms-track-cell";
+        const fill = document.createElement("span");
+        fill.className = "sms-track-fill";
+        const used = (estimate.units - index * estimate.unitsPerSegment) / estimate.unitsPerSegment;
+        fill.style.inlineSize = `${(Math.min(1, Math.max(0, used)) * 100).toFixed(1)}%`;
+        cell.append(fill);
+        return cell;
+      }),
+    );
+    const values: Record<string, string> = {
+      segments: String(estimate.segments),
+      encoding: estimate.encoding === "gsm7" ? "GSM-7" : "UCS-2",
+      units: String(estimate.units),
+      note: `${
+        estimate.nonGsmCharacters.length > 0
+          ? `UCS-2 because of ${estimate.nonGsmCharacters.join(" ")}.`
+          : "Every character fits GSM-7."
+      } ${estimate.unitsPerSegment} units per segment.`,
+    };
+    for (const [name, value] of Object.entries(values)) {
+      const node = counter.querySelector(`[data-sms-out="${name}"]`);
+      if (node) node.textContent = value;
+    }
+    counter.querySelectorAll<HTMLButtonElement>("[data-sms-sample]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.smsSample === input.value));
+    });
+  };
+
+  document.addEventListener("input", (event) => {
+    const counter = (event.target as Element | null)?.closest<HTMLElement>("[data-sms-counter]");
+    if (counter) renderCounter(counter);
+  });
+
+  document.addEventListener("click", (event) => {
+    const sample = (event.target as Element | null)?.closest<HTMLButtonElement>("[data-sms-sample]");
+    const counter = sample?.closest<HTMLElement>("[data-sms-counter]");
+    const input = counter?.querySelector<HTMLTextAreaElement>("[data-sms-input]");
+    if (!sample || !counter || !input) return;
+    input.value = sample.dataset.smsSample ?? "";
+    renderCounter(counter);
+  });
+
+  // Blume's search binds both ⌘K and Ctrl K; show the one this platform uses.
+  const syncPage = () => {
+    syncNav();
+    const kbd = document.querySelector("[data-sms-kbd]");
+    if (kbd && !/mac|iphone|ipad|ipod/i.test(navigator.platform)) kbd.textContent = "Ctrl K";
+  };
+  document.addEventListener("astro:page-load", syncPage);
+  syncPage();
 </script>
