@@ -247,8 +247,7 @@ const art = (name: string) => ({
       <div class="sms-hero-copy">
         <h1 id="hero-title">One send call for four SMS&nbsp;providers</h1>
         <p class="sms-lede">
-          Send through Twilio, Telnyx, Plivo, or Vonage with one typed API. Fallback stays off
-          until you turn it on, and the package has no runtime dependencies.
+          Send through Twilio, Telnyx, Plivo, or Vonage with one typed API.
         </p>
         <div class="sms-ctas">
           <a class="sms-btn sms-btn-primary sms-btn-lg" href="/getting-started/quick-start">Get started</a>
@@ -276,8 +275,8 @@ const art = (name: string) => ({
           <p>
             Swap the adapter and every <code>sms.send()</code> call stays the same. Your number, its
             registration, and webhook URLs belong to each provider account, so set those up first.
+            <a class="sms-link" href="/migration/switch-twilio-to-telnyx">Switching guide</a>
           </p>
-          <a class="sms-link" href="/migration/switch-twilio-to-telnyx">Switching guide</a>
         </div>
       </div>
       <div class="sms-scene sms-scene-switch">
@@ -368,26 +367,25 @@ const art = (name: string) => ({
       </div>
     </section>
 
-    <section class="sms-wrap sms-section sms-outcomes" aria-labelledby="outcomes-title">
-      <div class="sms-outcomes-side">
+    <section class="sms-section sms-outcomes" aria-labelledby="outcomes-title">
+      <div class="sms-outcomes-art">
+        <img
+          {...art("winter-harbour")}
+          sizes="(min-width: 64rem) 50vw, 100vw"
+          width="1264"
+          height="848"
+          alt="An oil painting of a stone signal house with a lit lantern beside a snowy pier on a frozen harbour at dusk."
+          loading="lazy"
+        />
+      </div>
+      <div class="sms-outcomes-body">
         <h2 id="outcomes-title">It never guesses about a send</h2>
         <p>
           Fallback is off by default. Turned on, it moves to the next provider only after a known
           rejection. When the SDK can't tell whether a message went out, it stops and tells you.
         </p>
         <a class="sms-link" href="/sending/retries-and-fallback">Retries and fallback</a>
-        <div class="sms-outcomes-art">
-          <img
-            {...art("winter-harbour")}
-            sizes="(min-width: 76rem) 28rem, 100vw"
-            width="1264"
-            height="848"
-            alt="An oil painting of a stone signal house with a lit lantern beside a snowy pier on a frozen harbour at dusk."
-            loading="lazy"
-          />
-        </div>
-      </div>
-      <ol class="sms-ledger">
+        <ol class="sms-ledger">
         {
           outcomes.map((outcome) => (
             <li>
@@ -399,11 +397,12 @@ const art = (name: string) => ({
             </li>
           ))
         }
-      </ol>
+        </ol>
+      </div>
     </section>
 
     <section class="sms-wrap sms-section" aria-labelledby="providers-title">
-      <div class="sms-intro">
+      <div class="sms-intro sms-intro-wide">
         <h2 id="providers-title">Four providers. No runtime dependencies.</h2>
         <div class="sms-intro-body">
           <p>
@@ -439,7 +438,14 @@ const art = (name: string) => ({
                     </th>
                     {provider.cells.map((status) => (
                       <td>
-                        <span class={`sms-status sms-status-${status}`}>{statusLabel[status]}</span>
+                        {status === "supported" ? (
+                          <span class="sms-status sms-status-supported">
+                            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>
+                            <span class="sms-visually-hidden">{statusLabel[status]}</span>
+                          </span>
+                        ) : (
+                          <span class="sms-status sms-status-partial">{statusLabel[status]}</span>
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -448,7 +454,9 @@ const art = (name: string) => ({
             </tbody>
           </table>
           <p class="sms-legend" aria-hidden="true">
-            <span class="sms-status sms-status-supported">Supported</span>
+            <span class="sms-status sms-status-supported">
+              <svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg>Supported
+            </span>
             <span class="sms-status sms-status-partial">Partial</span>
           </p>
         </div>
@@ -556,7 +564,7 @@ const art = (name: string) => ({
     if (codeButton && pre) {
       const lines = [...pre.querySelectorAll<HTMLElement>(".line")]
         .filter((line) => !line.classList.contains("remove"))
-        .map((line) => line.textContent ?? "");
+        .map((line) => (line.textContent ?? "").replaceAll("\u00a0", " "));
       await copyText(lines.join("\n"));
       flash(codeButton, "Copy code");
       return;
@@ -641,9 +649,25 @@ const art = (name: string) => ({
     renderCounter(counter);
   });
 
+  // On narrow screens landing code soft-wraps; each line hangs its
+  // continuation two columns inside its own indent (see theme.css).
+  // String tokens never break inside, and `?? ""` stays on one row.
+  const setHangs = () => {
+    document.querySelectorAll<HTMLElement>(".sms-card .line").forEach((line) => {
+      const indent = /^ */u.exec(line.textContent ?? "")?.[0].length ?? 0;
+      line.style.setProperty("--sms-hang", `${indent + 2}ch`);
+      for (const token of line.querySelectorAll<HTMLElement>(":scope > span")) {
+        const text = token.textContent ?? "";
+        if (/^\s*"/u.test(text)) token.classList.add("sms-token-whole");
+        if (text === ' ""') token.textContent = '\u00a0""';
+      }
+    });
+  };
+
   // Blume's search binds both ⌘K and Ctrl K; show the one this platform uses.
   const syncPage = () => {
     syncNav();
+    setHangs();
     const kbd = document.querySelector("[data-sms-kbd]");
     if (kbd && !/mac|iphone|ipad|ipod/i.test(navigator.platform)) kbd.textContent = "Ctrl K";
   };

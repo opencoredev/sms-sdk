@@ -393,6 +393,10 @@
   outline-offset: 2px;
 }
 
+.sms-intro-body p .sms-link {
+  white-space: nowrap;
+}
+
 .sms-link {
   color: var(--sms-accent);
   display: inline-flex;
@@ -431,25 +435,57 @@
 .sms-hero-art img {
   block-size: 100%;
   display: block;
-  filter: var(--sms-art-filter);
+  filter: var(--sms-hero-filter);
   inline-size: 100%;
   object-fit: cover;
   object-position: 50% 100%;
 }
 
-/* The painting dissolves into the page's snow at its foot, and in dark mode
-   the sky darkens behind the headline so light type holds its contrast. */
+/* The painting keeps its own colour. Only its foot dissolves into the page,
+   and a soft scrim sits behind the headline block alone, so the type holds
+   its contrast without veiling the whole sky. */
 .sms-hero-art::after {
-  background: linear-gradient(to bottom, transparent 55%, var(--sms-ground) 92%);
+  background: linear-gradient(to bottom, transparent 62%, var(--sms-ground) 94%);
   content: "";
   inset: 0;
   position: absolute;
 }
 
+.sms-hero-copy::before {
+  background: radial-gradient(ellipse 50% 50% at 50% 50%, var(--sms-scrim) 30%, transparent 100%);
+  content: "";
+  inset: -5rem -8rem;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+.sms-landing {
+  --sms-scrim: oklch(0.97 0.006 240 / 0.5);
+  --sms-hero-filter: saturate(1.12) contrast(1.04);
+}
+
+:root[data-theme="dark"] .sms-landing {
+  --sms-scrim: oklch(0.15 0.016 258 / 0.6);
+  --sms-hero-filter: brightness(0.46) saturate(1.15) contrast(1.08);
+}
+
+:root[data-theme="dark"] .sms-lede {
+  color: oklch(0.88 0.012 250);
+}
+
+/* Dark mode only: a narrow band at the very top keeps the nav legible over
+   the sky without dimming the rest of the painting. */
+/* In dark mode the whole sky darkens evenly instead of a radial scrim, so no
+   halo forms behind the headline. */
 :root[data-theme="dark"] .sms-hero-art::after {
   background:
-    linear-gradient(to bottom, oklch(0.17 0.012 255 / 0.8) 0%, oklch(0.17 0.012 255 / 0.68) 45%, transparent 72%),
-    linear-gradient(to bottom, transparent 55%, var(--sms-ground) 92%);
+    linear-gradient(to bottom, oklch(0.15 0.016 258 / 0.62) 0%, oklch(0.15 0.016 258 / 0.42) 45%, transparent 70%),
+    linear-gradient(to bottom, transparent 62%, var(--sms-ground) 94%);
+}
+
+:root[data-theme="dark"] .sms-hero-copy::before {
+  display: none;
 }
 
 .sms-hero-copy {
@@ -462,6 +498,7 @@
   padding-inline: var(--sms-gutter);
   position: relative;
   text-align: center;
+  z-index: 0;
 }
 
 .sms-hero h1 {
@@ -471,10 +508,11 @@
 }
 
 .sms-lede {
+  text-wrap: balance;
   color: var(--sms-body);
   font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
   line-height: 1.55;
-  max-inline-size: 36rem;
+  max-inline-size: 30ch;
 }
 
 .sms-ctas {
@@ -612,14 +650,27 @@
 }
 
 .sms-intro {
-  align-items: end;
+  align-items: last baseline;
   display: grid;
   gap: 1.25rem 4rem;
   margin-block-end: clamp(2.25rem, 4vw, 3.5rem);
 }
 
 .sms-intro h2 {
-  max-inline-size: 15ch;
+  max-inline-size: 25ch;
+}
+
+/* The providers intro stacks: a wide two-line heading, the note under it. */
+.sms-intro-wide {
+  grid-template-columns: 1fr !important;
+}
+
+.sms-intro-wide h2 {
+  max-inline-size: 26ch;
+}
+
+.sms-intro-wide .sms-intro-body {
+  max-inline-size: 40rem;
 }
 
 .sms-segments .sms-intro h2 {
@@ -632,8 +683,7 @@
   gap: 1rem;
 }
 
-.sms-intro-body p,
-.sms-outcomes-side > p {
+.sms-intro-body p {
   color: var(--sms-body);
   font-size: 1.0625rem;
   line-height: 1.65;
@@ -642,7 +692,11 @@
 @media (min-width: 56rem) {
   .sms-intro {
     column-gap: 4.5rem;
-    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  }
+
+  .sms-intro .sms-intro-body p:last-of-type {
+    margin-block-end: 0;
   }
 }
 
@@ -858,27 +912,15 @@
   padding-block-start: 0.875rem;
 }
 
-/* Outcomes: a ledger, one ruled row per result the SDK can give you. */
+/* Outcomes: the harbour painting bleeds off the left edge as a tall band,
+   and the ledger runs beside it, one ruled row per result. */
 .sms-outcomes {
-  align-items: start;
   display: grid;
-  gap: 3rem 5rem;
-}
-
-.sms-outcomes-side {
-  align-content: start;
-  display: grid;
-  gap: 1.25rem;
-}
-
-.sms-outcomes-side h2 {
-  max-inline-size: 11em;
+  gap: 2.5rem;
 }
 
 .sms-outcomes-art {
-  aspect-ratio: 5 / 4;
-  border-radius: 1rem;
-  margin-block-start: 1.25rem;
+  aspect-ratio: 16 / 10;
   overflow: hidden;
   position: relative;
 }
@@ -889,7 +931,50 @@
   filter: var(--sms-art-filter);
   inline-size: 100%;
   object-fit: cover;
-  object-position: 74% 50%;
+  object-position: 72% 55%;
+}
+
+.sms-outcomes-body {
+  align-content: start;
+  display: grid;
+  gap: 1.25rem;
+  padding-inline: var(--sms-gutter);
+}
+
+.sms-outcomes-body h2 {
+  max-inline-size: 16ch;
+}
+
+.sms-outcomes-body > p {
+  color: var(--sms-body);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  max-inline-size: 34rem;
+}
+
+.sms-outcomes .sms-ledger {
+  margin-block-start: 1.25rem;
+}
+
+@media (min-width: 64rem) {
+  .sms-outcomes {
+    align-items: stretch;
+    column-gap: clamp(3rem, 6vw, 6rem);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .sms-outcomes-art {
+    aspect-ratio: auto;
+    border-end-end-radius: 1.125rem;
+    border-start-end-radius: 1.125rem;
+    min-block-size: 100%;
+  }
+
+  .sms-outcomes-body {
+    max-inline-size: 38rem;
+    padding-block: 1rem;
+    padding-inline: 0 max(var(--sms-gutter), calc((100vw - var(--sms-wrap)) / 2));
+  }
 }
 
 .sms-ledger {
@@ -933,15 +1018,6 @@
   max-inline-size: 36rem;
 }
 
-@media (min-width: 64rem) {
-  .sms-outcomes {
-    grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
-  }
-
-  .sms-ledger {
-    margin-block-start: 0.5rem;
-  }
-}
 
 /* Providers and testing. */
 .sms-providers {
@@ -1006,23 +1082,49 @@
   gap: 0.5rem;
 }
 
-.sms-status::before {
+.sms-status svg {
+  block-size: 1rem;
+  fill: none;
+  inline-size: 1rem;
+  stroke: var(--sms-quiet);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+
+.sms-status-partial::before {
+  background-color: var(--sms-status-partial);
   block-size: 0.5rem;
   border-radius: 50%;
   content: "";
   inline-size: 0.5rem;
 }
 
-.sms-status-supported::before {
-  background-color: var(--sms-status-supported);
-}
-
-.sms-status-partial::before {
-  background-color: var(--sms-status-partial);
+.sms-status-partial {
+  color: var(--sms-ink);
 }
 
 .sms-legend {
-  display: none;
+  color: var(--sms-quiet);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0;
+  padding-block-start: 1.125rem;
+}
+
+.sms-legend .sms-status {
+  color: var(--sms-quiet);
+  font-size: 0.8125rem;
+}
+
+.sms-visually-hidden {
+  block-size: 1px;
+  clip-path: inset(50%);
+  inline-size: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
 }
 
 .sms-testing {
@@ -1280,6 +1382,47 @@
   }
 }
 
+/* Narrow screens: landing code soft-wraps so every character stays on the
+   card. The code element collapses the newlines Shiki leaves between line
+   spans, each line keeps its own spaces, and a line only breaks between
+   tokens. The page script sets --sms-hang per line from its leading spaces,
+   so a continuation sits two columns inside that line's own indent. */
+@media (max-width: 37.5rem) {
+  .sms-landing .sms-card pre > code {
+    display: block;
+    min-inline-size: 0;
+    white-space: normal;
+  }
+
+  .sms-landing .sms-card .line {
+    display: block;
+    min-block-size: 1lh;
+    padding-inline-start: var(--sms-hang, 2ch);
+    text-indent: calc(-1 * var(--sms-hang, 2ch));
+    white-space: pre-wrap;
+  }
+
+  .sms-landing .sms-card .line,
+  .sms-landing .sms-card .line > span {
+    overflow-wrap: break-word;
+  }
+
+  .sms-landing .sms-card .sms-token-whole {
+    white-space: pre;
+  }
+
+  .sms-landing .sms-card pre > code {
+    padding-inline: 0.875rem;
+  }
+
+  .sms-landing .sms-card .line.diff {
+    inline-size: auto;
+    margin-inline: -0.875rem;
+    min-inline-size: 0;
+    padding-inline: calc(0.875rem + var(--sms-hang, 2ch)) 0.875rem;
+  }
+}
+
 /* Mobile ------------------------------------------------------------------ */
 
 @media (max-width: 40rem) {
@@ -1295,10 +1438,9 @@
     object-position: 34% 100%;
   }
 
-  :root[data-theme="dark"] .sms-hero-art::after {
-    background:
-      linear-gradient(to bottom, oklch(0.17 0.012 255 / 0.82) 0%, oklch(0.17 0.012 255 / 0.7) 50%, transparent 78%),
-      linear-gradient(to bottom, transparent 60%, var(--sms-ground) 94%);
+  .sms-hero-copy::before {
+    background: radial-gradient(ellipse 60% 52% at 50% 50%, var(--sms-scrim) 45%, transparent 100%);
+    inset: -4rem -3rem;
   }
 
   .sms-ctas {
@@ -1306,9 +1448,14 @@
     flex-direction: column;
   }
 
-  .sms-ctas > * {
-    justify-content: center;
+  .sms-ctas {
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .sms-ctas > .sms-btn {
     inline-size: 100%;
+    justify-content: center;
   }
 
   .sms-hero-code {
@@ -1316,13 +1463,24 @@
   }
 
   .sms-landing .sms-card pre {
-    font-size: 0.6875rem;
-    mask-image: linear-gradient(to right, #000 82%, transparent);
+    font-size: 0.75rem;
   }
 
   .sms-install {
     backdrop-filter: none;
-    background-color: var(--sms-card);
+    background: transparent;
+    border-color: transparent;
+    min-block-size: 2.25rem;
+    padding-inline: 0.5rem;
+  }
+
+  .sms-landing .sms-install code,
+  .sms-install-prompt {
+    font-size: 0.8125rem;
+  }
+
+  .sms-install .sms-check-icon {
+    inset-inline-end: 0.5rem;
   }
 
   .sms-nav .sms-btn-sm {
@@ -1383,20 +1541,18 @@
     text-align: center;
   }
 
-  .sms-matrix td .sms-status {
+  .sms-matrix td .sms-status-partial {
     font-size: 0;
+  }
+
+  .sms-matrix td .sms-status {
+    inline-size: 1rem;
+    justify-content: center;
   }
 
   .sms-matrix td .sms-status::before {
     block-size: 0.625rem;
     inline-size: 0.625rem;
-  }
-
-  .sms-legend {
-    display: flex;
-    gap: 1.25rem;
-    margin: 0;
-    padding-block-start: 1.25rem;
   }
 
   .sms-closing-art {
