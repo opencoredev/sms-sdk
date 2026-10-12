@@ -17,11 +17,11 @@ export default defineConfig({
   },
 
   theme: {
-    accent: { light: "#2b46c9", dark: "#8fa2ff" },
+    accent: { light: "#2a4677", dark: "#a9bde3" },
     radius: "md",
     mode: "system",
     fonts: {
-      display: "ibm-plex-sans",
+      display: "source-serif-4",
       body: "ibm-plex-sans",
       mono: "ibm-plex-mono",
     },

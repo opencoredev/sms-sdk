@@ -5,6 +5,7 @@
   --sms-status-supported: oklch(0.52 0.13 155);
   --sms-status-partial: oklch(0.58 0.13 75);
   --sms-rule: var(--blume-border);
+  --sms-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 :root[data-theme="dark"] {
@@ -25,32 +26,50 @@
 }
 
 .sms-hero {
-  padding-block: 5rem 3rem;
+  padding-block: 4.5rem 3rem;
+}
+
+/* Editorial labels: a dated masthead above the hero, numbered kickers above
+   each section. */
+.sms-masthead,
+.sms-kicker,
+.sms-plate-caption {
+  color: var(--blume-muted-foreground);
+  font-family: var(--blume-font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sms-masthead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  margin: 0 0 1.5rem;
+}
+
+.sms-kicker {
+  margin: 0 0 0.75rem;
 }
 
 .sms-hero h1 {
   font-family: var(--blume-font-display);
-  font-size: clamp(2.75rem, 7vw, 4.5rem);
-  font-weight: 600;
-  letter-spacing: -0.04em;
-  line-height: 1;
+  font-size: clamp(2.5rem, 6vw, 4.25rem);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
   margin: 0;
+  max-width: 18ch;
   text-wrap: balance;
 }
 
 .sms-lede {
-  color: var(--blume-foreground);
-  font-size: clamp(1.125rem, 2.2vw, 1.375rem);
-  line-height: 1.45;
-  margin: 1.25rem 0 0;
-  max-width: 36rem;
-  text-wrap: pretty;
-}
-
-.sms-sub {
   color: var(--blume-muted-foreground);
-  font-size: 0.9375rem;
-  margin: 0.75rem 0 0;
+  font-size: clamp(1.0625rem, 2vw, 1.25rem);
+  line-height: 1.55;
+  margin: 1.25rem 0 0;
+  max-width: 34rem;
+  text-wrap: pretty;
 }
 
 .sms-ctas {
@@ -101,12 +120,120 @@
   background-color: color-mix(in oklch, var(--blume-accent) 88%, var(--blume-foreground));
 }
 
-.sms-btn-quiet {
-  border-color: transparent;
+.sms-btn-paper {
+  background-color: color-mix(in oklch, var(--blume-background) 82%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.sms-home .sms-install {
+  align-self: center;
+  background: none;
+  color: var(--blume-muted-foreground);
+  font-size: 0.875rem;
+  margin-inline-start: 0.5rem;
+  padding: 0;
+  user-select: all;
+}
+
+/* Painted plates ------------------------------------------------------------
+   Original winter oil paintings, framed like book plates. The art sits behind
+   the product, never in front of the words. */
+.sms-plate {
+  margin: 3rem 0 0;
+  position: relative;
+}
+
+.sms-plate-art {
+  aspect-ratio: 16 / 7;
+  border-radius: calc(var(--blume-radius) * 1.5);
+  overflow: hidden;
+  position: relative;
+}
+
+.sms-plate-art img {
+  block-size: 100%;
+  display: block;
+  inline-size: 100%;
+  object-fit: cover;
+  object-position: 50% 62%;
+}
+
+/* A faint paper grain and an inner hairline keep the painting flat on the page. */
+.sms-plate-art::after {
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--blume-foreground) 10%, transparent);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+:root[data-theme="dark"] .sms-plate-art img {
+  filter: brightness(0.82) saturate(0.9);
+}
+
+/* The closing copy sits on the painting's sky, so it keeps the light sky in
+   dark mode to hold text contrast. */
+:root[data-theme="dark"] .sms-closing-plate .sms-plate-art img {
+  filter: saturate(0.9);
+}
+
+.sms-plate-caption {
+  display: flex;
+  font-size: 0.6875rem;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-block-start: 0.75rem;
 }
 
 .sms-hero-code {
-  margin-block-start: 3rem;
+  margin-block-start: 1rem;
+}
+
+@media (min-width: 60rem) {
+  .sms-hero-plate .sms-plate-art {
+    aspect-ratio: auto;
+    block-size: 38rem;
+  }
+
+  .sms-hero-plate .sms-hero-code {
+    background-color: var(--blume-background);
+    border-radius: var(--blume-radius);
+    box-shadow:
+      0 1px 2px rgb(15 23 42 / 0.06),
+      0 24px 48px -12px rgb(15 23 42 / 0.28);
+    inset-block-start: 5rem;
+    inset-inline-start: 2.5rem;
+    margin: 0;
+    max-inline-size: 34rem;
+    position: absolute;
+    width: calc(100% - 5rem);
+  }
+}
+
+/* Load-in: the painting settles, then the code arrives. Once, on entry only. */
+@media (prefers-reduced-motion: no-preference) {
+  .sms-hero-plate .sms-plate-art img {
+    animation: sms-settle 1600ms var(--sms-ease-out) both;
+  }
+
+  .sms-hero-code {
+    animation: sms-rise 700ms var(--sms-ease-out) 350ms both;
+  }
+}
+
+@keyframes sms-settle {
+  from {
+    opacity: 0;
+    scale: 1.035;
+  }
+}
+
+@keyframes sms-rise {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
 }
 
 /* Blume's code block carries its own top margin from prose styles. */
@@ -123,9 +250,9 @@
 
 .sms-section h2 {
   font-family: var(--blume-font-display);
-  font-size: clamp(1.5rem, 3vw, 1.875rem);
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  font-size: clamp(1.625rem, 3vw, 2.125rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
   line-height: 1.15;
   margin: 0;
   text-wrap: balance;
@@ -427,8 +554,62 @@
   text-wrap: pretty;
 }
 
-.sms-closing {
-  text-align: start;
+.sms-closing .sms-plate {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.sms-closing-plate .sms-plate-caption {
+  order: 1;
+}
+
+.sms-closing-copy {
+  order: 2;
+}
+
+.sms-closing-copy {
+  padding-block-start: 1.5rem;
+}
+
+.sms-closing-copy p {
+  color: var(--blume-muted-foreground);
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+}
+
+@media (min-width: 48rem) {
+  .sms-closing-plate .sms-plate-art {
+    aspect-ratio: 16 / 8;
+  }
+
+  .sms-closing-plate .sms-plate-art img {
+    object-position: 50% 70%;
+  }
+
+  /* The copy sits in the painting's open sky, where contrast is highest. */
+  .sms-closing-copy {
+    color: oklch(0.22 0.03 255);
+    inset-block-start: 2.5rem;
+    inset-inline-start: 2.5rem;
+    max-inline-size: 26rem;
+    padding: 0;
+    position: absolute;
+  }
+
+  .sms-closing-copy p {
+    color: oklch(0.3 0.03 255);
+  }
+
+  .sms-closing-copy .sms-btn-paper {
+    background-color: oklch(0.98 0.005 255 / 0.78);
+    border-color: oklch(0.22 0.03 255 / 0.2);
+    color: oklch(0.22 0.03 255);
+  }
+
+  .sms-closing-copy .sms-btn-paper:hover {
+    background-color: oklch(0.98 0.005 255 / 0.95);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

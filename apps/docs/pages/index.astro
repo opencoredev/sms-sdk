@@ -169,29 +169,52 @@ const faq = [
 >
   <div class="sms-home">
     <section class="sms-wrap sms-hero" aria-labelledby="hero-title">
-      <h1 id="hero-title">SMS, one SDK.</h1>
-      <p class="sms-lede">
-        Send with Twilio, Telnyx, Plivo, or Vonage. Switch providers without rewriting your app.
+      <p class="sms-masthead">
+        <span>Open source</span>
+        <span aria-hidden="true">·</span>
+        <span>TypeScript</span>
+        <span aria-hidden="true">·</span>
+        <span>Winter 2026</span>
       </p>
-      <p class="sms-sub">Open source. Type-safe. Safe fallbacks. Zero runtime dependencies.</p>
+      <h1 id="hero-title">One SDK for every SMS provider.</h1>
+      <p class="sms-lede">
+        Send through Twilio, Telnyx, Plivo, or Vonage with the same typed call. Switching
+        providers means changing one adapter, not your app.
+      </p>
       <div class="sms-ctas">
         <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
         <a class="sms-btn" href={repoUrl}>GitHub</a>
-        <a class="sms-btn sms-btn-quiet" href="/providers/overview">View providers</a>
+        <code class="sms-install">npm i @opencoredev/sms-sdk</code>
       </div>
-      <div class="sms-hero-code">
-        <div class="sms-code">
+      <figure class="sms-plate sms-hero-plate">
+        <div class="sms-plate-art">
+          <img
+            src="/art/winter-wires.webp"
+            srcset="/art/winter-wires-760.webp 760w, /art/winter-wires.webp 1264w"
+            sizes="(min-width: 68rem) 65rem, 100vw"
+            width="1264"
+            height="848"
+            alt="An oil painting of telegraph poles carrying wires across a snowy valley at dawn toward a farmhouse with one lit window."
+            fetchpriority="high"
+          />
+        </div>
+        <div class="sms-code sms-hero-code">
           <CodeBlock lang="ts" title="send.ts" code={sendExample} icons={false} />
           <button type="button" class="sms-copy" data-sms-copy aria-label="Copy code">
             <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
             <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
           </button>
         </div>
-      </div>
+        <figcaption class="sms-plate-caption">
+          <span>Plate I</span>
+          <span>Wires across a snowfield, first light</span>
+        </figcaption>
+      </figure>
     </section>
 
     <section class="sms-wrap sms-section" aria-labelledby="ruler-title">
       <div class="sms-section-head">
+        <p class="sms-kicker">01 / Segments</p>
         <h2 id="ruler-title">Know the segment count before you send</h2>
         <p>
           One emoji switches a message from GSM-7 to UCS-2 and cuts each segment from 160 units to 70.
@@ -239,6 +262,7 @@ const faq = [
 
     <section class="sms-wrap sms-section sms-split" aria-labelledby="switch-title">
       <div class="sms-section-head">
+        <p class="sms-kicker">02 / Switching</p>
         <h2 id="switch-title">Switch Twilio to Telnyx</h2>
         <p>
           Swap the adapter. Every <code>sms.send()</code> call in your app stays the same.
@@ -277,6 +301,7 @@ const faq = [
 
     <section class="sms-wrap sms-section" aria-labelledby="matrix-title">
       <div class="sms-section-head">
+        <p class="sms-kicker">03 / Providers</p>
         <h2 id="matrix-title">Providers</h2>
         <p>
           All four adapters pass the same contract tests. Supported means requests, errors, and
@@ -323,6 +348,7 @@ const faq = [
 
     <section class="sms-wrap sms-section sms-split" aria-labelledby="deps-title">
       <div class="sms-section-head">
+        <p class="sms-kicker">04 / Testing</p>
         <h2 id="deps-title">No dependencies. Test without a carrier.</h2>
         <p>
           The package has no runtime or peer dependencies. Adapters call provider HTTP APIs with
@@ -347,6 +373,7 @@ const faq = [
 
     <section class="sms-wrap sms-section" aria-labelledby="faq-title">
       <div class="sms-section-head">
+        <p class="sms-kicker">05 / Limits</p>
         <h2 id="faq-title">Limits and questions</h2>
       </div>
       <dl class="sms-faq">
@@ -361,13 +388,32 @@ const faq = [
       </dl>
     </section>
 
-    <section class="sms-wrap sms-section sms-closing">
-      <h2>Start with one provider</h2>
-      <p>Install the package, add an adapter, and send your first message.</p>
-      <div class="sms-ctas">
-        <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
-        <a class="sms-btn" href={repoUrl}>GitHub</a>
-      </div>
+    <section class="sms-wrap sms-section sms-closing" aria-labelledby="closing-title">
+      <figure class="sms-plate sms-closing-plate">
+        <div class="sms-plate-art">
+          <img
+            src="/art/winter-harbour.webp"
+            srcset="/art/winter-harbour-760.webp 760w, /art/winter-harbour.webp 1264w"
+            sizes="(min-width: 68rem) 65rem, 100vw"
+            width="1264"
+            height="848"
+            alt="An oil painting of a stone signal house with a lit lantern beside a snowy pier on a frozen harbour at dusk."
+            loading="lazy"
+          />
+        </div>
+        <div class="sms-closing-copy">
+          <h2 id="closing-title">Start with one provider</h2>
+          <p>Install the package, add an adapter, and send your first message.</p>
+          <div class="sms-ctas">
+            <a class="sms-btn sms-btn-primary" href="/getting-started/quick-start">Get started</a>
+            <a class="sms-btn sms-btn-paper" href={repoUrl}>GitHub</a>
+          </div>
+        </div>
+        <figcaption class="sms-plate-caption">
+          <span>Plate II</span>
+          <span>Signal house, frozen harbour</span>
+        </figcaption>
+      </figure>
     </section>
   </div>
 </PageLayout>
