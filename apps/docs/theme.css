@@ -555,8 +555,8 @@
   z-index: 1;
 }
 
-:root[data-theme="dark"] .sms-hero-art::after {
-  background: linear-gradient(to bottom, oklch(0.15 0.025 258 / 0.8) 0%, oklch(0.15 0.025 258 / 0.7) 40%, transparent 66%);
+:root[data-theme="dark"] .sms-hero-art.sms-art::after {
+  background: linear-gradient(to bottom, oklch(0.15 0.025 258 / 0.62) 0%, oklch(0.15 0.025 258 / 0.5) 42%, transparent 68%);
 }
 
 .sms-hero-copy {
