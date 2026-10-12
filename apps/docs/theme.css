@@ -316,14 +316,25 @@
   }
 
   .sms-nav-cta {
-    transition: opacity 200ms ease-out, visibility 0s linear 0s;
+    animation: sms-nav-cta-in 200ms ease-out;
   }
 
+  /* Collapsed until the hero CTA scrolls away, so the search icon sits
+     beside the menu button instead of floating mid-bar. */
   .sms-nav:not([data-past-hero-cta]) .sms-nav-cta {
+    display: none;
+  }
+}
+
+@keyframes sms-nav-cta-in {
+  from {
     opacity: 0;
-    pointer-events: none;
-    transition: opacity 200ms ease-out, visibility 0s linear 200ms;
-    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sms-nav-cta {
+    animation: none;
   }
 }
 
@@ -746,6 +757,7 @@
   font-size: clamp(2rem, 3vw, 2.625rem);
   letter-spacing: -0.025em;
   line-height: 1.1;
+  text-wrap: balance;
 }
 
 .sms-landing .sms-h3 {
