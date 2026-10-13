@@ -173,9 +173,9 @@ The SDK can parse opt-outs and block sends through `beforeSend`, but your applic
 ## Links
 
 - [Provider evidence](./PROVIDERS.md)
-- [Contributing and adding an adapter](./CONTRIBUTING.md)
+- [Contributing and adding an adapter](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CONTRIBUTING.md)
 - [Changelog](./CHANGELOG.md)
-- [Examples](./examples)
+- [Examples](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples)
 - [GitHub](https://github.com/opencoredev/sms-sdk)
 
 MIT License.

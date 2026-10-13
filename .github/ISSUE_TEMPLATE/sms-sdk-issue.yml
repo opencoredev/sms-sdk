@@ -1,0 +1,48 @@
+name: SMS SDK issue
+description: Report an SDK, provider adapter, webhook, documentation, or tooling problem.
+title: "[Issue]: "
+labels: ["needs-triage"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe what happened and what you expected.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sending (send, fallback, retries)
+        - Provider adapter
+        - Webhooks
+        - Idempotency
+        - Testing helpers
+        - Doctor CLI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      description: Twilio, Telnyx, Plivo, Vonage, Bandwidth, Sinch, or none.
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the runtime, package version, and smallest safe example that shows the problem.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, webhook secrets, phone numbers, and message content.
+          required: true
