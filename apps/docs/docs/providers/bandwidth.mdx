@@ -11,7 +11,7 @@ The `bandwidth()` adapter sends SMS through the Bandwidth Messaging API v2 and p
 
 - SMS only. `mediaUrls`, `sendAt`, `validityPeriodSec`, and a per-message `webhookUrl` throw `UnsupportedFieldError` before any request.
 - Bandwidth does not sign callbacks. The webhook parser requires the Basic credentials you set on your Bandwidth application instead.
-- Rejections are classified by HTTP status only. Bandwidth's full error code list is not mapped, so most rejections are `request` and do not fall back.
+- Rejections are classified by HTTP status, and a 429 counts as a rate limit only when Bandwidth wrote the body; any other 429 is an unknown outcome. Bandwidth's full error code list is not mapped, so most rejections are `request` and do not fall back. See [Error codes](#error-codes).
 
 The same notes are in `adapter.support.notes` at runtime.
 

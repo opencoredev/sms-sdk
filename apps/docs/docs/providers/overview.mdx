@@ -28,7 +28,7 @@ Every adapter uses the same `send()` call and the same webhook events, so you ca
 | [Telnyx](/providers/telnyx) | Messaging API v2 | Supported | None |
 | [Plivo](/providers/plivo) | Message API v1 | Partial | Plivo does not document its error body, so 4xx responses other than 401 and 429 are `request` and never fall back. |
 | [Vonage](/providers/vonage) | Messages API v1, channel `sms` | Partial | Error classification is inferred. No short codes, no MMS. Basic auth gets no webhooks. |
-| [Bandwidth](/providers/bandwidth) | Messaging API v2 | Partial | SMS only. Callbacks are unsigned and checked with Basic credentials. Errors classified by HTTP status only. |
+| [Bandwidth](/providers/bandwidth) | Messaging API v2 | Partial | SMS only. Callbacks are unsigned and checked with Basic credentials. Errors classified by HTTP status; a 429 counts as a rate limit only with a Bandwidth error body. |
 | [Sinch](/providers/sinch) | SMS API (`/xms/v1`) | Partial | No MMS. HMAC callback format is unpublished; Basic is the documented option. Few error codes classified. |
 
 Supported adapters build requests, responses, error mapping, and webhooks from official documentation and pass the adapter contract tests. Partial adapters pass the same tests, but some provider behavior could not be confirmed from official documentation. Each provider page lists the gaps. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
