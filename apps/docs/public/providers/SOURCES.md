@@ -16,6 +16,7 @@ Sidebar marks for the Providers section, drawn by `theme.css`.
 | Vonage | Simple Icons `vonage` (CC0), source https://www.vonage.com | Brand color is black (`#000000`). |
 | Overview | Lucide `layout-grid` via https://api.iconify.design/lucide/layout-grid.svg | |
 | Adapter guide | Lucide `puzzle` via https://api.iconify.design/lucide/puzzle.svg | |
+| Bandwidth, Sinch | Lucide `message-square` via https://api.iconify.design/lucide/message-square.svg | Neither provider's mark is in Simple Icons; a neutral glyph keeps the rows aligned. |
 
 Brand marks belong to their owners and are used here only to identify each
 provider's adapter.

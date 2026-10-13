@@ -3,7 +3,7 @@ import { defineConfig } from "blume";
 export default defineConfig({
   title: "SMS SDK",
   description:
-    "One TypeScript SDK for SMS providers. Send with Twilio, Telnyx, Plivo, or Vonage through one typed API, with safe fallback and zero runtime dependencies.",
+    "One TypeScript SDK for SMS providers. Send with Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch through one typed API, with safe fallback and zero runtime dependencies.",
   logo: { image: "/logo.svg", text: "SMS SDK" },
 
   content: {
@@ -49,7 +49,7 @@ export default defineConfig({
   agents: {
     llmsTxt: {
       details:
-        "Use SMS SDK (`@opencoredev/sms-sdk`) to send transactional SMS from TypeScript through Twilio, Telnyx, Plivo, or Vonage with one API. Install with `npm install @opencoredev/sms-sdk`. It has no runtime dependencies and never retries or falls back after an ambiguous provider outcome.",
+        "Use SMS SDK (`@opencoredev/sms-sdk`) to send transactional SMS from TypeScript through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one API. Install with `npm install @opencoredev/sms-sdk`. It has no runtime dependencies and never retries or falls back after an ambiguous provider outcome.",
     },
   },
 

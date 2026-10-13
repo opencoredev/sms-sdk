@@ -1662,8 +1662,9 @@
     vertical-align: bottom;
   }
 
+  /* Wide enough for "Bandwidth", the longest provider name. */
   .sms-matrix thead th:first-child {
-    inline-size: 4.75rem;
+    inline-size: 5.75rem;
   }
 
   .sms-pill {
@@ -1772,6 +1773,8 @@ body,
     [href="/providers/telnyx"],
     [href="/providers/plivo"],
     [href="/providers/vonage"],
+    [href="/providers/bandwidth"],
+    [href="/providers/sinch"],
     [href="/providers/writing-an-adapter"]
   )::before {
   block-size: 14px;
@@ -1783,7 +1786,17 @@ body,
   vertical-align: -2px;
 }
 
-.blume-nav-link:is([href="/providers/overview"], [href="/providers/writing-an-adapter"])::before {
+/* Bandwidth and Sinch publish no CC0 mark, so their rows use a neutral glyph. */
+.blume-nav-link:is([href="/providers/bandwidth"], [href="/providers/sinch"]) {
+  --sms-logo: url("/providers/neutral/provider.svg");
+}
+
+.blume-nav-link:is(
+    [href="/providers/overview"],
+    [href="/providers/bandwidth"],
+    [href="/providers/sinch"],
+    [href="/providers/writing-an-adapter"]
+  )::before {
   background-color: currentColor;
   mask: var(--sms-logo) center / contain no-repeat;
 }

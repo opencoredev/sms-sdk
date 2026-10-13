@@ -58,22 +58,19 @@ const allProviders: Provider[] = [
     note: "Vonage does not document the HTTP status for each error code, and the adapter has no short codes or MMS.",
     enabled: true,
   },
-  // Sinch and Bandwidth wait on the leo-709-sinch-bandwidth merge (statuses
-  // confirmed at 2069e81). Set `enabled: true` once those adapters are on
-  // this branch.
-  {
-    name: "Sinch",
-    href: "/providers/sinch",
-    cells: ["supported", "supported", "supported", "partial"],
-    note: "Callback auth depends on the deployment, so the adapter verifies HMAC when configured and otherwise requires an authenticated boundary plus dedupe.",
-    enabled: false,
-  },
   {
     name: "Bandwidth",
-    href: "/providers/bandwidth",
-    cells: ["supported", "supported", "supported", "partial"],
-    note: "Bandwidth documents no callback signature, so the adapter checks optional Basic auth and requires dedupe.",
-    enabled: false,
+    href: "/providers/bandwidth#support-status",
+    cells: ["partial", "supported", "supported", "partial"],
+    note: "Bandwidth does not sign callbacks, so the parser checks the Basic credentials on your Bandwidth application, and only a few rejections are classified for fallback.",
+    enabled: true,
+  },
+  {
+    name: "Sinch",
+    href: "/providers/sinch#support-status",
+    cells: ["partial", "supported", "supported", "partial"],
+    note: "Sinch does not publish its SMS callback HMAC format, so Basic auth is the documented check, and only a few rejections are classified for fallback.",
+    enabled: true,
   },
 ];
 const providers = allProviders.filter((provider) => provider.enabled);

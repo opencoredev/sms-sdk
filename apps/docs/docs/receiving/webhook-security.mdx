@@ -1,6 +1,6 @@
 ---
 title: "Webhook security"
-description: "How SMS SDK verifies Twilio, Telnyx, Plivo, and Vonage webhook signatures, and how to fix verification behind a proxy."
+description: "How SMS SDK verifies Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch webhooks, and how to fix verification behind a proxy."
 ---
 
 Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature before it reads any field and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
@@ -53,6 +53,8 @@ export async function POST(request: Request): Promise<Response> {
 | Telnyx | `{ publicKey }` | `telnyx-signature-ed25519`: Ed25519 over `` `${telnyx-timestamp}|${rawBody}` ``. | `toleranceSec`, default 300 |
 | Plivo | `{ authToken }` | `X-Plivo-Signature-V2` (or `X-Plivo-Signature-Ma-V2`): Base64 HMAC-SHA256 of the URL without its query string plus `X-Plivo-Signature-V2-Nonce`. | None. Plivo signs no timestamp, and the form parameters are not signed. |
 | Vonage | `{ signatureSecret }` | `Authorization: Bearer <JWT>`, HS256 with the signature secret. `payload_hash`, when present, is the SHA-256 of the body. | `toleranceSec` on the JWT `iat`, default 300 |
+| Bandwidth | `{ username, password }` | No signature. `Authorization: Basic` must match the callback credentials set on your Bandwidth application. | None. |
+| Sinch | `{ kind: "basic", username, password }` or `{ kind: "hmac", webhookSecret }` | Basic: `Authorization: Basic` must match the credentials on your callback URL. HMAC: Base64 HMAC-SHA256 of `body.nonce.timestamp` in `x-sinch-webhook-signature`; Sinch does not publish this format for SMS. See [Sinch](/providers/sinch#webhooks). | HMAC: `toleranceSec`, default 300. Basic: none. |
 
 Where to find each credential:
 
@@ -61,7 +63,7 @@ Where to find each credential:
 - Plivo uses the Auth Token of the account or subaccount. `X-Plivo-Signature-Ma-V2` is signed with the main account's token.
 - Vonage uses the signature secret in the dashboard settings for the API key that signs your webhooks.
 
-Twilio and Plivo sign no timestamp, so they have no replay protection. An attacker who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+Twilio, Plivo, Bandwidth, and Sinch with Basic auth send no signed timestamp, so they have no replay protection. An attacker who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
 
 ## Fix URL mismatches behind a proxy
 

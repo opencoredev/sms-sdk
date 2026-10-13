@@ -18,7 +18,7 @@ Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
 | | SMS SDK | Provider SDK |
 | --- | --- | --- |
 | Send SMS | ✅ | ✅ |
-| Same send code across four providers | ✅ | ❌ |
+| Same send code across six providers | ✅ | ❌ |
 | Provider-specific SMS options | ✅ [1] | ✅ |
 | Typed errors that say whether a retry can duplicate a message | ✅ | 🟡 [2] |
 | Fallback to a second provider after a proven rejection | ✅ | ❌ |
@@ -36,7 +36,7 @@ Legend: ✅ built in, 🟡 partly or with your own code, ❌ not available.
 
 ## Where SMS SDK is stronger
 
-- **Portability.** `sms.send({ to, body })` is the same call for all four providers. Webhooks parse to the same `SmsEvent` union.
+- **Portability.** `sms.send({ to, body })` is the same call for every provider. Webhooks parse to the same `SmsEvent` union.
 - **Failure handling.** Each send ends as accepted, rejected, or unknown. An unknown outcome throws `HandoffUnknownError` and is never retried or sent through another provider, so a timeout cannot quietly become a duplicate text.
 - **Preflight.** `sms.validate()` reports encoding, segment estimate, and capability problems without a network call.
 - **Footprint.** No runtime dependencies. Each adapter is its own subpath import.

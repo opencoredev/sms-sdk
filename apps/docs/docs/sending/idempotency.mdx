@@ -6,7 +6,7 @@ description: "Use idempotency keys and a store so a retried job does not send th
 A retried job should not text the customer twice. Give each message an `idempotencyKey` and give the client a store. A repeat send with the same key returns the first result instead of sending again.
 
 :::warning[Exactly once is not possible]
-Twilio, Telnyx, Plivo, and Vonage do not document send idempotency for SMS, so no client can guarantee exactly-once delivery. If a process crashes or a request times out after the provider received it, the outcome is unknown. SMS SDK records that and refuses to resend. You reconcile it by hand.
+None of the supported providers documents send idempotency for SMS, so no client can guarantee exactly-once delivery. If a process crashes or a request times out after the provider received it, the outcome is unknown. SMS SDK records that and refuses to resend. You reconcile it by hand.
 :::
 
 ## Add a key and a store

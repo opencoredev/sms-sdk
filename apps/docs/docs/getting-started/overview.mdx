@@ -1,9 +1,9 @@
 ---
 title: "Overview"
-description: "SMS SDK sends and receives transactional SMS through Twilio, Telnyx, Plivo, or Vonage with one typed TypeScript API."
+description: "SMS SDK sends and receives transactional SMS through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one typed TypeScript API."
 ---
 
-SMS SDK (`@opencoredev/sms-sdk`) sends transactional SMS through Twilio, Telnyx, Plivo, or Vonage with one TypeScript API, and turns their delivery and inbound webhooks into one event shape.
+SMS SDK (`@opencoredev/sms-sdk`) sends transactional SMS through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one TypeScript API, and turns their delivery and inbound webhooks into one event shape.
 
 - New here? Send a message in the [Quick start](/getting-started/quick-start).
 - Already on the Twilio SDK? Read [Migrate from the Twilio SDK](/migration/migrate-from-twilio).
@@ -81,7 +81,7 @@ SMS SDK is a transport library. It does not include:
 - Conversation threads, an inbox, chatbots, WhatsApp, RCS, or iMessage.
 - An OTP verification service, a hosted API, a dashboard, or number purchasing.
 - 10DLC, toll-free, or sender ID registration. You do that with each provider. See [Sender registration and consent](/guides/sender-registration-and-consent).
-- Exactly-once delivery. None of the four providers offer send idempotency, so no SMS library can promise it. SMS SDK reports an unknown outcome instead of guessing. See [Idempotency](/sending/idempotency).
+- Exactly-once delivery. None of the supported providers offers send idempotency, so no SMS library can promise it. SMS SDK reports an unknown outcome instead of guessing. See [Idempotency](/sending/idempotency).
 
 It runs on the server only, on Node.js 20+ or Bun 1.1+. See [Installation](/getting-started/installation).
 

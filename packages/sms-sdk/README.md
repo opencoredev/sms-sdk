@@ -97,7 +97,7 @@ const sms = createSmsClient({ adapters, idempotency: { store: memoryIdempotencyS
 await sms.send({ to, body, idempotencyKey: "order:123:shipped:v1" });
 ```
 
-With a store, a repeated key returns the first result without sending again, a reused key with a different message throws `IdempotencyConflictError`, and an unknown outcome stays unknown instead of being resent. The memory store protects one process. For several instances, implement `IdempotencyStore` with an atomic `reserve` on your database. None of the four providers documents send idempotency, so exactly-once delivery is not possible after a crash mid-request.
+With a store, a repeated key returns the first result without sending again, a reused key with a different message throws `IdempotencyConflictError`, and an unknown outcome stays unknown instead of being resent. The memory store protects one process. For several instances, implement `IdempotencyStore` with an atomic `reserve` on your database. None of the supported providers documents send idempotency, so exactly-once delivery is not possible after a crash mid-request.
 
 ## Webhooks
 

@@ -28,6 +28,8 @@ const SUBPATHS: Record<string, string> = {
   "@opencoredev/sms-sdk/telnyx": "providers/telnyx.ts",
   "@opencoredev/sms-sdk/plivo": "providers/plivo.ts",
   "@opencoredev/sms-sdk/vonage": "providers/vonage.ts",
+  "@opencoredev/sms-sdk/bandwidth": "providers/bandwidth.ts",
+  "@opencoredev/sms-sdk/sinch": "providers/sinch.ts",
   "@opencoredev/sms-sdk/webhooks": "webhooks/index.ts",
   "@opencoredev/sms-sdk/testing": "testing/index.ts",
   "@opencoredev/sms-sdk/encoding": "core/encoding.ts",
