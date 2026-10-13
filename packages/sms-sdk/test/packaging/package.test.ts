@@ -154,6 +154,53 @@ export { unknownOption, notImported };
     expect(run("node", [tsc, "-p", consumerDir], consumerDir)).toBe("");
   });
 
+  test("a custom adapter's providerOptions augmentation works in any file order", () => {
+    const tsc = join(dirname(Bun.resolveSync("typescript/package.json", PACKAGE_DIR)), "bin", "tsc");
+    writeFileSync(
+      join(consumerDir, "acme-options.ts"),
+      `declare module "@opencoredev/sms-sdk" {
+  interface SmsProviderOptions {
+    readonly acme?: { readonly priority?: "high" };
+  }
+}
+export {};
+`,
+    );
+    writeFileSync(
+      join(consumerDir, "send.ts"),
+      `import "@opencoredev/sms-sdk/vonage";
+import type { SmsSendInput } from "@opencoredev/sms-sdk";
+
+export const input: SmsSendInput = {
+  to: "+14155550123",
+  body: "hi",
+  providerOptions: { acme: { priority: "high" }, vonage: { clientRef: "order-1" } },
+};
+`,
+    );
+    // Check both file orders. When SmsProviderOptions was only re-exported from
+    // the root, this augmentation was lost if TypeScript read it first.
+    for (const files of [["acme-options.ts", "send.ts"], ["send.ts", "acme-options.ts"]]) {
+      writeFileSync(
+        join(consumerDir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            strict: true,
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            target: "ES2022",
+            lib: ["ES2022", "DOM"],
+            types: [],
+            noEmit: true,
+            skipLibCheck: false,
+          },
+          files,
+        }),
+      );
+      expect(run("node", [tsc, "-p", consumerDir], consumerDir)).toBe("");
+    }
+  });
+
   test("Telnyx Ed25519 webhook verification works under Node", () => {
     const script = `
       import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";

@@ -136,7 +136,7 @@ export const VONAGE_PROVIDER_OPTIONS = {
 /** Vonage-specific send options: `providerOptions.vonage`. */
 export type VonageSendOptions = ProviderOptionsOf<typeof VONAGE_PROVIDER_OPTIONS>;
 
-declare module "../core/types.js" {
+declare module "../index.js" {
   interface SmsProviderOptions {
     /** Vonage Messages API SMS parameters. Applies only when the `vonage` adapter sends. */
     readonly vonage?: VonageSendOptions;

@@ -18,7 +18,7 @@ export const SINCH_CAPABILITIES: SmsCapabilities = {
 };
 
 export const SINCH_SUPPORT_NOTES: readonly string[] = [
-  "Sinch SMS callbacks do not document a provider-generated signature; configure a private callback header or gateway authentication and use this parser only behind that boundary.",
+  "Sinch documents Basic and OAuth 2.0 callback authentication for SMS and sets up HMAC through your account manager without publishing its format. The webhook parser requires Basic credentials or an HMAC secret; OAuth 2.0 callbacks are not supported.",
   "Sinch reports are per-recipient and can be retried or reordered; deduplicate using the batch, recipient, and status key.",
 ];
 
@@ -33,7 +33,7 @@ export const SINCH_PROVIDER_OPTIONS = {
 
 export type SinchSendOptions = ProviderOptionsOf<typeof SINCH_PROVIDER_OPTIONS>;
 
-declare module "../core/types.js" {
+declare module "../index.js" {
   interface SmsProviderOptions { readonly sinch?: SinchSendOptions; }
 }
 

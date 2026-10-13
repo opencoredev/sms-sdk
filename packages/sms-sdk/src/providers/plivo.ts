@@ -83,7 +83,7 @@ export const PLIVO_PROVIDER_OPTIONS = {
 /** Plivo-specific send options: `providerOptions.plivo`. */
 export type PlivoSendOptions = ProviderOptionsOf<typeof PLIVO_PROVIDER_OPTIONS>;
 
-declare module "../core/types.js" {
+declare module "../index.js" {
   interface SmsProviderOptions {
     /** Plivo Message API parameters. Applies only when the `plivo` adapter sends. */
     readonly plivo?: PlivoSendOptions;

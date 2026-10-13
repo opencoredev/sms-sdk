@@ -62,7 +62,7 @@ export const BANDWIDTH_CAPABILITIES: SmsCapabilities = {
 };
 
 export const BANDWIDTH_SUPPORT_NOTES: readonly string[] = [
-  "Bandwidth does not sign messaging callbacks; authenticate the webhook endpoint with application-level controls and deduplicate events using `dedupeKey`.",
+  "Bandwidth does not sign messaging callbacks. The webhook parser requires the Basic credentials set on your Bandwidth application, and there is no replay window, so deduplicate events with `dedupeKey`.",
   "The adapter intentionally supports the SMS endpoint only; Bandwidth MMS media is not enabled through this adapter.",
 ];
 
@@ -78,7 +78,7 @@ export const BANDWIDTH_PROVIDER_OPTIONS = {
 
 export type BandwidthSendOptions = ProviderOptionsOf<typeof BANDWIDTH_PROVIDER_OPTIONS>;
 
-declare module "../core/types.js" {
+declare module "../index.js" {
   interface SmsProviderOptions {
     readonly bandwidth?: BandwidthSendOptions;
   }

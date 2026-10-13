@@ -92,9 +92,27 @@ export type {
   SmsAdapterInfo,
   SmsClient,
   SmsClientOptions,
-  SmsProviderOptions,
   SmsSendInput,
   SmsSendOptions,
   SmsSendResult,
   SmsValidationResult,
 } from "./core/types.js";
+
+/**
+ * Provider-specific send options, keyed by adapter name. Each adapter subpath
+ * adds its own key by module augmentation, so the keys you can write are the
+ * adapters you import. A custom adapter can do the same:
+ *
+ * ```ts
+ * declare module "@opencoredev/sms-sdk" {
+ *   interface SmsProviderOptions {
+ *     readonly acme?: ProviderOptionsOf<typeof ACME_PROVIDER_OPTIONS>;
+ *   }
+ * }
+ * ```
+ *
+ * It is declared here, in the package root, so the built-in adapters and your
+ * own `declare module "@opencoredev/sms-sdk"` augment the same declaration.
+ * Augmenting a re-export instead depends on the order TypeScript reads files.
+ */
+export interface SmsProviderOptions {}

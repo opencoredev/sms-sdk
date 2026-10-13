@@ -11,21 +11,8 @@ import type { E164 } from "./e164.js";
 import type { SegmentPreview } from "./encoding.js";
 import type { SendAttempt, SmsClientHooks } from "./events.js";
 import type { IdempotencyStore } from "./idempotency.js";
+import type { SmsProviderOptions } from "../index.js";
 
-/**
- * Provider-specific send options, keyed by adapter name. Each adapter subpath
- * adds its own key by module augmentation, so the keys you can write are the
- * adapters you import. A custom adapter can do the same:
- *
- * ```ts
- * declare module "@opencoredev/sms-sdk" {
- *   interface SmsProviderOptions {
- *     readonly acme?: ProviderOptionsOf<typeof ACME_PROVIDER_OPTIONS>;
- *   }
- * }
- * ```
- */
-export interface SmsProviderOptions {}
 
 /** One logical SMS to send. */
 export type SmsSendInput = {

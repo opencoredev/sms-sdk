@@ -145,7 +145,7 @@ export const TWILIO_PROVIDER_OPTIONS = {
 /** Twilio-specific send options: `providerOptions.twilio`. */
 export type TwilioSendOptions = ProviderOptionsOf<typeof TWILIO_PROVIDER_OPTIONS>;
 
-declare module "../core/types.js" {
+declare module "../index.js" {
   interface SmsProviderOptions {
     /** Twilio Message create parameters. Applies only when the `twilio` adapter sends. */
     readonly twilio?: TwilioSendOptions;

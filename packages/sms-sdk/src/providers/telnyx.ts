@@ -87,7 +87,7 @@ export const TELNYX_PROVIDER_OPTIONS = {
 /** Telnyx-specific send options: `providerOptions.telnyx`. */
 export type TelnyxSendOptions = ProviderOptionsOf<typeof TELNYX_PROVIDER_OPTIONS>;
 
-declare module "../core/types.js" {
+declare module "../index.js" {
   interface SmsProviderOptions {
     /** Telnyx send parameters. Applies only when the `telnyx` adapter sends. */
     readonly telnyx?: TelnyxSendOptions;
