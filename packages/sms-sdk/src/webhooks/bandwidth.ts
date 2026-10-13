@@ -1,28 +1,28 @@
 import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, type WebhookCommonOptions } from "./shared.js";
+import { hasBasicAuthorization, parseDate, type BasicCallbackCredentials, type WebhookCommonOptions } from "./shared.js";
 
-/** Optional application-level Basic authentication for a Bandwidth webhook. */
-export type BandwidthWebhookCredentials = { readonly username: string; readonly password: string };
+/** The Basic credentials configured on the Bandwidth application's callback. */
+export type BandwidthWebhookCredentials = BasicCallbackCredentials;
 
 export type BandwidthWebhookOptions = WebhookCommonOptions & {
-  /** Optional Basic credentials configured on the Bandwidth application. */
-  readonly credentials?: BandwidthWebhookCredentials;
+  /** Basic credentials set on the Bandwidth application. Bandwidth does not sign callbacks, so these are the only proof a request came from Bandwidth. */
+  readonly credentials: BandwidthWebhookCredentials;
 };
 
 /**
  * Parses a Bandwidth Messaging callback. Bandwidth sends an array of events and
- * does not provide an HMAC signature; when credentials are configured, this
- * parser verifies the request's Basic authorization before interpreting it.
+ * does not sign callbacks, so the parser checks the request's Basic
+ * authorization against `credentials` before interpreting it.
  */
 export async function parseBandwidthWebhook(options: BandwidthWebhookOptions): Promise<SmsEvent> {
   const rawBody = await options.request.text();
-  if (options.credentials !== undefined && options.unsafeSkipVerification !== true) {
-    const expected = `Basic ${btoa(`${options.credentials.username}:${options.credentials.password}`)}`;
-    if (options.request.headers.get("authorization") !== expected) {
+  if (options.unsafeSkipVerification !== true) {
+    const header = options.request.headers.get("authorization");
+    if (!hasBasicAuthorization(header, options.credentials)) {
       throw new WebhookSignatureError("Bandwidth webhook Basic authorization failed.", {
-        reason: "invalid_signature",
+        reason: header === null ? "missing_signature" : "invalid_signature",
         provider: "bandwidth",
       });
     }

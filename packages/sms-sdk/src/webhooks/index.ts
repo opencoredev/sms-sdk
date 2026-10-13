@@ -67,7 +67,7 @@ export {
 } from "./events.js";
 export type { SignedUrlOptions, WebhookCommonOptions } from "./shared.js";
 export { parseBandwidthWebhook, type BandwidthWebhookCredentials, type BandwidthWebhookOptions } from "./bandwidth.js";
-export { parseSinchWebhook, SINCH_DEFAULT_TOLERANCE_SEC, verifySinchSignature, type SinchWebhookOptions } from "./sinch.js";
+export { parseSinchWebhook, SINCH_DEFAULT_TOLERANCE_SEC, verifySinchSignature, type SinchWebhookCredentials, type SinchWebhookOptions } from "./sinch.js";
 export {
   computeTwilioSignature,
   parseTwilioWebhook,

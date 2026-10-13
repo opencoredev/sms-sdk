@@ -219,16 +219,20 @@ Webhooks:
 
 Sources: [Messaging API](https://dev.bandwidth.com/docs/messaging) and [callbacks](https://dev.bandwidth.com/docs/messaging/callbacks).
 
-Sending uses `POST https://messaging.bandwidth.com/api/v2/users/{userId}/messages` with Basic auth, `from`, one-item `to`, `text`, and `applicationId`. The adapter is SMS-only and returns the documented message ID; malformed successes remain unknown. Bandwidth callbacks have no documented provider signature, so the optional Basic-auth boundary is verified when configured and events must still be deduplicated.
+Sending uses `POST https://messaging.bandwidth.com/api/v2/users/{userId}/messages` with Basic auth, `from`, one-item `to`, `text`, and `applicationId`. The adapter is SMS-only and returns the documented message ID; malformed successes remain unknown. Bandwidth does not sign callbacks. The webhook parser requires the Basic credentials configured on the Bandwidth application and rejects a request whose `Authorization` header does not match them (compared in constant time). Events must still be deduplicated with `dedupeKey`.
 
 ## Sinch: partial
 
 Sources: [SMS API overview](https://developers.sinch.com/docs/sms/api-reference/sms/overview), [batch request](https://developers.sinch.com/docs/sms/api-reference/sms/batches/send), and [delivery reports](https://developers.sinch.com/docs/sms/api-reference/sms/webhooks/deliveryreport).
 
-Sending uses `POST https://sms.api.sinch.com/xms/v1/{servicePlanId}/batches` with a Bearer token, `from`, one-item `to`, and `body`. Batch IDs are returned as queued sends. Sinch callbacks are normalized for inbound SMS and recipient delivery reports; callback authentication is deployment-specific, so verification and deduplication remain explicit. Bare 429 responses remain unknown.
+Sending uses `POST https://sms.api.sinch.com/xms/v1/{servicePlanId}/batches` with a Bearer token, `from`, one-item `to`, and `body`. Batch IDs are returned as queued sends. Sinch callbacks are normalized for inbound SMS and recipient delivery reports. Bare 429 responses remain unknown.
+
+Callback authentication ([callbacks](https://developers.sinch.com/docs/sms/api-reference/sms/tag/Webhooks/)): Sinch provisions Basic credentials or OAuth 2.0 on the callback URL, and configures HMAC through your account manager. The parser requires `credentials`, either `{ kind: "basic", username, password }` (documented) or `{ kind: "hmac", webhookSecret }`. The SMS docs do not publish the HMAC format. The adapter uses the scheme Sinch documents for the Conversation API: base64 HMAC-SHA256 of `body.nonce.timestamp`, read from `x-sinch-webhook-signature`, `x-sinch-webhook-signature-nonce`, and `x-sinch-webhook-signature-timestamp`, with a 300-second timestamp tolerance. Confirm this format with Sinch before relying on HMAC. OAuth 2.0 callbacks are not supported.
 
 ## Not verified
 
 - No adapter has been run against a live account in this repository. `test/integration/live.test.ts` sends one message per configured provider when `LIVE_SMS_TESTS=true` and the recipient is in `LIVE_SMS_ALLOWLIST`.
 - Twilio's SDK webhook examples (signatures `Np1nax6u...` and `hqeF3G9H...`) do not state their Auth Token, so only the manual example is used as a vector.
 - Plivo and Vonage signature schemes are implemented from documentation and SDK source; neither provider publishes a fixed test vector.
+- The Sinch SMS HMAC callback format is not published in the SMS API docs; see the Sinch section.
+- Bandwidth and Sinch error classification uses HTTP status and a few codes; their full error code lists were not mapped, so most rejections are `request` and do not fall back.

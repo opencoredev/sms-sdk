@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "../core/crypto.js";
 import { WebhookPayloadError } from "../core/errors.js";
 import type { WebhookProvider } from "./events.js";
 
@@ -71,6 +72,17 @@ export function requireField(provider: WebhookProvider, fields: Record<string, s
     throw new WebhookPayloadError(`The ${provider} webhook is missing ${key}.`, { provider });
   }
   return value;
+}
+
+/** HTTP Basic credentials a provider sends on its callback requests. */
+export type BasicCallbackCredentials = { readonly username: string; readonly password: string };
+
+/** Checks an `Authorization` header against Basic credentials in constant time. */
+export function hasBasicAuthorization(header: string | null, credentials: BasicCallbackCredentials): boolean {
+  if (header === null) {
+    return false;
+  }
+  return timingSafeEqual(header, `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`);
 }
 
 /** Parses a date string, returning `undefined` when absent or invalid. */

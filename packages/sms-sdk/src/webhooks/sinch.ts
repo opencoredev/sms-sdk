@@ -2,12 +2,21 @@ import { hmac, timingSafeEqual, toBase64 } from "../core/crypto.js";
 import { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, type WebhookCommonOptions } from "./shared.js";
+import { hasBasicAuthorization, parseDate, type BasicCallbackCredentials, type WebhookCommonOptions } from "./shared.js";
 
 export const SINCH_DEFAULT_TOLERANCE_SEC = 300;
+/**
+ * How Sinch authenticates callbacks to your URL. Sinch's SMS docs describe
+ * Basic credentials provisioned on the callback URL, and HMAC set up through
+ * your account manager.
+ */
+export type SinchWebhookCredentials =
+  | ({ readonly kind: "basic" } & BasicCallbackCredentials)
+  | { readonly kind: "hmac"; readonly webhookSecret: string };
+
 export type SinchWebhookOptions = WebhookCommonOptions & {
-  /** Secret configured for Sinch's optional HMAC callback authentication. */
-  readonly credentials?: { readonly webhookSecret?: string };
+  readonly credentials: SinchWebhookCredentials;
+  /** Allowed clock skew for HMAC timestamps, in seconds. Default 300. */
   readonly toleranceSec?: number;
 };
 export type SinchWebhookVerification = { readonly valid: true } | { readonly valid: false; readonly reason: WebhookFailureReason };
@@ -23,13 +32,44 @@ export async function verifySinchSignature(input: { readonly webhookSecret: stri
 
 export async function parseSinchWebhook(options: SinchWebhookOptions): Promise<SmsEvent> {
   const rawBody = await options.request.text();
-  if (options.unsafeSkipVerification !== true && options.credentials?.webhookSecret !== undefined) {
-    const verification = await verifySinchSignature({ webhookSecret: options.credentials.webhookSecret, rawBody, signature: options.request.headers.get("x-sinch-webhook-signature"), nonce: options.request.headers.get("x-sinch-webhook-signature-nonce"), timestamp: options.request.headers.get("x-sinch-webhook-signature-timestamp"), ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }), now: (options.now ?? Date.now)() });
-    if (!verification.valid) throw new WebhookSignatureError(`Sinch webhook verification failed (${verification.reason}).`, { reason: verification.reason, provider: "sinch" });
+  if (options.unsafeSkipVerification !== true) {
+    await verifySinchRequest(options, rawBody);
   }
   let body: unknown;
   try { body = JSON.parse(rawBody); } catch { throw new WebhookPayloadError("The sinch webhook body is not valid JSON.", { provider: "sinch" }); }
   return interpretSinchEvent(body, options.detectKeywords ?? true);
+}
+
+async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string): Promise<void> {
+  const { credentials, request } = options;
+  switch (credentials.kind) {
+    case "basic": {
+      const header = request.headers.get("authorization");
+      if (!hasBasicAuthorization(header, credentials)) {
+        throw new WebhookSignatureError("Sinch webhook Basic authorization failed.", { reason: header === null ? "missing_signature" : "invalid_signature", provider: "sinch" });
+      }
+      return;
+    }
+    case "hmac": {
+      const verification = await verifySinchSignature({
+        webhookSecret: credentials.webhookSecret,
+        rawBody,
+        signature: request.headers.get("x-sinch-webhook-signature"),
+        nonce: request.headers.get("x-sinch-webhook-signature-nonce"),
+        timestamp: request.headers.get("x-sinch-webhook-signature-timestamp"),
+        ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
+        now: (options.now ?? Date.now)(),
+      });
+      if (!verification.valid) {
+        throw new WebhookSignatureError(`Sinch webhook verification failed (${verification.reason}).`, { reason: verification.reason, provider: "sinch" });
+      }
+      return;
+    }
+    default: {
+      const _exhaustive: never = credentials;
+      return _exhaustive;
+    }
+  }
 }
 
 export function interpretSinchEvent(body: unknown, detectKeywords: boolean): SmsEvent {
