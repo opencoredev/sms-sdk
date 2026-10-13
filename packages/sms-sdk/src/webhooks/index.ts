@@ -1,10 +1,12 @@
 /**
- * Verified, normalized SMS webhooks for Twilio, Telnyx, Plivo, and Vonage.
+ * Verified, normalized SMS webhooks for the built-in SMS providers.
  *
  * @packageDocumentation
  */
 
 import type { SmsEvent } from "./events.js";
+import { parseBandwidthWebhook, type BandwidthWebhookOptions } from "./bandwidth.js";
+import { parseSinchWebhook, type SinchWebhookOptions } from "./sinch.js";
 import { parsePlivoWebhook, type PlivoWebhookOptions } from "./plivo.js";
 import { parseTelnyxWebhook, type TelnyxWebhookOptions } from "./telnyx.js";
 import { parseTwilioWebhook, type TwilioWebhookOptions } from "./twilio.js";
@@ -15,7 +17,10 @@ export type ParseSmsWebhookOptions =
   | ({ readonly provider: "twilio" } & TwilioWebhookOptions)
   | ({ readonly provider: "telnyx" } & TelnyxWebhookOptions)
   | ({ readonly provider: "plivo" } & PlivoWebhookOptions)
-  | ({ readonly provider: "vonage" } & VonageWebhookOptions);
+  | ({ readonly provider: "vonage" } & VonageWebhookOptions)
+  | ({ readonly provider: "bandwidth" } & BandwidthWebhookOptions)
+  | ({ readonly provider: "sinch" } & SinchWebhookOptions);
+
 
 /**
  * Reads the raw request body once, verifies the provider's signature, then
@@ -35,6 +40,10 @@ export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<
       return parsePlivoWebhook(options);
     case "vonage":
       return parseVonageWebhook(options);
+    case "bandwidth":
+      return parseBandwidthWebhook(options);
+    case "sinch":
+      return parseSinchWebhook(options);
     default: {
       const _exhaustive: never = options;
       return _exhaustive;
@@ -57,6 +66,8 @@ export {
   type WebhookProvider,
 } from "./events.js";
 export type { SignedUrlOptions, WebhookCommonOptions } from "./shared.js";
+export { parseBandwidthWebhook, type BandwidthWebhookCredentials, type BandwidthWebhookOptions } from "./bandwidth.js";
+export { parseSinchWebhook, SINCH_DEFAULT_TOLERANCE_SEC, verifySinchSignature, type SinchWebhookOptions } from "./sinch.js";
 export {
   computeTwilioSignature,
   parseTwilioWebhook,

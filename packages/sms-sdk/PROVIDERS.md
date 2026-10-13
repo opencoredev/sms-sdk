@@ -215,6 +215,18 @@ Webhooks:
 - `message.filtered` is emitted only for error codes 1210 (Anti-Spam Rejection), 1470/1472 (Fraud Defender), and 1480-1483 (entity, header, content, consent filters).
 - Numbers arrive without `+`; digit-only numbers are normalized to `+digits`.
 
+## Bandwidth: partial
+
+Sources: [Messaging API](https://dev.bandwidth.com/docs/messaging) and [callbacks](https://dev.bandwidth.com/docs/messaging/callbacks).
+
+Sending uses `POST https://messaging.bandwidth.com/api/v2/users/{userId}/messages` with Basic auth, `from`, one-item `to`, `text`, and `applicationId`. The adapter is SMS-only and returns the documented message ID; malformed successes remain unknown. Bandwidth callbacks have no documented provider signature, so the optional Basic-auth boundary is verified when configured and events must still be deduplicated.
+
+## Sinch: partial
+
+Sources: [SMS API overview](https://developers.sinch.com/docs/sms/api-reference/sms/overview), [batch request](https://developers.sinch.com/docs/sms/api-reference/sms/batches/send), and [delivery reports](https://developers.sinch.com/docs/sms/api-reference/sms/webhooks/deliveryreport).
+
+Sending uses `POST https://sms.api.sinch.com/xms/v1/{servicePlanId}/batches` with a Bearer token, `from`, one-item `to`, and `body`. Batch IDs are returned as queued sends. Sinch callbacks are normalized for inbound SMS and recipient delivery reports; callback authentication is deployment-specific, so verification and deduplication remain explicit. Bare 429 responses remain unknown.
+
 ## Not verified
 
 - No adapter has been run against a live account in this repository. `test/integration/live.test.ts` sends one message per configured provider when `LIVE_SMS_TESTS=true` and the recipient is in `LIVE_SMS_ALLOWLIST`.

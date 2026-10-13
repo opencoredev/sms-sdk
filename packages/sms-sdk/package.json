@@ -1,7 +1,7 @@
 {
   "name": "@opencoredev/sms-sdk",
   "version": "0.1.0",
-  "description": "One TypeScript SDK for SMS providers: Twilio, Telnyx, Plivo, and Vonage behind one typed send API with safe fallback and verified webhooks.",
+  "description": "One TypeScript SDK for SMS providers: Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch behind one typed send API with safe fallback and verified webhooks.",
   "keywords": [
     "sms",
     "sms-sdk",
@@ -9,6 +9,8 @@
     "telnyx",
     "plivo",
     "vonage",
+    "bandwidth",
+    "sinch",
     "webhooks",
     "typescript"
   ],
@@ -53,6 +55,14 @@
     "./vonage": {
       "types": "./dist/providers/vonage.d.ts",
       "import": "./dist/providers/vonage.js"
+    },
+    "./bandwidth": {
+      "types": "./dist/providers/bandwidth.d.ts",
+      "import": "./dist/providers/bandwidth.js"
+    },
+    "./sinch": {
+      "types": "./dist/providers/sinch.d.ts",
+      "import": "./dist/providers/sinch.js"
     },
     "./webhooks": {
       "types": "./dist/webhooks/index.d.ts",

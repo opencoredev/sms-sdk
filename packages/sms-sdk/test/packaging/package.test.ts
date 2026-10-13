@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const PACKAGE_DIR = resolve(import.meta.dir, "../..");
-const SUBPATHS = ["", "/twilio", "/telnyx", "/plivo", "/vonage", "/webhooks", "/testing", "/encoding"];
-const ADAPTERS = ["twilio", "telnyx", "plivo", "vonage"];
+const SUBPATHS = ["", "/twilio", "/telnyx", "/plivo", "/vonage", "/bandwidth", "/sinch", "/webhooks", "/testing", "/encoding"];
+const ADAPTERS = ["twilio", "telnyx", "plivo", "vonage", "bandwidth", "sinch"];
 
 type PackFile = { path: string };
 let packedFiles: string[] = [];
