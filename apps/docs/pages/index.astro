@@ -68,19 +68,43 @@ const sendLines = sendExample.split("\n").map((text, index) => {
   return { html: highlight(text) || " ", step };
 });
 
+// The provider switcher shows each adapter's options. They are read from this
+// sample, which check:snippets type-checks, so a renamed option fails CI.
+const providersExample = `import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+import { bandwidth } from "@opencoredev/sms-sdk/bandwidth";
+import { sinch } from "@opencoredev/sms-sdk/sinch";
+
+const from = "+15550100001";
+twilio({ accountSid: "", authToken: "", from });
+telnyx({ apiKey: "", from });
+plivo({ authId: "", authToken: "", from });
+vonage({ apiKey: "", apiSecret: "", from });
+bandwidth({ userId: "", apiToken: "", apiSecret: "", applicationId: "", from });
+sinch({ servicePlanId: "", apiToken: "", from });`;
+
+const optionsFor = (id: string) => {
+  const call = providersExample.match(new RegExp(`^${id}\\(\\{ (.*) \\}\\);$`, "m"))?.[1];
+  if (!call) throw new Error(`providersExample has no ${id}() call`);
+  const keys = call.split(", ").map((pair) => pair.split(":")[0]);
+  return `{ ${keys.join(", ")} }`;
+};
+
 const providers = [
-  { id: "twilio", name: "Twilio", logo: "/providers/color/twilio.svg", args: "{ accountSid, authToken, from }" },
-  { id: "telnyx", name: "Telnyx", logo: "/providers/color/telnyx.svg", args: "{ apiKey, from }" },
-  { id: "plivo", name: "Plivo", logo: "/providers/color/plivo-dark.svg", args: "{ authId, authToken, from }" },
-  { id: "vonage", name: "Vonage", logo: "/providers/color/vonage-dark.svg", args: "{ apiKey, apiSecret, from }" },
-  { id: "bandwidth", name: "Bandwidth", logo: "/providers/neutral/provider.svg", args: "{ userId, apiToken, apiSecret, applicationId, from }" },
-  { id: "sinch", name: "Sinch", logo: "/providers/neutral/provider.svg", args: "{ servicePlanId, apiToken, from }" },
-];
+  { id: "twilio", name: "Twilio", logo: "/providers/color/twilio.svg" },
+  { id: "telnyx", name: "Telnyx", logo: "/providers/color/telnyx.svg" },
+  { id: "plivo", name: "Plivo", logo: "/providers/color/plivo-dark.svg" },
+  { id: "vonage", name: "Vonage", logo: "/providers/color/vonage-dark.svg" },
+  { id: "bandwidth", name: "Bandwidth", logo: "/providers/neutral/provider.svg" },
+  { id: "sinch", name: "Sinch", logo: "/providers/neutral/provider.svg" },
+].map((provider) => ({ ...provider, args: optionsFor(provider.id) }));
 
 // Mirrors isFallbackEligible() in packages/sms-sdk/src/core/errors.ts.
 const outcomes = [
   { tone: "ok", title: "Accepted", tag: "resolves", body: "You get the result. Nothing else is tried." },
-  { tone: "next", title: "Blocked sender, auth, or rate limit", tag: "falls back", body: "The next provider sends it." },
+  { tone: "next", title: "Blocked sender, auth, or rate limit", tag: "falls back", body: "The next provider is tried. A rate limit is retried on the same provider first." },
   { tone: "no", title: "Bad number or opted out", tag: "throws", body: "Another provider would reject it too, so it stops here." },
   { tone: "wait", title: "Timeout or unknown outcome", tag: "throws", body: "The text may already be on its way, so it is never retried." },
 ];
@@ -90,7 +114,7 @@ const features = [
   { href: "/receiving/webhooks", title: "Status webhooks", body: "Verified delivery updates from all six providers, in one event shape." },
   { href: "/receiving/webhooks#replies", title: "Inbound SMS", body: "Replies to your numbers arrive as message.received events." },
   { href: "/receiving/opt-outs", title: "STOP and HELP", body: "Opt-outs and help requests come through as their own events." },
-  { href: "/sending/idempotency", title: "Idempotency", body: "A retried job returns the first result instead of texting twice." },
+  { href: "/sending/idempotency", title: "Idempotency", body: "Pass an idempotencyKey and a store, and a retried job returns the first result instead of texting twice." },
   { href: "/reference/testing", title: "Testing", body: "An in-memory adapter, so tests never send a real text." },
 ];
 
@@ -161,6 +185,7 @@ const footerColumns = [
             </span>
           </button>
           <a class="docs u" href="/getting-started/quick-start">Read the docs</a>
+          <span class="sr-only" data-prompt-status role="status"></span>
         </div>
       </section>
 
@@ -206,7 +231,10 @@ const footerColumns = [
               type="button"
               class="tab"
               role="tab"
+              id={`tab-${provider.id}`}
+              aria-controls="provider-panel"
               aria-selected={index === 0 ? "true" : "false"}
+              tabindex={index === 0 ? 0 : -1}
               data-provider={provider.id}
               data-name={provider.name}
               data-args={provider.args}
@@ -220,17 +248,17 @@ const footerColumns = [
             </button>
           ))}
         </div>
-        <div class="import-line">
+        <div class="import-line" id="provider-panel" role="tabpanel" aria-labelledby="tab-twilio">
           <pre data-import></pre>
           <a class="hint u" data-guide href="/providers/twilio">Twilio guide</a>
         </div>
       </section>
 
       <section class="section" aria-labelledby="fallback-title">
-        <h2 id="fallback-title">If one provider says no, the next one sends it.</h2>
+        <h2 id="fallback-title">If one provider says no, the next one gets a try.</h2>
         <p class="sub">
-          Fallback only moves on when a rejection is safe to send elsewhere. When the outcome is unknown, it stops, so
-          nobody gets the same text twice. <a class="u strong" href="/sending/fallback-and-retries">How fallback decides</a>
+          Fallback is off until you set <code>fallback: "on-known-rejection"</code>. Then it only moves on when a
+          rejection is safe to send elsewhere. When the outcome is unknown, it stops, so nobody gets the same text twice. <a class="u strong" href="/sending/fallback-and-retries">How fallback decides</a>
         </p>
         <div class="outcomes">
           {outcomes.map((outcome) => (
@@ -290,7 +318,8 @@ const footerColumns = [
     --line-2: #34312c;
     --text: #e9e6df;
     --muted: #8f8c84;
-    --dim: #605d56;
+    --dim: #8a867d;
+    --rule: #4a4741;
     --ok: #8fbf8a;
     --no: #d98a7e;
     --wait: #d8c79b;
@@ -325,7 +354,7 @@ const footerColumns = [
   }
   .u {
     text-decoration: underline !important;
-    text-decoration-color: var(--dim) !important;
+    text-decoration-color: var(--rule) !important;
     text-underline-offset: 4px;
     transition: text-decoration-color 0.15s;
   }
@@ -458,6 +487,14 @@ const footerColumns = [
   }
   .docs {
     font-size: 15px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   /* Example run */
@@ -980,10 +1017,15 @@ const footerColumns = [
 </style>
 
 <script>
-  const copyText = async (text: string) => {
+  /** Copies text and reports whether it worked. */
+  const copyText = async (text: string): Promise<boolean> => {
     if (navigator.clipboard) {
-      await navigator.clipboard.writeText(text);
-      return;
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        return false;
+      }
     }
     // Plain-HTTP previews are not a secure context and have no Clipboard API.
     const field = document.createElement("textarea");
@@ -993,8 +1035,9 @@ const footerColumns = [
     field.style.opacity = "0";
     document.body.append(field);
     field.select();
-    document.execCommand("copy");
+    const copied = document.execCommand("copy");
     field.remove();
+    return copied;
   };
 
   const quickStartPrompt = () => `Add SMS sending to this app with @opencoredev/sms-sdk.
@@ -1019,9 +1062,12 @@ const footerColumns = [
     const run = document.querySelector<HTMLElement>(".run");
     if (!promptButton || !run) return;
 
+    const promptStatus = document.querySelector<HTMLElement>("[data-prompt-status]");
     let promptTimer = 0;
     promptButton.addEventListener("click", async () => {
-      await copyText(quickStartPrompt());
+      const copied = await copyText(quickStartPrompt());
+      if (promptStatus) promptStatus.textContent = copied ? "Prompt copied to clipboard" : "Copy failed";
+      if (!copied) return;
       promptButton.dataset.copied = "";
       window.clearTimeout(promptTimer);
       promptTimer = window.setTimeout(() => delete promptButton.dataset.copied, 1800);
@@ -1068,7 +1114,11 @@ const footerColumns = [
     const guide = document.querySelector<HTMLAnchorElement>("[data-guide]");
     const selectProvider = (tab: HTMLButtonElement) => {
       const { provider = "", name = "", args = "" } = tab.dataset;
-      tabs.forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
+      tabs.forEach((other) => {
+        other.setAttribute("aria-selected", String(other === tab));
+        other.tabIndex = other === tab ? 0 : -1;
+      });
+      importLine?.parentElement?.setAttribute("aria-labelledby", tab.id);
       if (importLine) {
         importLine.textContent = `import { ${provider} } from "@opencoredev/sms-sdk/${provider}";\n\nadapters: [${provider}(${args})]`;
       }
@@ -1077,7 +1127,24 @@ const footerColumns = [
         guide.href = `/providers/${provider}`;
       }
     };
-    tabs.forEach((tab) => tab.addEventListener("click", () => selectProvider(tab)));
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => selectProvider(tab));
+      // Arrow keys, Home, and End move focus and selection together.
+      tab.addEventListener("keydown", (event) => {
+        const last = tabs.length - 1;
+        const next =
+          event.key === "ArrowRight" ? (index === last ? 0 : index + 1)
+          : event.key === "ArrowLeft" ? (index === 0 ? last : index - 1)
+          : event.key === "Home" ? 0
+          : event.key === "End" ? last
+          : undefined;
+        const target = next === undefined ? undefined : tabs[next];
+        if (!target) return;
+        event.preventDefault();
+        target.focus();
+        selectProvider(target);
+      });
+    });
     if (tabs[0]) selectProvider(tabs[0]);
   };
 
