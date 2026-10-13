@@ -2,8 +2,8 @@
 
 Sidebar marks for the Providers section, drawn by `theme.css`.
 
-- `color/` holds the official marks in brand colors. Plivo and Vonage publish
-  black marks, so each has a white `-dark.svg` for dark mode, as their own
+- `color/` holds the official marks in brand colors. Plivo, Vonage, and Sinch
+  publish black marks, so each has a white `-dark.svg` for dark mode, as their own
   sites do.
 - `neutral/` holds Lucide glyphs (ISC license) for the Overview and adapter
   guide rows.
@@ -14,9 +14,10 @@ Sidebar marks for the Providers section, drawn by `theme.css`.
 | Telnyx | Favicon at https://telnyx.com/favicon.ico (750x750 PNG, same mark as the media kit at https://telnyx.com/media-kit) | Telnyx publishes this mark only as PNG, so it was traced to a vector with potrace. Color `#00E3AA` sampled from the favicon. |
 | Plivo | https://www.plivo.com/images/brand/plivo-symbol.svg (linked from https://www.plivo.com/brand/) | Official symbol, viewBox cropped to the mark. |
 | Vonage | Simple Icons `vonage` (CC0), source https://www.vonage.com | Brand color is black (`#000000`). |
+| Bandwidth | https://www.bandwidth.com/wp-content/uploads/2024/09/Logo_Bandwidth.svg (site header logo) | The "bw" symbol path only, viewBox cropped to the mark. Color `#079CEE` from that file. |
+| Sinch | https://sinch.com/wp-content/themes/simpletexting-theme-blank/assets/images/logo-sinch.svg (site header logo) | The loop symbol path only, viewBox cropped to the mark. Black, with a white `-dark.svg` for dark mode. |
 | Overview | Lucide `layout-grid` via https://api.iconify.design/lucide/layout-grid.svg | |
 | Adapter guide | Lucide `puzzle` via https://api.iconify.design/lucide/puzzle.svg | |
-| Bandwidth, Sinch | Lucide `message-square` via https://api.iconify.design/lucide/message-square.svg | Neither provider's mark is in Simple Icons; a neutral glyph keeps the rows aligned. |
 
 Brand marks belong to their owners and are used here only to identify each
 provider's adapter.

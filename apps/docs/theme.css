@@ -1756,7 +1756,7 @@ body,
   --sms-logo: url("/providers/color/vonage.svg");
 }
 
-/* Plivo and Vonage publish black marks with white versions for dark
+/* Plivo, Vonage, and Sinch publish black marks with white versions for dark
    backgrounds. */
 :root[data-theme="dark"] .blume-nav-link[href="/providers/plivo"] {
   --sms-logo: url("/providers/color/plivo-dark.svg");
@@ -1786,15 +1786,20 @@ body,
   vertical-align: -2px;
 }
 
-/* Bandwidth and Sinch publish no CC0 mark, so their rows use a neutral glyph. */
-.blume-nav-link:is([href="/providers/bandwidth"], [href="/providers/sinch"]) {
-  --sms-logo: url("/providers/neutral/provider.svg");
+.blume-nav-link[href="/providers/bandwidth"] {
+  --sms-logo: url("/providers/color/bandwidth.svg");
+}
+
+.blume-nav-link[href="/providers/sinch"] {
+  --sms-logo: url("/providers/color/sinch.svg");
+}
+
+:root[data-theme="dark"] .blume-nav-link[href="/providers/sinch"] {
+  --sms-logo: url("/providers/color/sinch-dark.svg");
 }
 
 .blume-nav-link:is(
     [href="/providers/overview"],
-    [href="/providers/bandwidth"],
-    [href="/providers/sinch"],
     [href="/providers/writing-an-adapter"]
   )::before {
   background-color: currentColor;
@@ -1805,7 +1810,9 @@ body,
     [href="/providers/twilio"],
     [href="/providers/telnyx"],
     [href="/providers/plivo"],
-    [href="/providers/vonage"]
+    [href="/providers/vonage"],
+    [href="/providers/bandwidth"],
+    [href="/providers/sinch"]
   )::before {
   background: var(--sms-logo) center / contain no-repeat;
 }
