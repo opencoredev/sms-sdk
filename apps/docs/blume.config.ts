@@ -70,7 +70,7 @@ export default defineConfig({
     { from: "/receiving/inbound-sms", to: "/receiving/webhooks", status: 301 },
     { from: "/receiving/duplicates-and-ordering", to: "/receiving/webhooks", status: 301 },
     { from: "/receiving/stop-help-and-opt-outs", to: "/receiving/opt-outs", status: 301 },
-    { from: "/guides/local-testing", to: "/getting-started/local-testing", status: 301 },
+    { from: "/guides/local-testing", to: "/testing/local-testing", status: 301 },
     { from: "/guides/nextjs", to: "/receiving/webhooks", status: 301 },
     { from: "/guides/hono-and-bun", to: "/receiving/webhooks", status: 301 },
     { from: "/guides/multiple-instances", to: "/advanced/multiple-instances", status: 301 },
@@ -79,11 +79,13 @@ export default defineConfig({
     { from: "/guides/switch-twilio-to-telnyx", to: "/migration/switch-providers", status: 301 },
     { from: "/migration/switch-twilio-to-telnyx", to: "/migration/switch-providers", status: 301 },
     { from: "/providers/writing-an-adapter", to: "/advanced/writing-an-adapter", status: 301 },
-    { from: "/examples/overview", to: "/getting-started/examples", status: 301 },
+    { from: "/examples/overview", to: "/testing/examples", status: 301 },
     { from: "/reference/encoding-and-utilities", to: "/reference/validate", status: 301 },
     { from: "/community/changelog", to: "/reference/changelog", status: 301 },
     { from: "/community/contributing", to: "/advanced/contributing", status: 301 },
     { from: "/community/support", to: "/advanced/contributing", status: 301 },
+    { from: "/getting-started/local-testing", to: "/testing/local-testing", status: 301 },
+    { from: "/getting-started/examples", to: "/testing/examples", status: 301 },
   ],
 
 

@@ -48,7 +48,7 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // the Telnyx message ID (data.id)
 ```
 
-`telnyx()` throws `ConfigurationError` at startup when `apiKey` is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.telnyx.com`) and `fetch`. To test without a Telnyx account, see [Test without a provider](/getting-started/local-testing).
+`telnyx()` throws `ConfigurationError` at startup when `apiKey` is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.telnyx.com`) and `fetch`. To test without a Telnyx account, see [Test without a provider](/testing/local-testing).
 
 The adapter calls `POST /v2/messages` with a JSON body. Delivery comes from `data.to[0].status`, usually `queued`. A 2xx without `data.id` is an unknown outcome.
 

@@ -148,7 +148,7 @@ To point Vonage at your handler, enable signed webhooks on the Vonage applicatio
 - **Status:** pass `webhookUrl` per message, or set the Status URL on the application.
 - **Inbound:** link the number to the application and set its Inbound URL.
 
-The parser accepts only HS256, rejects a token whose `iat` is more than 300 seconds from now (`toleranceSec` changes this), and compares any `payload_hash` with the SHA-256 of the exact raw body, so pass the original request. The URL is not signed, so proxies do not break verification. In tests, `signedVonageRequest()` from [`@opencoredev/sms-sdk/testing`](/getting-started/local-testing) builds signed requests.
+The parser accepts only HS256, rejects a token whose `iat` is more than 300 seconds from now (`toleranceSec` changes this), and compares any `payload_hash` with the SHA-256 of the exact raw body, so pass the original request. The URL is not signed, so proxies do not break verification. In tests, `signedVonageRequest()` from [`@opencoredev/sms-sdk/testing`](/testing/local-testing) builds signed requests.
 
 | Vonage status | SMS SDK event |
 | --- | --- |
@@ -201,4 +201,4 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 
 - [Receive status and inbound webhooks](/receiving/webhooks)
 - [Webhook security](/receiving/webhook-security)
-- [Test locally](/getting-started/local-testing)
+- [Test locally](/testing/local-testing)

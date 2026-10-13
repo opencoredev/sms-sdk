@@ -47,7 +47,7 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // the first message_uuid
 ```
 
-Use the Auth ID and Auth Token of the account or a subaccount. `plivo()` throws `ConfigurationError` at startup when either is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.plivo.com`) and `fetch`. To test without a Plivo account, see [Test without a provider](/getting-started/local-testing).
+Use the Auth ID and Auth Token of the account or a subaccount. `plivo()` throws `ConfigurationError` at startup when either is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.plivo.com`) and `fetch`. To test without a Plivo account, see [Test without a provider](/testing/local-testing).
 
 The adapter calls `POST /v1/Account/{auth_id}/Message/` with a JSON body. Plivo doesn't state an exact success status, so any 2xx with a non-empty `message_uuid` array counts as accepted. A 2xx without one is an unknown outcome.
 

@@ -97,7 +97,7 @@ Bun.serve({
 });
 ```
 
-SMS SDK is tested on Node.js and Bun; edge runtimes have the APIs it needs but are not tested. Keep provider secrets in server-only environment variables (in Next.js, never prefix them with `NEXT_PUBLIC_`, and add `import "server-only";` to the module that creates `sms`; Bun loads `.env` on its own). On serverless platforms, store the event before you respond, because the function can stop right after the response, and use a [shared store](/advanced/multiple-instances) instead of `memoryIdempotencyStore()`. To test locally, expose your port with a tunnel; see [Test without a provider](/getting-started/local-testing).
+SMS SDK is tested on Node.js and Bun; edge runtimes have the APIs it needs but are not tested. Keep provider secrets in server-only environment variables (in Next.js, never prefix them with `NEXT_PUBLIC_`, and add `import "server-only";` to the module that creates `sms`; Bun loads `.env` on its own). On serverless platforms, store the event before you respond, because the function can stop right after the response, and use a [shared store](/advanced/multiple-instances) instead of `memoryIdempotencyStore()`. To test locally, expose your port with a tunnel; see [Test without a provider](/testing/local-testing).
 
 ## Event types
 

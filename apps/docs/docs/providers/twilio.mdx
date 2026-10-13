@@ -48,7 +48,7 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // "SM..." ("MM..." for MMS)
 ```
 
-Pass either `authToken` or `apiKeySid` with `apiKeySecret`, not both. `twilio()` throws `ConfigurationError` at startup when the Account SID is malformed or a credential is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.twilio.com`) and `fetch`. To test without a Twilio account, see [Test without a provider](/getting-started/local-testing).
+Pass either `authToken` or `apiKeySid` with `apiKeySecret`, not both. `twilio()` throws `ConfigurationError` at startup when the Account SID is malformed or a credential is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.twilio.com`) and `fetch`. To test without a Twilio account, see [Test without a provider](/testing/local-testing).
 
 The adapter calls `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` with a form body. A 2xx without a valid `SM` or `MM` SID is an unknown outcome.
 
