@@ -97,8 +97,8 @@ const providers = [
   { id: "telnyx", name: "Telnyx", logo: "/providers/color/telnyx.svg" },
   { id: "plivo", name: "Plivo", logo: "/providers/color/plivo-dark.svg" },
   { id: "vonage", name: "Vonage", logo: "/providers/color/vonage-dark.svg" },
-  { id: "bandwidth", name: "Bandwidth", logo: "/providers/neutral/provider.svg" },
-  { id: "sinch", name: "Sinch", logo: "/providers/neutral/provider.svg" },
+  { id: "bandwidth", name: "Bandwidth", logo: "/providers/color/bandwidth.svg" },
+  { id: "sinch", name: "Sinch", logo: "/providers/color/sinch-dark.svg" },
 ].map((provider) => ({ ...provider, args: optionsFor(provider.id) }));
 
 // Mirrors isFallbackEligible() in packages/sms-sdk/src/core/errors.ts.
@@ -239,11 +239,7 @@ const footerColumns = [
               data-name={provider.name}
               data-args={provider.args}
             >
-              {provider.logo.includes("/neutral/") ? (
-                <i class="glyph" style={`--mark: url("${provider.logo}")`} aria-hidden="true"></i>
-              ) : (
-                <img src={provider.logo} alt="" width="26" height="26" />
-              )}
+              <img src={provider.logo} alt="" width="26" height="26" />
               <span>{provider.name}</span>
             </button>
           ))}
@@ -738,6 +734,10 @@ const footerColumns = [
   .tab img {
     height: 26px;
     width: auto;
+    /* Sinch's mark is about twice as wide as tall; cap it so it sits with the rest. */
+    max-width: 34px;
+    object-fit: contain;
+    object-position: left center;
     opacity: 0.5;
     filter: grayscale(1);
     transition:
@@ -748,19 +748,6 @@ const footerColumns = [
   .tab[aria-selected="true"] img {
     opacity: 1;
     filter: none;
-  }
-  /* Bandwidth and Sinch have no mark in Simple Icons; the neutral glyph is
-     drawn in the text color so it reads on the dark ground. */
-  .glyph {
-    width: 26px;
-    height: 26px;
-    background: var(--muted);
-    mask: var(--mark) center / contain no-repeat;
-    transition: background 0.2s;
-  }
-  .tab:hover .glyph,
-  .tab[aria-selected="true"] .glyph {
-    background: var(--text);
   }
   .tab span {
     font-size: 15px;

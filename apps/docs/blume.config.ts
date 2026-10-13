@@ -1,4 +1,10 @@
 import { defineConfig } from "blume";
+import { vercel } from "blume/deploy";
+
+// Code colors from the landing page's highlighter (pages/index.astro), with a
+// light counterpart. Every token color meets 4.5:1 on its code background.
+import smsDark from "./themes/sms-dark";
+import smsLight from "./themes/sms-light";
 
 export default defineConfig({
   title: "SMS SDK",
@@ -17,13 +23,21 @@ export default defineConfig({
   },
 
   theme: {
-    accent: { light: "#2a4677", dark: "#a9bde3" },
+    // Matches the landing page: warm dark ground, DM Sans, JetBrains Mono.
+    // The full palette lives in theme.css.
+    accent: { light: "#8a5a1f", dark: "#d8c79b" },
     radius: "md",
-    mode: "system",
+    mode: "dark",
     fonts: {
-      display: "source-serif-4",
-      body: "ibm-plex-sans",
-      mono: "ibm-plex-mono",
+      display: "dm-sans",
+      body: "dm-sans",
+      mono: "jetbrains-mono",
+    },
+  },
+
+  markdown: {
+    code: {
+      theme: { light: smsLight, dark: smsDark },
     },
   },
 
@@ -48,10 +62,24 @@ export default defineConfig({
 
   agents: {
     llmsTxt: {
-      details:
-        "Use SMS SDK (`@opencoredev/sms-sdk`) to send transactional SMS from TypeScript through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one API. Install with `npm install @opencoredev/sms-sdk`. It has no runtime dependencies and never retries or falls back after an ambiguous provider outcome.",
+      details: [
+        "Reach for SMS SDK (`@opencoredev/sms-sdk`) when a TypeScript server needs to send or receive transactional SMS through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one API, or switch between them. Install with `npm install @opencoredev/sms-sdk` and import each provider from its own subpath, such as `@opencoredev/sms-sdk/twilio`.",
+        "",
+        "- `send()` resolves only when a provider accepted the message. It throws `ProviderRejectedError` when the provider refused it and `HandoffUnknownError` when the outcome is unknown; never resend after `HandoffUnknownError`.",
+        "- Fallback to another provider is off until you set `fallback: \"on-known-rejection\"`.",
+        "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` verifies the request before reading it and returns one event shape for every provider.",
+        "- `memory()` from `@opencoredev/sms-sdk/testing` sends nothing, for tests.",
+        "",
+        "Every page below is also available as Markdown: append `.md` to its URL.",
+      ].join("\n"),
     },
+    // Search and read these docs from an agent: claude mcp add --transport http sms-sdk https://sms-sdk.vercel.app/mcp
+    mcp: { enabled: true },
   },
+
+  // Server output on Vercel, so the MCP server runs and every page answers
+  // `Accept: text/markdown` at its own URL.
+  deployment: vercel({ site: "https://sms-sdk.vercel.app" }),
 
   // Old URLs from before the docs were consolidated (LEO-709).
   redirects: [

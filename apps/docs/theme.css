@@ -1,6 +1,34 @@
-/* SMS SDK theme. Accent and fonts come from blume.config.ts; this file adds
-   page-wide scrolling rules and the provider logos in the sidebar. The landing
+/* SMS SDK theme. Fonts come from blume.config.ts; this file sets the colors,
+   page-wide scrolling rules, and the provider logos in the sidebar. The landing
    page keeps its own styles in pages/index.astro. */
+
+/* Colors ------------------------------------------------------------------- */
+
+/* Dark mode uses the landing page's warm dark palette (pages/index.astro), so
+   moving from the landing into the docs keeps the same ground, text, and
+   lines. Light mode is the same warm family on paper. Every text pair meets
+   4.5:1. */
+:root {
+  --blume-background: #f7f5f0;
+  --blume-foreground: #1c1a17;
+  --blume-muted: #efece5;
+  --blume-muted-foreground: #6b6760;
+  --blume-border: #e3dfd6;
+  --blume-accent: #8a5a1f;
+  --blume-accent-foreground: #f7f5f0;
+  --blume-code-background: #f1eee7;
+}
+
+:root[data-theme="dark"] {
+  --blume-background: #121110;
+  --blume-foreground: #e9e6df;
+  --blume-muted: #181715;
+  --blume-muted-foreground: #8f8c84;
+  --blume-border: #262420;
+  --blume-accent: #d8c79b;
+  --blume-accent-foreground: #121110;
+  --blume-code-background: #181715;
+}
 
 /* Scrolling ---------------------------------------------------------------- */
 
