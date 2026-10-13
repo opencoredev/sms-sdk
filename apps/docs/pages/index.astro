@@ -1,255 +1,127 @@
 ---
-// Landing page. The page owns its header and footer; docs pages keep Blume's
-// chrome. Paintings from one winter series frame the page: the valley opens
-// it, the railway junction carries the switch, the harbour sits beside the
-// outcomes ledger, and the post office at dusk closes it into the footer.
-// The page makes three promises: one API across providers, no guessing about
-// a send, and local testing.
+// Landing page. Direction: the warm dark palette and DM Sans of leodev.cv,
+// widened into a full page. One signature element: the example run, which
+// plays a real fallback (Twilio rejects the sender, Telnyx accepts) next to a
+// phone. The page is always dark, so it sets its own theme mode.
 import PageLayout from "blume/components/layout/PageLayout.astro";
 import data from "blume:data";
 
-import CodeCard from "../landing/CodeCard.astro";
-
-// The segment counter uses the SDK's own estimator, on the server for the
-// first paint and in the browser as you type, so the page and sms.validate()
-// can never disagree.
-import { estimateSegments } from "../../../packages/sms-sdk/src/core/encoding.ts";
-
 const { config } = data;
 const repoUrl = "https://github.com/opencoredev/sms-sdk";
-const githubMark =
-  '<path fill-rule="evenodd" clip-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>';
+const npmUrl = "https://www.npmjs.com/package/@opencoredev/sms-sdk";
 
-const navLinks = [
-  { label: "Docs", href: "/getting-started/overview" },
-  { label: "Providers", href: "/providers/overview" },
-  { label: "Examples", href: "/getting-started/examples" },
-  { label: "Changelog", href: "/reference/changelog" },
-];
-
-// Every provider list on the page (lede, matrix, footer, meta description)
-// comes from this array. Statuses mirror each adapter's `support` value and
-// the provider pages. A new adapter is one entry here.
-type Status = "supported" | "partial";
-type Provider = {
-  name: string;
-  href: string;
-  /** Send, delivery status, inbound, signature check. */
-  cells: readonly [Status, Status, Status, Status];
-  /** Why a partial cell is partial, in the provider's own terms. */
-  note?: string;
-  /** Rendered on the page. Off until the adapter ships on this branch. */
-  enabled: boolean;
-};
-const allProviders: Provider[] = [
-  { name: "Twilio", href: "/providers/twilio", cells: ["supported", "supported", "supported", "supported"], enabled: true },
-  { name: "Telnyx", href: "/providers/telnyx", cells: ["supported", "supported", "supported", "supported"], enabled: true },
-  {
-    name: "Plivo",
-    href: "/providers/plivo#support-status",
-    cells: ["partial", "supported", "supported", "partial"],
-    note: "Plivo documents no API error body and no timestamp in callback signatures, so most rejections never fall back and replay protection relies on your dedupe.",
-    enabled: true,
-  },
-  {
-    name: "Vonage",
-    href: "/providers/vonage#support-status",
-    cells: ["partial", "partial", "partial", "partial"],
-    note: "Vonage does not document the HTTP status for each error code, and the adapter has no short codes or MMS.",
-    enabled: true,
-  },
-  {
-    name: "Bandwidth",
-    href: "/providers/bandwidth#support-status",
-    cells: ["partial", "supported", "supported", "partial"],
-    note: "Bandwidth does not sign callbacks, so the parser checks the Basic credentials on your Bandwidth application, and only a few rejections are classified for fallback.",
-    enabled: true,
-  },
-  {
-    name: "Sinch",
-    href: "/providers/sinch#support-status",
-    cells: ["partial", "supported", "supported", "partial"],
-    note: "Sinch does not publish its SMS callback HMAC format, so Basic auth is the documented check, and only a few rejections are classified for fallback.",
-    enabled: true,
-  },
-];
-const providers = allProviders.filter((provider) => provider.enabled);
-const providerNames = providers.map((provider) => provider.name);
-const providerList = new Intl.ListFormat("en", { type: "disjunction" }).format(providerNames);
-const capabilities = [
-  { long: "Send", short: "Send" },
-  { long: "Delivery status", short: "Status" },
-  { long: "Inbound", short: "Inbound" },
-  { long: "Signature check", short: "Signature" },
-];
-const pageDescription = `One TypeScript SDK for SMS. Send through ${providerList} with one typed API, safe fallback, and no runtime dependencies.`;
-
-// Landing samples are checked by check:snippets. Lines marked
-// `// [!code hide]` declare the credentials a sample takes as given: they are
-// type-checked and copied, but never rendered (see landing/CodeCard.astro).
-// Each `*NarrowExample` is the phone shape of a sample, written to fit 390px
-// without wrapping.
+// `check:snippets` type-checks every `const …Example` template literal on this
+// page against the SDK source, so this sample can't drift from the real API.
 const sendExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
 import { twilio } from "@opencoredev/sms-sdk/twilio";
-const accountSid = process.env.TWILIO_ACCOUNT_SID ?? ""; // [!code hide]
-const authToken = process.env.TWILIO_AUTH_TOKEN ?? ""; // [!code hide]
-const from = "+15550100001"; // [!code hide]
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
 
 const sms = createSmsClient({
-  adapters: [twilio({ accountSid, authToken, from })],
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+    telnyx({
+      apiKey: process.env.TELNYX_API_KEY ?? "",
+      from: "+15550100002",
+    }),
+  ],
+  fallback: "on-known-rejection",
 });
 
-await sms.send({ to: "+14155550123", body: "Your order has shipped." });`;
-
-const sendNarrowExample = `import { createSmsClient } from "@opencoredev/sms-sdk"; // [!code hide]
-import { twilio } from "@opencoredev/sms-sdk/twilio"; // [!code hide]
-const accountSid = process.env.TWILIO_ACCOUNT_SID ?? ""; // [!code hide]
-const authToken = process.env.TWILIO_AUTH_TOKEN ?? ""; // [!code hide]
-const from = "+15550100001"; // [!code hide]
-const sms = createSmsClient({
-  adapters: [twilio({
-    accountSid, authToken, from,
-  })],
-});
-
-await sms.send({
+const result = await sms.send({
   to: "+14155550123",
   body: "Your order has shipped.",
-});`;
-
-const switchExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
-import { twilio } from "@opencoredev/sms-sdk/twilio"; // [!code --]
-import { telnyx } from "@opencoredev/sms-sdk/telnyx"; // [!code ++]
-const apiKey = process.env.TELNYX_API_KEY ?? ""; // [!code hide]
-const from = "+15550100001"; // [!code hide]
-
-export const sms = createSmsClient({
-  adapters: [twilio({ accountSid, authToken, from })], // [!code --]
-  adapters: [telnyx({ apiKey, from })], // [!code ++]
-});`;
-
-const switchNarrowExample = `import { createSmsClient } from "@opencoredev/sms-sdk"; // [!code hide]
-import { telnyx } from "@opencoredev/sms-sdk/telnyx"; // [!code hide]
-const apiKey = process.env.TELNYX_API_KEY ?? ""; // [!code hide]
-const from = "+15550100001"; // [!code hide]
-export const sms = createSmsClient({
-  adapters: [twilio({ // [!code --]
-    accountSid, authToken, from, // [!code --]
-  })], // [!code --]
-  adapters: [telnyx({ apiKey, from })], // [!code ++]
-});`;
-
-const testingExample = `import { createSmsClient } from "@opencoredev/sms-sdk";
-import { memory } from "@opencoredev/sms-sdk/testing";
-
-const outbox = memory();
-const sms = createSmsClient({ adapters: [outbox] });
-
-await sms.send({ to: "+14155550123", body: "Test message" });
-
-outbox.sent.length; // 1, and nothing left the process
-outbox.sent[0]?.message.body; // "Test message"
-outbox.reset();`;
-
-const testingNarrowExample = `import { createSmsClient } from "@opencoredev/sms-sdk"; // [!code hide]
-import { memory } from "@opencoredev/sms-sdk/testing"; // [!code hide]
-const outbox = memory();
-const sms = createSmsClient({
-  adapters: [outbox],
 });
 
-await sms.send({
-  to: "+14155550123",
-  body: "Test message",
-});
+console.log(result.provider); // "telnyx"`;
 
-outbox.sent.length; // 1
-outbox.sent[0]?.message.body;
-outbox.reset();`;
-
-const samples = [
-  { label: "Short", body: "Your order has shipped." },
-  {
-    label: "With an emoji",
-    body: "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule 🙂",
-  },
-  {
-    label: "Long",
-    body: "Your appointment with Dr. Lee is tomorrow at 9:30 AM at 22 Market St. Reply C to confirm or R to reschedule. Please arrive 10 minutes early to fill in the check-in forms.",
-  },
+// Which lines light up at each step of the example run (1-based, inclusive).
+const stepLines: [step: number, from: number, to: number][] = [
+  [1, 7, 11],
+  [2, 12, 15],
+  [0, 20, 23],
+  [3, 25, 25],
 ];
-const initialBody = samples[1]?.body ?? "";
-const initial = estimateSegments(initialBody);
-const initialCells = Array.from({ length: initial.segments }, (_, index) =>
-  Math.min(1, (initial.units - index * initial.unitsPerSegment) / initial.unitsPerSegment),
-);
-const encodingLabel = (encoding: string) => (encoding === "gsm7" ? "GSM-7" : "UCS-2");
 
-// Each outcome maps to the SDK's real result and error types.
+const escapeHtml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+// A small highlighter for this one sample: comments, strings, keywords, calls,
+// and object keys. Shiki would add a second color scheme to keep in sync.
+const highlight = (line: string) => {
+  const comment = line.indexOf("//");
+  const code = comment === -1 ? line : line.slice(0, comment);
+  const tail = comment === -1 ? "" : `<span class="c">${escapeHtml(line.slice(comment))}</span>`;
+  const html = escapeHtml(code)
+    .replace(/"[^"]*"/g, (match) => `<span class="s">${match}</span>`)
+    .replace(/\b(import|from|const|await)\b(?![^<]*<\/span>)/g, '<span class="k">$1</span>')
+    .replace(/\b([a-zA-Z]+)(?=\()(?![^<]*<\/span>)/g, '<span class="f">$1</span>')
+    .replace(/^(\s+)([a-zA-Z]+)(?=:)/, '$1<span class="p">$2</span>');
+  return html + tail;
+};
+
+const sendLines = sendExample.split("\n").map((text, index) => {
+  const number = index + 1;
+  const step = stepLines.find(([, from, to]) => number >= from && number <= to)?.[0];
+  return { html: highlight(text) || " ", step };
+});
+
+const providers = [
+  { id: "twilio", name: "Twilio", logo: "/providers/color/twilio.svg", args: "{ accountSid, authToken, from }" },
+  { id: "telnyx", name: "Telnyx", logo: "/providers/color/telnyx.svg", args: "{ apiKey, from }" },
+  { id: "plivo", name: "Plivo", logo: "/providers/color/plivo-dark.svg", args: "{ authId, authToken, from }" },
+  { id: "vonage", name: "Vonage", logo: "/providers/color/vonage-dark.svg", args: "{ apiKey, apiSecret, from }" },
+  { id: "bandwidth", name: "Bandwidth", logo: "/providers/neutral/provider.svg", args: "{ userId, apiToken, apiSecret, applicationId, from }" },
+  { id: "sinch", name: "Sinch", logo: "/providers/neutral/provider.svg", args: "{ servicePlanId, apiToken, from }" },
+];
+
+// Mirrors isFallbackEligible() in packages/sms-sdk/src/core/errors.ts.
 const outcomes = [
-  {
-    tone: "ok",
-    status: "Sent",
-    name: "Accepted",
-    code: `handoff: "accepted"`,
-    body: "The provider created or queued the message. You get its ID to match delivery webhooks.",
-  },
-  {
-    tone: "next",
-    status: "Next provider",
-    name: "Known rejection",
-    code: "fallbackEligible: true",
-    body: "Auth, rate limit, sender, or account. With fallback on, the next adapter tries. Rate limits retry first and honor Retry-After.",
-  },
-  {
-    tone: "stop",
-    status: "Stops",
-    name: "Rejected message",
-    code: "fallbackEligible: false",
-    body: "A recipient, compliance, or request problem. Another provider would refuse it too, so the send stops.",
-  },
-  {
-    tone: "hold",
-    status: "Stops, tells you",
-    name: "Unknown outcome",
-    code: "HandoffUnknownError",
-    body: "A timeout, network failure, or 5xx after the request left. No retry and no fallback, so nobody gets the text twice. Reconcile first.",
-  },
+  { tone: "ok", title: "Accepted", tag: "resolves", body: "You get the result. Nothing else is tried." },
+  { tone: "next", title: "Blocked sender, auth, or rate limit", tag: "falls back", body: "The next provider sends it." },
+  { tone: "no", title: "Bad number or opted out", tag: "throws", body: "Another provider would reject it too, so it stops here." },
+  { tone: "wait", title: "Timeout or unknown outcome", tag: "throws", body: "The text may already be on its way, so it is never retried." },
+];
+
+const features = [
+  { href: "/sending/length-and-cost", title: "Segments and encoding", body: "See the cost before you send. One emoji can turn one segment into two." },
+  { href: "/receiving/webhooks", title: "Status webhooks", body: "Verified delivery updates from all six providers, in one event shape." },
+  { href: "/receiving/webhooks#replies", title: "Inbound SMS", body: "Replies to your numbers arrive as message.received events." },
+  { href: "/receiving/opt-outs", title: "STOP and HELP", body: "Opt-outs and help requests come through as their own events." },
+  { href: "/sending/idempotency", title: "Idempotency", body: "A retried job returns the first result instead of texting twice." },
+  { href: "/reference/testing", title: "Testing", body: "An in-memory adapter, so tests never send a real text." },
 ];
 
 const footerColumns = [
   {
-    title: "Docs",
+    title: "Learn",
     links: [
       { label: "Quick start", href: "/getting-started/quick-start" },
-      { label: "Sending", href: "/getting-started/how-sending-works" },
-      { label: "Receiving", href: "/receiving/webhooks" },
-      { label: "Reference", href: "/reference/create-sms-client" },
+      { label: "Fallback", href: "/sending/fallback-and-retries" },
+      { label: "Webhooks", href: "/receiving/webhooks" },
+      { label: "Migrate from Twilio", href: "/migration/migrate-from-twilio" },
     ],
   },
   {
     title: "Providers",
-    links: providers.map((provider) => ({ label: provider.name, href: provider.href.split("#")[0] ?? provider.href })),
+    links: providers.map((provider) => ({ label: provider.name, href: `/providers/${provider.id}` })),
   },
   {
     title: "Project",
     links: [
       { label: "GitHub", href: repoUrl },
-      { label: "npm", href: "https://www.npmjs.com/package/@opencoredev/sms-sdk" },
+      { label: "npm", href: npmUrl },
       { label: "Changelog", href: "/reference/changelog" },
-      { label: "Contributing", href: "/advanced/contributing" },
+      { label: "Switch providers", href: "/migration/switch-providers" },
     ],
   },
 ];
-
-const art = (name: string) => ({
-  src: `/art/${name}.webp`,
-  srcset: `/art/${name}-760.webp 760w, /art/${name}.webp 1264w`,
-});
 ---
 
 <PageLayout
-  site={{ title: config.title, description: pageDescription }}
+  site={{ title: config.title, description: config.description }}
   logo={config.logo}
   banner={config.banner}
   analytics={config.analytics}
@@ -257,309 +129,857 @@ const art = (name: string) => ({
   favicon={config.favicon}
   appleIcon={config.appleIcon}
   fontCssVars={data.fontCssVars}
-  themeMode={config.theme.mode}
+  themeMode="dark"
   searchEnabled={config.search.enabled}
   siteUrl={config.site}
   ogEnabled={config.og.enabled}
-  page={{ title: "SMS SDK: one TypeScript SDK for SMS providers", description: pageDescription }}
+  page={{ title: "SMS SDK: one TypeScript SDK for SMS providers", description: config.description }}
 >
-  <div class="sms-landing">
-    <header class="sms-nav" data-sms-nav>
-      <div class="sms-nav-inner">
-        <a class="sms-wordmark" href="/" aria-label="SMS SDK home">SMS SDK</a>
-        <nav class="sms-nav-links" aria-label="Main">
-          {navLinks.map((link) => <a href={link.href}>{link.label}</a>)}
-        </nav>
-        <div class="sms-nav-actions">
-          {
-            config.search.enabled && (
-              <button type="button" class="sms-icon-btn" data-sms-search aria-label="Search the docs" title="Search (Ctrl K)">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-              </button>
-            )
-          }
-          <a class="sms-icon-btn sms-hide-sm" href={repoUrl} aria-label="SMS SDK on GitHub">
-            <svg viewBox="0 0 16 16" class="sms-mark" aria-hidden="true" set:html={githubMark} />
-          </a>
-          <button type="button" class="sms-icon-btn sms-hide-sm" data-blume-theme-toggle aria-label="Toggle dark mode">
-            <svg viewBox="0 0 24 24" class="sms-sun" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
-            <svg viewBox="0 0 24 24" class="sms-moon" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" /></svg>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=JetBrains+Mono:wght@400&display=swap"
+  />
+
+  <div class="home">
+    <div class="wrap">
+      <section class="hero" aria-labelledby="hero-title">
+        <h1 id="hero-title">One <code>send()</code> for every SMS provider.</h1>
+        <p class="lede">
+          A typed TypeScript client for Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch. It tells you which provider took
+          each text, or why none did.
+        </p>
+        <div class="actions">
+          <button type="button" class="prompt" data-prompt aria-label="Copy quick start prompt for your agent">
+            <span class="agents" aria-hidden="true">
+              <i class="agent claude"></i><i class="agent chatgpt"></i><i class="agent grok"></i><i class="agent cursor"></i>
+            </span>
+            <span class="prompt-label">
+              <span>Copy quick start prompt</span>
+              <span class="prompt-done">Copied to clipboard</span>
+            </span>
           </button>
-          <a class="sms-btn sms-btn-primary sms-btn-sm sms-nav-cta" href="/getting-started/quick-start">Get started</a>
-          <button
-            type="button"
-            class="sms-icon-btn sms-menu-btn"
-            data-sms-menu
-            aria-expanded="false"
-            aria-controls="sms-menu"
-            aria-label="Menu"
-          >
-            <svg viewBox="0 0 24 24" class="sms-open" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
-            <svg viewBox="0 0 24 24" class="sms-close" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-          </button>
+          <a class="docs u" href="/getting-started/quick-start">Read the docs</a>
         </div>
-      </div>
-      <div class="sms-menu" id="sms-menu" hidden>
-        {navLinks.map((link) => <a href={link.href}>{link.label}</a>)}
-        <a href={repoUrl}>GitHub</a>
-        <div class="sms-menu-row">
-          <button type="button" class="sms-btn" data-blume-theme-toggle>
-            <span class="sms-sun-label">Dark mode</span><span class="sms-moon-label">Light mode</span>
+      </section>
+
+      <section class="run" aria-label="An example send where Twilio rejects the sender and Telnyx accepts the message">
+        <div class="run-top">
+          <span class="run-file">send.ts</span>
+          <span>example run</span>
+          <button type="button" class="replay" data-replay>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v3h3"></path></svg>
+            Replay
           </button>
         </div>
-      </div>
-    </header>
-
-    <section class="sms-hero" aria-labelledby="hero-title">
-      <div class="sms-hero-art sms-art" aria-hidden="true">
-        <img {...art("winter-valley")} sizes="100vw" width="1264" height="848" alt="" fetchpriority="high" />
-      </div>
-      <div class="sms-hero-copy">
-        <h1 id="hero-title">One send call across SMS&nbsp;providers</h1>
-        <p class="sms-lede">
-          Send through {providerList} with one typed API. Fallback stays off until you turn it&nbsp;on.
-        </p>
-        <div class="sms-ctas">
-          <a class="sms-btn sms-btn-primary sms-btn-lg" href="/getting-started/quick-start" data-sms-hero-cta>Get started</a>
-          <button type="button" class="sms-install" data-sms-copy="npm i @opencoredev/sms-sdk" aria-label="Copy install command">
-            <span class="sms-install-prompt" aria-hidden="true">$</span>
-            <code>npm i @opencoredev/sms-sdk</code>
-            <svg class="sms-copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
-            <svg class="sms-check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
-          </button>
-        </div>
-      </div>
-      <div class="sms-hero-code">
-        <CodeCard title="send.ts" code={sendExample} narrow={sendNarrowExample} />
-      </div>
-    </section>
-
-    <section class="sms-wrap sms-promise sms-switch" aria-labelledby="switch-title">
-      <figure class="sms-switch-art sms-art">
-        <img
-          {...art("winter-junction")}
-          sizes="(min-width: 64rem) 32rem, 100vw"
-          width="1264"
-          height="848"
-          alt="An oil painting of a snowy railway junction at first light: a switch lever beside the rails, a lamp on a post, and a signal cabin."
-          loading="lazy"
-        />
-      </figure>
-      <div class="sms-switch-body">
-        <h2 id="switch-title">Change providers without touching your&nbsp;app</h2>
-        <p class="sms-section-lede">
-          Swap the adapter and every <code>sms.send()</code> call stays the same. Your number, its
-          registration, and webhook URLs belong to each provider account, so set those up first.
-        </p>
-        <CodeCard title="sms.ts" code={switchExample} narrow={switchNarrowExample} class="sms-diff-card" />
-        <p class="sms-more"><a class="sms-link" href="/migration/switch-providers">Switching guide</a></p>
-      </div>
-    </section>
-
-    <section class="sms-wrap sms-providers" aria-labelledby="providers-title">
-      <div class="sms-providers-head">
-        <h3 class="sms-h3" id="providers-title">The same call runs on every adapter</h3>
-        <p>
-          Every adapter is a separate import with no runtime dependencies. Partial means the provider
-          leaves some behavior undocumented, so the adapter plays it safe.
-        </p>
-      </div>
-      <table class="sms-matrix">
-        <thead>
-          <tr>
-            <th scope="col"><span class="sms-visually-hidden">Provider</span></th>
-            {
-              capabilities.map((capability) => (
-                <th scope="col">
-                  <span class="sms-long">{capability.long}</span>
-                  <span class="sms-short">{capability.short}</span>
-                </th>
-              ))
-            }
-          </tr>
-        </thead>
-        <tbody>
-          {
-            providers.map((provider) => (
-              <Fragment>
-              <tr class:list={[{ "sms-has-note": provider.note !== undefined }]}>
-                <th scope="row">{provider.name}</th>
-                {provider.cells.map((status) =>
-                  status === "supported" ? (
-                    <td>
-                      <svg class="sms-check" viewBox="0 0 16 16" aria-hidden="true">
-                        <path d="M3.5 8.5l3 3 6-7" />
-                      </svg>
-                      <span class="sms-visually-hidden">Supported</span>
-                    </td>
-                  ) : (
-                    <td>
-                      <span class="sms-pill">Partial</span>
-                    </td>
-                  ),
-                )}
-              </tr>
-              {provider.note !== undefined && (
-                <tr class="sms-matrix-note">
-                  <td colspan={capabilities.length + 1}>{provider.note}</td>
-                </tr>
-              )}
-              </Fragment>
-            ))
-          }
-        </tbody>
-      </table>
-    </section>
-
-    <section class="sms-wrap sms-promise sms-outcomes" aria-labelledby="outcomes-title">
-      <div class="sms-outcomes-intro">
-        <h2 id="outcomes-title">It never guesses about a send</h2>
-        <p class="sms-section-lede">
-          Fallback stays off until you turn it on. Then it moves to the next provider only after a
-          known rejection. When the SDK can't tell whether a message went out, it stops and tells you.
-        </p>
-        <p class="sms-more"><a class="sms-link" href="/sending/fallback-and-retries">Retries and fallback</a></p>
-        <figure class="sms-outcomes-art sms-art">
-          <img
-            {...art("winter-harbour")}
-            sizes="(min-width: 64rem) 24rem, 100vw"
-            width="1264"
-            height="848"
-            alt="An oil painting of a stone signal house with a lit lantern beside a snowy pier on a frozen harbour."
-            loading="lazy"
-          />
-        </figure>
-      </div>
-      <ol class="sms-ledger" aria-label="What happens after a send">
-        {
-          outcomes.map((outcome) => (
-            <li class:list={[{ "sms-ledger-hold": outcome.tone === "hold" }]}>
-              <p class="sms-ledger-meta">
-                <span class="sms-outcome">
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    {outcome.tone === "ok" && <path d="M3.5 8.5l3 3 6-7" />}
-                    {outcome.tone === "next" && <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />}
-                    {outcome.tone === "stop" && <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />}
-                    {outcome.tone === "hold" && <path d="M6 4v8M10 4v8" />}
-                  </svg>
-                  {outcome.status}
-                </span>
-                <code>{outcome.code}</code>
-              </p>
-              <h3>{outcome.name}</h3>
-              <p>{outcome.body}</p>
-            </li>
-          ))
-        }
-      </ol>
-    </section>
-
-    <section class="sms-promise sms-local" aria-labelledby="local-title">
-      <div class="sms-wrap sms-local-inner">
-        <div class="sms-local-head">
-          <h2 id="local-title">Test it all on your laptop</h2>
-          <p class="sms-section-lede">
-            The <code>memory()</code> adapter records sends in process, so tests and CI never text
-            anyone. <code>validate()</code> counts segments locally too. Try the counter: it runs the
-            SDK's own estimator in your browser.
-          </p>
-          <p class="sms-more"><a class="sms-link" href="/getting-started/local-testing">Local testing</a></p>
-        </div>
-        <div class="sms-local-grid">
-          <CodeCard title="send.test.ts" code={testingExample} narrow={testingNarrowExample} class="sms-flat-card" />
-          <div class="sms-counter" data-sms-counter>
-            <div class="sms-counter-head">
-              <label for="sms-counter-body">Message</label>
-              <div class="sms-samples" role="group" aria-label="Sample messages">
-                {
-                  samples.map((sample) => (
-                    <button type="button" data-sms-sample={sample.body} aria-pressed={sample.body === initialBody ? "true" : "false"}>
-                      {sample.label}
-                    </button>
-                  ))
-                }
-              </div>
+        <div class="run-body">
+          <div class="run-code">
+            <pre>{sendLines.map((line) => (
+              <span class="ln" data-step={line.step} set:html={line.html} />
+            ))}</pre>
+          </div>
+          <div class="run-recv">
+            <div class="phone">
+              <div class="phone-top"><span>+1 (415) 555-0123</span><span class="mono">sms_01JQ8Z3T7K</span></div>
+              <div class="bubble" data-bubble>Your order has shipped.</div>
+              <div class="status" data-status aria-live="polite"></div>
             </div>
-            <textarea id="sms-counter-body" rows="3" maxlength="640" spellcheck="false" data-sms-input>{initialBody}</textarea>
-            <div class="sms-track" aria-hidden="true" data-sms-track>
-              {
-                initialCells.map((fill) => (
-                  <span class="sms-track-cell">
-                    <span class="sms-track-fill" style={`inline-size: ${(fill * 100).toFixed(1)}%`} />
-                  </span>
-                ))
-              }
-            </div>
-            <dl class="sms-readout" aria-live="polite">
-              <div>
-                <dt>Segments</dt>
-                <dd data-sms-out="segments">{initial.segments}</dd>
-              </div>
-              <div>
-                <dt>Encoding</dt>
-                <dd data-sms-out="encoding">{encodingLabel(initial.encoding)}</dd>
-              </div>
-              <div>
-                <dt>Units</dt>
-                <dd data-sms-out="units">{initial.units}</dd>
-              </div>
-            </dl>
-            <p class="sms-counter-note" data-sms-out="note">
-              {
-                initial.nonGsmCharacters.length > 0
-                  ? `UCS-2 because of ${initial.nonGsmCharacters.join(" ")}. ${initial.unitsPerSegment} units per segment.`
-                  : `Every character fits GSM-7. ${initial.unitsPerSegment} units per segment.`
-              }
-            </p>
+            <ol class="route">
+              <li data-step="1"><span class="route-pv">Twilio</span><span class="route-st no">Rejected<em>sender</em></span></li>
+              <li data-step="2"><span class="route-pv">Telnyx</span><span class="route-st ok">Accepted<em>queued</em></span></li>
+              <li data-step="3"><span class="route-pv">Webhook</span><span class="route-st ok">Delivered<em>message.delivered</em></span></li>
+            </ol>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="sms-closing" aria-labelledby="closing-title">
-      <div class="sms-closing-art sms-art" aria-hidden="true">
-        <img {...art("winter-post-office-dusk")} sizes="100vw" width="1264" height="843" alt="" loading="lazy" />
-      </div>
-      <div class="sms-closing-copy">
-        <h2 id="closing-title">Send your first message</h2>
-        <p>Install the package, add one adapter, and call&nbsp;<code>send()</code>.</p>
-        <div class="sms-ctas">
-          <a class="sms-btn sms-btn-light sms-btn-lg" href="/getting-started/quick-start">Read the quick start</a>
-          <a class="sms-btn sms-btn-ghost sms-btn-lg" href={repoUrl}>View on GitHub</a>
+      <section class="section" id="providers" aria-labelledby="providers-title">
+        <h2 id="providers-title">Use the provider you already pay for.</h2>
+        <p class="sub">
+          Every provider is a separate import that returns the same result, so moving from one to another doesn't touch the
+          rest of your code.
+        </p>
+        <div class="switch" role="tablist" aria-label="Providers">
+          {providers.map((provider, index) => (
+            <button
+              type="button"
+              class="tab"
+              role="tab"
+              aria-selected={index === 0 ? "true" : "false"}
+              data-provider={provider.id}
+              data-name={provider.name}
+              data-args={provider.args}
+            >
+              {provider.logo.includes("/neutral/") ? (
+                <i class="glyph" style={`--mark: url("${provider.logo}")`} aria-hidden="true"></i>
+              ) : (
+                <img src={provider.logo} alt="" width="26" height="26" />
+              )}
+              <span>{provider.name}</span>
+            </button>
+          ))}
         </div>
-      </div>
-    </section>
+        <div class="import-line">
+          <pre data-import></pre>
+          <a class="hint u" data-guide href="/providers/twilio">Twilio guide</a>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="fallback-title">
+        <h2 id="fallback-title">If one provider says no, the next one sends it.</h2>
+        <p class="sub">
+          Fallback only moves on when a rejection is safe to send elsewhere. When the outcome is unknown, it stops, so
+          nobody gets the same text twice. <a class="u strong" href="/sending/fallback-and-retries">How fallback decides</a>
+        </p>
+        <div class="outcomes">
+          {outcomes.map((outcome) => (
+            <div class="outcome">
+              <i class={`dot ${outcome.tone}`}></i>
+              <b>{outcome.title}</b>
+              <span class="tag">{outcome.tag}</span>
+              <p>{outcome.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="features-title">
+        <h2 id="features-title">Webhooks, opt-outs, and tests are already built.</h2>
+        <p class="sub">The parts every SMS integration ends up writing by hand.</p>
+        <div class="index">
+          {features.map((feature) => (
+            <a href={feature.href}>
+              <b>{feature.title}<span aria-hidden="true">→</span></b>
+              <p>{feature.body}</p>
+            </a>
+          ))}
+        </div>
+      </section>
+    </div>
   </div>
 
-  <footer class="sms-footer" slot="footer">
-    <div class="sms-footer-inner">
-      <div class="sms-footer-brand">
-        <a class="sms-wordmark" href="/">SMS SDK</a>
-        <p>A TypeScript SDK for transactional SMS. MIT licensed, built on fetch, with no runtime dependencies.</p>
+  <footer slot="footer" class="home-footer">
+    <div class="wrap">
+      <div class="footer-main">
+        <div class="footer-brand">
+          <div class="footer-name">SMS SDK</div>
+          <p>One typed send() for six SMS providers. MIT licensed, with no runtime dependencies.</p>
+        </div>
+        {footerColumns.map((column) => (
+          <div class="footer-col">
+            <b>{column.title}</b>
+            {column.links.map((link) => <a href={link.href}>{link.label}</a>)}
+          </div>
+        ))}
       </div>
-      <nav class="sms-footer-cols" aria-label="Footer">
-        {
-          footerColumns.map((column) => (
-            <div>
-              <h2>{column.title}</h2>
-              <ul>
-                {column.links.map((link) => (
-                  <li>
-                    <a href={link.href}>{link.label}</a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        }
-      </nav>
+      <div class="footer-bottom">
+        <span>© 2026 OpenCore</span>
+        <span>Built by <a class="u" href="https://leodev.cv">Leo</a></span>
+      </div>
     </div>
   </footer>
 </PageLayout>
 
-<script>
-  import { estimateSegments } from "../../../packages/sms-sdk/src/core/encoding.ts";
+<style>
+  .home,
+  .home-footer {
+    --bg: #121110;
+    --surface: #181715;
+    --line: #262420;
+    --line-2: #34312c;
+    --text: #e9e6df;
+    --muted: #8f8c84;
+    --dim: #605d56;
+    --ok: #8fbf8a;
+    --no: #d98a7e;
+    --wait: #d8c79b;
+    --sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 16px/1.6 var(--sans);
+  }
+  .home :is(h1, h2, b, p, button),
+  .home-footer :is(b, p, a, span, div) {
+    font-family: var(--sans);
+  }
+  .home a,
+  .home-footer a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .home button {
+    font: inherit;
+    color: inherit;
+  }
+  .home code,
+  .home pre,
+  .mono {
+    font-family: var(--mono);
+  }
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+  .u {
+    text-decoration: underline !important;
+    text-decoration-color: var(--dim) !important;
+    text-underline-offset: 4px;
+    transition: text-decoration-color 0.15s;
+  }
+  .u:hover {
+    text-decoration-color: var(--text) !important;
+  }
+  .u.strong {
+    color: var(--text);
+  }
 
+  /* Hero */
+  .hero {
+    padding: 104px 0 64px;
+  }
+  h1 {
+    font-weight: 500;
+    font-size: 56px;
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    margin: 0 0 22px;
+    max-width: 720px;
+  }
+  h1 code {
+    font-weight: 400;
+    font-size: 0.84em;
+    letter-spacing: -0.03em;
+  }
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+    max-width: 540px;
+    margin: 0 0 36px;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .prompt {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    height: 48px;
+    padding: 0 20px 0 12px;
+    border-radius: 12px;
+    border: 1px solid #45413b;
+    background: linear-gradient(#24221f, #1c1b18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    font-size: 15px;
+    transition:
+      border-color 0.15s,
+      transform 0.1s;
+  }
+  .prompt:hover {
+    border-color: #615c54;
+  }
+  .prompt:active {
+    transform: scale(0.98);
+  }
+  .prompt:focus-visible,
+  .tab:focus-visible,
+  .replay:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+  .agents {
+    display: flex;
+  }
+  .agent {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px #201e1b;
+    position: relative;
+  }
+  .agent + .agent {
+    margin-left: -7px;
+  }
+  .agent::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    background: currentColor;
+    mask: var(--mark) center / contain no-repeat;
+  }
+  .claude {
+    background: #d97757;
+    color: #fff;
+    --mark: url("/agents/claude.svg");
+  }
+  .chatgpt {
+    background: #f2f1ee;
+    color: #0d0d0d;
+    --mark: url("/agents/chatgpt.svg");
+  }
+  .grok {
+    background: #000;
+    color: #fff;
+    box-shadow:
+      0 0 0 2px #201e1b,
+      inset 0 0 0 1px #3a3733;
+    --mark: url("/agents/grok.svg");
+  }
+  .cursor {
+    background: #26251f;
+    color: #edecec;
+    --mark: url("/agents/cursor.svg");
+  }
+  .prompt-label {
+    position: relative;
+    white-space: nowrap;
+  }
+  .prompt-label > span {
+    transition: opacity 0.15s;
+  }
+  .prompt-done {
+    position: absolute;
+    left: 0;
+    top: 0;
+    opacity: 0;
+    color: var(--ok);
+  }
+  .prompt[data-copied] .prompt-label > span:first-child {
+    opacity: 0;
+  }
+  .prompt[data-copied] .prompt-done {
+    opacity: 1;
+  }
+  .docs {
+    font-size: 15px;
+  }
+
+  /* Example run */
+  .run {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .run-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 46px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .run-file {
+    color: var(--text);
+  }
+  .replay {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    color: var(--muted) !important;
+    font-size: 13px !important;
+    padding: 6px 8px;
+    border-radius: 7px;
+    transition:
+      color 0.15s,
+      background 0.15s;
+  }
+  .replay:hover {
+    color: var(--text) !important;
+    background: #1e1d1a;
+  }
+  .run-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .run-body > div {
+    padding: 26px 28px 30px;
+    min-width: 0;
+  }
+  .run-body > div + div {
+    border-left: 1px solid var(--line);
+  }
+  .home pre {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.85;
+    color: #d6d2c9;
+    overflow-x: auto;
+    background: none;
+    padding: 0;
+    border: 0;
+  }
+  .ln {
+    display: block;
+    margin: 0 -28px;
+    padding: 0 28px;
+    transition: background 0.3s;
+  }
+  .ln.on {
+    background: rgba(217, 151, 87, 0.08);
+    box-shadow: inset 2px 0 0 #d97757;
+  }
+  .home :global(.k) {
+    color: #d39e8a;
+  }
+  .home :global(.s) {
+    color: #cdbb8c;
+  }
+  .home :global(.f) {
+    color: #b7c7d6;
+  }
+  .home :global(.p) {
+    color: #a9b8a0;
+  }
+  .home :global(.c) {
+    color: var(--dim);
+  }
+  .run-recv {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    background: radial-gradient(420px 260px at 70% 0%, #1f1d1a, transparent);
+  }
+  .phone {
+    flex: 1;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line-2);
+    border-radius: 22px;
+    padding: 16px 18px 22px;
+    background: var(--bg);
+  }
+  .phone-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: var(--muted);
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .phone-top .mono {
+    font-size: 11.5px;
+    color: var(--dim);
+  }
+  .bubble {
+    align-self: flex-end;
+    margin-top: auto;
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 18px 18px 6px 18px;
+    background: #2b2925;
+    font-size: 15px;
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+    transform-origin: bottom right;
+    transition:
+      opacity 0.35s,
+      transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+      background 0.4s;
+  }
+  .bubble.in {
+    opacity: 1;
+    transform: none;
+  }
+  .bubble.sent {
+    background: #3a5a3c;
+  }
+  .status {
+    align-self: flex-end;
+    margin-top: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    min-height: 18px;
+  }
+  .route {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .route li {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    opacity: 0.35;
+    transition:
+      opacity 0.35s,
+      border-color 0.35s;
+  }
+  .route li.in {
+    opacity: 1;
+    border-color: var(--line-2);
+  }
+  .route-pv {
+    display: block;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .route-st {
+    display: block;
+    font-size: 14px;
+  }
+  .route-st.no {
+    color: var(--no);
+  }
+  .route-st.ok {
+    color: var(--ok);
+  }
+  .route em {
+    display: block;
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Sections */
+  .section {
+    padding-top: 136px;
+  }
+  h2 {
+    font-weight: 500;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin: 0 0 12px;
+    max-width: 640px;
+  }
+  .sub {
+    color: var(--muted);
+    margin: 0 0 36px;
+    max-width: 580px;
+  }
+
+  .switch {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 26px;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    transition:
+      border-color 0.15s,
+      background 0.15s;
+  }
+  .tab:hover {
+    border-color: var(--line-2);
+  }
+  .tab[aria-selected="true"] {
+    background: var(--surface);
+    border-color: #4a4640;
+  }
+  .tab img {
+    height: 26px;
+    width: auto;
+    opacity: 0.5;
+    filter: grayscale(1);
+    transition:
+      opacity 0.2s,
+      filter 0.2s;
+  }
+  .tab:hover img,
+  .tab[aria-selected="true"] img {
+    opacity: 1;
+    filter: none;
+  }
+  /* Bandwidth and Sinch have no mark in Simple Icons; the neutral glyph is
+     drawn in the text color so it reads on the dark ground. */
+  .glyph {
+    width: 26px;
+    height: 26px;
+    background: var(--muted);
+    mask: var(--mark) center / contain no-repeat;
+    transition: background 0.2s;
+  }
+  .tab:hover .glyph,
+  .tab[aria-selected="true"] .glyph {
+    background: var(--text);
+  }
+  .tab span {
+    font-size: 15px;
+  }
+  .import-line {
+    margin-top: 12px;
+    padding: 18px 20px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    min-width: 0;
+  }
+  .import-line pre {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    transition: opacity 0.15s;
+  }
+  .hint {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .outcomes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .outcome {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 14px;
+    align-items: baseline;
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    grid-row: span 2;
+    align-self: start;
+    margin-top: 8px;
+  }
+  .dot.ok {
+    background: var(--ok);
+  }
+  .dot.next {
+    border: 1.5px solid var(--muted);
+  }
+  .dot.no {
+    background: var(--no);
+  }
+  .dot.wait {
+    background: var(--wait);
+  }
+  .outcome b {
+    font-weight: 500;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .outcome p {
+    grid-column: 2 / -1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+
+  .index {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+  }
+  .index a {
+    padding: 22px 28px 26px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .index a:not(:nth-child(3n + 1)) {
+    padding-left: 28px;
+    border-left: 1px solid var(--line);
+  }
+  .index b {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 500;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+  .index b span {
+    color: var(--dim);
+    transition:
+      color 0.15s,
+      transform 0.15s;
+  }
+  .index a:hover b span {
+    color: var(--text);
+    transform: translateX(2px);
+  }
+  .index p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  /* Footer */
+  .home-footer {
+    padding-top: 160px;
+  }
+  .footer-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+    gap: 40px;
+    padding: 56px 0 64px;
+    border-top: 1px solid var(--line);
+  }
+  .footer-name {
+    font-weight: 500;
+    font-size: 17px;
+    margin-bottom: 10px;
+  }
+  .footer-brand p {
+    margin: 0;
+    max-width: 300px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .footer-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 14px;
+  }
+  .footer-col b {
+    font-weight: 400;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+  .footer-col a {
+    color: var(--muted) !important;
+    width: fit-content;
+    transition: color 0.15s;
+  }
+  .footer-col a:hover {
+    color: var(--text) !important;
+  }
+  .footer-bottom {
+    display: flex;
+    justify-content: space-between;
+    padding: 22px 0 28px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--dim);
+  }
+
+  @media (max-width: 1100px) {
+    .switch {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 860px) {
+    .wrap {
+      padding: 0 20px;
+    }
+    .hero {
+      padding: 64px 0 44px;
+    }
+    h1 {
+      font-size: 38px;
+    }
+    .lede {
+      font-size: 17px;
+    }
+    .actions {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 18px;
+    }
+    .prompt {
+      justify-content: center;
+      padding: 0 14px 0 10px;
+    }
+    .docs {
+      align-self: flex-start;
+    }
+    .run-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .run-body > div {
+      padding: 20px;
+    }
+    .run-body > div + div {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+    .ln {
+      margin: 0 -20px;
+      padding: 0 20px;
+    }
+    .home pre {
+      font-size: 12px;
+    }
+    .route {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .section {
+      padding-top: 96px;
+    }
+    h2 {
+      font-size: 26px;
+    }
+    .switch {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .import-line {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .outcomes,
+    .index {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .index a,
+    .index a:not(:nth-child(3n + 1)) {
+      padding: 18px 0;
+      border-left: 0;
+    }
+    .home-footer {
+      padding-top: 112px;
+    }
+    .footer-main {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 36px 20px;
+      padding: 44px 0 48px;
+    }
+    .footer-brand {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .home *,
+    .home-footer * {
+      transition: none !important;
+    }
+  }
+</style>
+
+<script>
   const copyText = async (text: string) => {
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(text);
@@ -577,119 +997,90 @@ const art = (name: string) => ({
     field.remove();
   };
 
-  const flash = (button: HTMLElement, label: string) => {
-    if (button.dataset.copied !== undefined) return;
-    button.dataset.copied = "";
-    button.setAttribute("aria-label", "Copied");
-    window.setTimeout(() => {
-      delete button.dataset.copied;
-      button.setAttribute("aria-label", label);
-    }, 1600);
-  };
+  const quickStartPrompt = () => `Add SMS sending to this app with @opencoredev/sms-sdk.
 
-  document.addEventListener("click", async (event) => {
-    const target = event.target instanceof Element ? event.target : null;
+1. Read ${location.origin}/llms.txt before writing any code.
+2. Install it: npm i @opencoredev/sms-sdk
+3. Ask me which provider I use (Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch) and read its credentials from environment variables.
+4. Create one client with createSmsClient and add a send() call where it fits.
+5. Handle the errors send() throws: a rejection can be shown to the user, but an unknown outcome must never be retried automatically.`;
 
-    // Each copy button carries its own text: the install command, or a code
-    // sample as it runs (the "after" side of a diff, with no hidden stubs).
-    const copyButton = target?.closest<HTMLButtonElement>("[data-sms-copy]");
-    if (copyButton) {
-      const label = copyButton.getAttribute("aria-label") ?? "Copy";
-      await copyText(copyButton.dataset.smsCopy ?? "");
-      flash(copyButton, label);
-      return;
-    }
+  // The run plays once when it scrolls into view and again on Replay. Each frame
+  // lights the matching code lines and moves the phone and the route forward.
+  const frames: [delay: number, step: number, status: string][] = [
+    [300, 0, "Sending…"],
+    [1300, 1, "Twilio rejected the sender, trying Telnyx…"],
+    [2300, 2, "Sent via Telnyx"],
+    [3400, 3, "Delivered"],
+  ];
 
-    // The custom header opens Blume's own search dialog, which lives in the
-    // hidden stock header so ⌘K and the index keep working.
-    if (target?.closest("[data-sms-search]")) {
-      document.querySelector<HTMLButtonElement>("[data-blume-header] [data-blume-search-open]")?.click();
-      return;
-    }
+  const setupHome = () => {
+    const promptButton = document.querySelector<HTMLButtonElement>("[data-prompt]");
+    const run = document.querySelector<HTMLElement>(".run");
+    if (!promptButton || !run) return;
 
-    const menuButton = target?.closest<HTMLButtonElement>("[data-sms-menu]");
-    if (menuButton) {
-      const menu = document.getElementById("sms-menu");
-      const open = menuButton.getAttribute("aria-expanded") !== "true";
-      menuButton.setAttribute("aria-expanded", String(open));
-      if (menu) menu.hidden = !open;
-    }
-  });
-
-  // The header sits over the painting at the top and frosts once the page
-  // scrolls. Looked up on each call because the client router swaps the body.
-  const syncNav = () =>
-    document.querySelector("[data-sms-nav]")?.toggleAttribute("data-scrolled", window.scrollY > 8);
-  window.addEventListener("scroll", syncNav, { passive: true });
-
-  const renderCounter = (counter: HTMLElement) => {
-    const input = counter.querySelector<HTMLTextAreaElement>("[data-sms-input]");
-    const track = counter.querySelector<HTMLElement>("[data-sms-track]");
-    if (!input || !track) return;
-    const estimate = estimateSegments(input.value);
-    track.replaceChildren(
-      ...Array.from({ length: Math.max(1, estimate.segments) }, (_, index) => {
-        const cell = document.createElement("span");
-        cell.className = "sms-track-cell";
-        const fill = document.createElement("span");
-        fill.className = "sms-track-fill";
-        const used = (estimate.units - index * estimate.unitsPerSegment) / estimate.unitsPerSegment;
-        fill.style.inlineSize = `${(Math.min(1, Math.max(0, used)) * 100).toFixed(1)}%`;
-        cell.append(fill);
-        return cell;
-      }),
-    );
-    const values: Record<string, string> = {
-      segments: String(estimate.segments),
-      encoding: estimate.encoding === "gsm7" ? "GSM-7" : "UCS-2",
-      units: String(estimate.units),
-      note: `${
-        estimate.nonGsmCharacters.length > 0
-          ? `UCS-2 because of ${estimate.nonGsmCharacters.join(" ")}.`
-          : "Every character fits GSM-7."
-      } ${estimate.unitsPerSegment} units per segment.`,
-    };
-    for (const [name, value] of Object.entries(values)) {
-      const node = counter.querySelector(`[data-sms-out="${name}"]`);
-      if (node) node.textContent = value;
-    }
-    counter.querySelectorAll<HTMLButtonElement>("[data-sms-sample]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.smsSample === input.value));
+    let promptTimer = 0;
+    promptButton.addEventListener("click", async () => {
+      await copyText(quickStartPrompt());
+      promptButton.dataset.copied = "";
+      window.clearTimeout(promptTimer);
+      promptTimer = window.setTimeout(() => delete promptButton.dataset.copied, 1800);
     });
+
+    const bubble = run.querySelector<HTMLElement>("[data-bubble]");
+    const status = run.querySelector<HTMLElement>("[data-status]");
+    const lines = [...run.querySelectorAll<HTMLElement>(".ln[data-step]")];
+    const route = [...run.querySelectorAll<HTMLElement>(".route li")];
+    let timers: number[] = [];
+
+    const showStep = (step: number, label: string) => {
+      lines.forEach((line) => line.classList.toggle("on", Number(line.dataset.step) === step));
+      route.forEach((item) => item.classList.toggle("in", Number(item.dataset.step) <= step));
+      bubble?.classList.toggle("in", step >= 0);
+      bubble?.classList.toggle("sent", step >= 2);
+      if (status) status.textContent = label;
+    };
+
+    const play = () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers = frames.map(([delay, step, label]) => window.setTimeout(() => showStep(step, label), delay));
+      showStep(-1, "");
+    };
+
+    run.querySelector("[data-replay]")?.addEventListener("click", play);
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      showStep(3, "Delivered");
+    } else {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) {
+            play();
+            observer.disconnect();
+          }
+        },
+        { threshold: 0.35 },
+      );
+      observer.observe(run);
+    }
+
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>(".tab")];
+    const importLine = document.querySelector<HTMLElement>("[data-import]");
+    const guide = document.querySelector<HTMLAnchorElement>("[data-guide]");
+    const selectProvider = (tab: HTMLButtonElement) => {
+      const { provider = "", name = "", args = "" } = tab.dataset;
+      tabs.forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
+      if (importLine) {
+        importLine.textContent = `import { ${provider} } from "@opencoredev/sms-sdk/${provider}";\n\nadapters: [${provider}(${args})]`;
+      }
+      if (guide) {
+        guide.textContent = `${name} guide`;
+        guide.href = `/providers/${provider}`;
+      }
+    };
+    tabs.forEach((tab) => tab.addEventListener("click", () => selectProvider(tab)));
+    if (tabs[0]) selectProvider(tabs[0]);
   };
 
-  document.addEventListener("input", (event) => {
-    const counter = (event.target instanceof Element ? event.target : null)?.closest<HTMLElement>("[data-sms-counter]");
-    if (counter) renderCounter(counter);
-  });
-
-  document.addEventListener("click", (event) => {
-    const sample = (event.target instanceof Element ? event.target : null)?.closest<HTMLButtonElement>("[data-sms-sample]");
-    const counter = sample?.closest<HTMLElement>("[data-sms-counter]");
-    const input = counter?.querySelector<HTMLTextAreaElement>("[data-sms-input]");
-    if (!sample || !counter || !input) return;
-    input.value = sample.dataset.smsSample ?? "";
-    renderCounter(counter);
-  });
-
-  // On phones the hero has its own Get started button, so the header's copy
-  // stays hidden until the hero button has scrolled up past the header.
-  let heroCtaObserver: IntersectionObserver | undefined;
-  const watchHeroCta = () => {
-    heroCtaObserver?.disconnect();
-    const nav = document.querySelector("[data-sms-nav]");
-    const heroCta = document.querySelector("[data-sms-hero-cta]");
-    if (!nav || !heroCta) return;
-    heroCtaObserver = new IntersectionObserver(([entry]) => {
-      if (entry) nav.toggleAttribute("data-past-hero-cta", !entry.isIntersecting && heroCta.getBoundingClientRect().top < 64);
-    }, { rootMargin: "-64px 0px 0px 0px" });
-    heroCtaObserver.observe(heroCta);
-  };
-
-  document.addEventListener("astro:page-load", () => {
-    syncNav();
-    watchHeroCta();
-  });
-  syncNav();
-  watchHeroCta();
+  // ClientRouter swaps pages without a full load, so run setup on every page view.
+  document.addEventListener("astro:page-load", setupHome);
 </script>
