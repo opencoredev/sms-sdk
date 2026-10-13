@@ -105,7 +105,7 @@ Bun.serve({
 
 Bun loads `.env` automatically, so `TELNYX_PUBLIC_KEY` comes from your `.env` file in development.
 
-SMS SDK is tested on Node.js and Bun. Edge runtimes have the APIs it needs but are not tested. On serverless platforms, store the event before you respond, because the platform can stop the function right after the response. `memoryIdempotencyStore()` does not survive across serverless invocations, so use a [shared store](/advanced/multiple-instances) there. To test locally, expose your port with a tunnel and use its HTTPS URL; see [Local testing](/getting-started/local-testing).
+SMS SDK is tested on Node.js and Bun. Edge runtimes have the APIs it needs but are not tested. On serverless platforms, store the event before you respond, because the platform can stop the function right after the response. `memoryIdempotencyStore()` does not survive across serverless invocations, so use a [shared store](/advanced/multiple-instances) there. To test locally, expose your port with a tunnel and use its HTTPS URL; see [Test without a provider](/getting-started/local-testing).
 
 ## Event types
 
@@ -242,4 +242,4 @@ A status webhook can also arrive before you have saved the `send()` result. Upse
 
 - [Webhook security](/receiving/webhook-security)
 - [STOP, HELP, and opt-outs](/receiving/opt-outs)
-- [Deploy with multiple instances](/advanced/multiple-instances)
+- [Share idempotency across servers](/advanced/multiple-instances)

@@ -29,7 +29,7 @@ Result: local checks passed. Nothing was sent.
 ## Usage
 
 ```text
-sms-sdk doctor --adapter <twilio|telnyx|plivo|vonage> [options]
+sms-sdk doctor --adapter <twilio|telnyx|plivo|vonage|bandwidth|sinch> [options]
 ```
 
 | Flag | Meaning |
@@ -53,6 +53,8 @@ The CLI reads the process environment and does not load `.env` files. Export the
 | `telnyx` | `TELNYX_API_KEY` | `TELNYX_FROM`, `TELNYX_MESSAGING_PROFILE_ID` |
 | `plivo` | `PLIVO_AUTH_ID`, `PLIVO_AUTH_TOKEN` | `PLIVO_FROM`, `PLIVO_POWERPACK_UUID` |
 | `vonage` | `VONAGE_API_KEY` (with `VONAGE_API_SECRET`) or `VONAGE_APPLICATION_ID` (with `VONAGE_PRIVATE_KEY`) | `VONAGE_FROM` |
+| `bandwidth` | `BANDWIDTH_USER_ID`, `BANDWIDTH_API_TOKEN`, `BANDWIDTH_API_SECRET`, `BANDWIDTH_APPLICATION_ID` | `BANDWIDTH_FROM` |
+| `sinch` | `SINCH_SERVICE_PLAN_ID`, `SINCH_API_TOKEN` | `SINCH_FROM` |
 
 The sender comes from `--from`, else `<PROVIDER>_FROM`, else `TWILIO_MESSAGING_SERVICE_SID` or `PLIVO_POWERPACK_UUID`. A Messaging Service or Powerpack cannot be passed with `--from`; set it in the environment. Secret values are never printed.
 

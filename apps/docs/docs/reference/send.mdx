@@ -22,7 +22,7 @@ const result = await sms.send(
 console.log(result.providerId, result.delivery, result.segments);
 ```
 
-Guide with error handling: [Send your first SMS](/sending/send-a-message).
+Guide with error handling: [Send a message](/sending/send-a-message).
 
 ### Parameters
 
@@ -35,7 +35,7 @@ Guide with error handling: [Send your first SMS](/sending/send-a-message).
 
 - Type: `` `+${string}` `` (`E164`)
 - Required
-- Recipient. Checked at runtime against `^\+[1-9]\d{1,14}$`. See [Senders and E.164 numbers](/sending/send-a-message).
+- Recipient. Checked at runtime against `^\+[1-9]\d{1,14}$`. See [Send a message](/sending/send-a-message#choose-a-sender).
 
 ### `from`
 
@@ -53,7 +53,7 @@ Guide with error handling: [Send your first SMS](/sending/send-a-message).
 
 - Type: `string`, 1 to 255 characters
 - Optional
-- Names the logical message, such as `order:123:shipped:v1`. Deduplicates only when the client has `idempotency.store`. Without a store, only concurrent calls with the same key on the same client share one send. See [Idempotency](/sending/idempotency).
+- Names the logical message, such as `order:123:shipped:v1`. Deduplicates only when the client has `idempotency.store`. Without a store, only concurrent calls with the same key on the same client share one send. See [Prevent duplicate sends](/sending/idempotency).
 
 ### `mediaUrls`
 

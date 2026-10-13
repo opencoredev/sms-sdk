@@ -21,9 +21,9 @@ On `HandoffUnknownError`, check the provider console or wait for a status webhoo
 
 ## The order a send runs in
 
-1. **Local checks.** The recipient must be an E.164 number, the sender must suit the first adapter, and the adapter must support every field you set (media, scheduling, expiry, callback URL). A failure throws before any request, so nothing is silently dropped. See [Validation and encoding](/sending/length-and-cost).
+1. **Local checks.** The recipient must be an E.164 number, the sender must suit the first adapter, and the adapter must support every field you set (media, scheduling, expiry, callback URL). A failure throws before any request, so nothing is silently dropped. See [Message length and cost](/sending/length-and-cost).
 2. **Duplicate check.** If the same `idempotencyKey` was already accepted, you get the stored result back with `replayed: true` instead of a second text. See [Prevent duplicate sends](/sending/idempotency).
-3. **Your policy.** A `beforeSend` callback can block the message, for example for a suppressed recipient. See [Policy checks and hooks](/advanced/policy-and-hooks).
+3. **Your policy.** A `beforeSend` callback can block the message, for example for a suppressed recipient. See [Block and log sends](/advanced/policy-and-hooks).
 4. **The request.** The first adapter sends. A documented rate limit is retried on the same adapter. If you turned fallback on and the provider clearly rejected the message, the next adapter tries. See [Fallback and retries](/sending/fallback-and-retries).
 5. **The result.** The first accepted response resolves the call. Anything else throws.
 
@@ -60,7 +60,7 @@ SMS SDK picks the safe option when you pass nothing, even when that means an err
 | Duplicate store | `memoryIdempotencyStore()` protects one process. It is lost on restart and not shared across instances or serverless invocations. | [Multiple instances](/advanced/multiple-instances) |
 | Sender | A message without `from` uses the adapter's `from`. With neither, `send()` throws `InvalidSenderError`. | [Send a message](/sending/send-a-message) |
 | Segment count | `result.segments` and `validate()` estimate GSM-7 and UCS-2 segments. The provider decides what it bills. | [Length and cost](/sending/length-and-cost) |
-| Hooks | Phone numbers are masked, bodies are never included, and a hook that throws is ignored. | [Policy checks and hooks](/advanced/policy-and-hooks) |
+| Hooks | Phone numbers are masked, bodies are never included, and a hook that throws is ignored. | [Block and log sends](/advanced/policy-and-hooks) |
 | Webhook verification | On. An unsigned or altered request throws `WebhookSignatureError`. `unsafeSkipVerification: true` is for tests only. | [Webhook security](/receiving/webhook-security) |
 | Proxy headers | Ignored. Pass `publicUrl`, or `trustProxy: true` only if a proxy you control sets `X-Forwarded-Proto` and `X-Forwarded-Host`. | [Webhook security](/receiving/webhook-security) |
 | Replay window | Signed timestamps must be within 5 minutes (`toleranceSec: 300`) for Telnyx, Vonage, and Sinch HMAC. Twilio, Plivo, and Bandwidth sign no timestamp, so deduplicate with `dedupeKey`. | [Webhook security](/receiving/webhook-security) |

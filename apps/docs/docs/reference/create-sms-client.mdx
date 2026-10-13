@@ -45,7 +45,7 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 - Type: `"none" | "on-known-rejection"`
 - Optional
 - Defaults to `"none"`
-- With `"none"`, only the primary adapter sends. With `"on-known-rejection"`, a fallback-eligible rejection (`auth`, `rate_limited`, `sender`, `account`) moves to the next adapter that supports the message. An accepted or unknown outcome never falls back. See [Retries and fallback](/sending/fallback-and-retries).
+- With `"none"`, only the primary adapter sends. With `"on-known-rejection"`, a fallback-eligible rejection (`auth`, `rate_limited`, `sender`, `account`) moves to the next adapter that supports the message. An accepted or unknown outcome never falls back. See [Fallback and retries](/sending/fallback-and-retries).
 
 ### `retry`
 
@@ -66,19 +66,19 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 - Type: `{ store: IdempotencyStore; ttlSec?: number; staleReservationSec?: number }`
 - Optional
 - Off by default
-- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. After `staleReservationSec` (default `300`), an unfinished reservation counts as an unknown outcome. See [Idempotency](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
+- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. After `staleReservationSec` (default `300`), an unfinished reservation counts as an unknown outcome. See [Prevent duplicate sends](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
 
 ### `beforeSend`
 
 - Type: `(context: BeforeSendContext) => PolicyDecision | Promise<PolicyDecision>`
 - Optional
-- Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, the error propagates and nothing is sent. See [Policy checks and hooks](/advanced/policy-and-hooks).
+- Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, the error propagates and nothing is sent. See [Block and log sends](/advanced/policy-and-hooks).
 
 ### `hooks`
 
 - Type: `{ onAttempt?, onAccepted?, onFailure? }`
 - Optional
-- Redacted observability callbacks. Errors thrown by hooks are swallowed. See [Policy checks and hooks](/advanced/policy-and-hooks#observe-sends-with-hooks).
+- Redacted observability callbacks. Errors thrown by hooks are swallowed. See [Block and log sends](/advanced/policy-and-hooks#log-sends-with-hooks).
 
 ## Returns: `SmsClient`
 

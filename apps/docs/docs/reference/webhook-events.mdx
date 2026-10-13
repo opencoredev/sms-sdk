@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Guides: [Receiving overview](/receiving/webhooks), [Webhook security](/receiving/webhook-security).
+Guides: [Receive webhooks](/receiving/webhooks), [Webhook security](/receiving/webhook-security).
 
 ### Parameters
 
@@ -34,7 +34,7 @@ Options are discriminated by `provider`. Every variant accepts the common option
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage"` | required | Which scheme to verify and parse. |
+| `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | required | Which scheme to verify and parse. |
 | `request` | `Request` | required | The incoming web request. Its body must not have been read. |
 | `credentials` | per provider, below | required | Verification secret. |
 | `unsafeSkipVerification` | `boolean` | `false` | Skips signature checks. For tests only. The event is not authenticated. |
@@ -49,6 +49,8 @@ Per-provider options:
 | `"telnyx"` | `{ publicKey: string }` (base64, 32-byte Ed25519) | `toleranceSec?: number` (default 300) |
 | `"plivo"` | `{ authToken: string }` | `publicUrl?: string`, `trustProxy?: boolean` |
 | `"vonage"` | `{ signatureSecret: string }` | `toleranceSec?: number` (default 300) |
+| `"bandwidth"` | `{ username: string; password: string }` (Basic credentials on the Bandwidth application) | none |
+| `"sinch"` | `{ kind: "basic"; username: string; password: string }` or `{ kind: "hmac"; webhookSecret: string }` | `toleranceSec?: number` (HMAC only, default 300) |
 
 `publicUrl` is the exact URL configured with the provider. If it has no query string, the request's query string is appended. Without `publicUrl`, `trustProxy: true` builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host`. Otherwise `request.url` is used and forwarded headers are ignored. See [Webhook security](/receiving/webhook-security).
 
@@ -67,7 +69,7 @@ Every event has these fields.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage"` | Which provider sent it. |
+| `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | Which provider sent it. |
 | `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
 | `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
 | `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. |
@@ -78,7 +80,7 @@ Every event has these fields.
 { type: "message.received"; providerId: string; from: string; to: string; body: string; mediaUrls: readonly string[] }
 ```
 
-An inbound message. See [Inbound SMS](/receiving/webhooks).
+An inbound message. See [Receive webhooks](/receiving/webhooks).
 
 ### Status events
 
@@ -93,7 +95,7 @@ An inbound message. See [Inbound SMS](/receiving/webhooks).
 }
 ```
 
-A status update for an outbound message. `MessageStatusType` is the union of these five types. The mapping per provider is in [Delivery status webhooks](/receiving/webhooks#status-mapping).
+A status update for an outbound message. `MessageStatusType` is the union of these five types. The mapping per provider is in [Receive webhooks](/receiving/webhooks#status-mapping).
 
 ### Opt-out and help events
 
@@ -127,6 +129,8 @@ A verified event SMS SDK does not map, such as Twilio `read` or a new Telnyx eve
 | Telnyx | `telnyx:{data.id}` |
 | Plivo | `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received` |
 | Vonage | `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received` |
+| Bandwidth | `bandwidth:{message.id}:{type}` |
+| Sinch | `sinch:{batch_id}:{recipient}:{status}` for reports, `sinch:{id}:received` for inbound |
 
 ## Keyword helpers
 
@@ -151,7 +155,7 @@ Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out"
 
 ## Per-provider parsers
 
-`parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, and `parseVonageWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, and `VonageWebhookOptions`.
+`parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, `parseVonageWebhook`, `parseBandwidthWebhook`, and `parseSinchWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, `VonageWebhookOptions`, `BandwidthWebhookOptions`, and `SinchWebhookOptions`.
 
 ## Verify helpers
 
@@ -191,4 +195,4 @@ export async function isAuthentic(request: Request): Promise<boolean> {
 
 ## Types
 
-Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, the four per-provider option types, and `WebhookFailureReason`.
+Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, the six per-provider option types, `BandwidthWebhookCredentials`, `SinchWebhookCredentials`, and `WebhookFailureReason`.

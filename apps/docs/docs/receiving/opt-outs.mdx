@@ -74,7 +74,7 @@ export const sms = createSmsClient({
 
 Sending to a suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
 
-A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or tries another provider. See [Retries and fallback](/sending/fallback-and-retries). Add the number to your list when you see one:
+A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or tries another provider. See [Fallback and retries](/sending/fallback-and-retries). Add the number to your list when you see one:
 
 ```ts
 import { ProviderRejectedError } from "@opencoredev/sms-sdk";
@@ -120,5 +120,5 @@ Your app also collects and stores consent before texting anyone, registers sende
 
 ## Next steps
 
-- [Policy checks and hooks](/advanced/policy-and-hooks)
+- [Block and log sends](/advanced/policy-and-hooks)
 - [Registration and consent](/providers/registration-and-consent)

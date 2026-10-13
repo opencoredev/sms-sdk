@@ -157,7 +157,7 @@ No store removes this step. None of the supported providers deduplicates SMS sen
 
 ## What stays per process
 
-- **Webhook deduplication.** Store each event's `dedupeKey` under a unique constraint in the shared database, not in memory. See [Duplicates and ordering](/receiving/webhooks#duplicates-and-ordering).
+- **Webhook deduplication.** Store each event's `dedupeKey` under a unique constraint in the shared database, not in memory. See [Receive webhooks](/receiving/webhooks#duplicates-and-ordering).
 - **In-flight sharing.** Two concurrent `send()` calls with the same key share one request only within one client instance. The shared store covers the rest.
 - **Retry waits.** Backoff timers live in the sending process. A crash during a wait leaves a reserved record, which becomes an unknown outcome after `staleReservationSec`.
 

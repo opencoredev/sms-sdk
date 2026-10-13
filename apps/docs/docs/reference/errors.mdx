@@ -81,7 +81,7 @@ The base class. Every error has these fields.
 
 - `code`: `invalid_recipient`. `retrySafe`: true.
 - `to` does not match `^\+[1-9]\d{1,14}$`.
-- Normalize the number to E.164. See [Senders and E.164 numbers](/sending/send-a-message).
+- Normalize the number to E.164. See [Send a message](/sending/send-a-message#choose-a-sender).
 
 ### `InvalidSenderError`
 
@@ -169,7 +169,7 @@ The provider answered and proved it did not create the message. Sending the same
 | `replayed_unknown` | An earlier send with this idempotency key had an unknown outcome. |
 | `stale_reservation` | An earlier send with this key never finished and is older than `staleReservationSec`. |
 
-Check whether the message exists before sending again. Look it up in the provider's console or message API around the time of `attempts`, or wait for a status webhook. If it was never created, clear the idempotency record (`store.delete(key)` on the memory store) and send again. See [Idempotency](/sending/idempotency#reconcile-an-unknown-outcome).
+Check whether the message exists before sending again. Look it up in the provider's console or message API around the time of `attempts`, or wait for a status webhook. If it was never created, clear the idempotency record (`store.delete(key)` on the memory store) and send again. See [Prevent duplicate sends](/sending/idempotency#reconcile-an-unknown-outcome).
 
 :::warning
 Do not wrap `send()` in a generic retry loop. A loop that retries on any error turns a `HandoffUnknownError` into a possible duplicate text. Retry only when `error.retrySafe` is `true`.

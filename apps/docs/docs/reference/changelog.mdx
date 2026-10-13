@@ -11,12 +11,12 @@ First public version.
 
 - [`providerOptions`](/reference/send#provideroptions) on `send()` input: typed per-adapter provider parameters plus an unvalidated `extra` passthrough. Unknown keys, wrong types, and parameters the SDK sets throw before any request. Each entry applies only to its own adapter, is listed in `validate().providerOptionsFor`, and is part of the idempotency fingerprint. Adapters declare options with `SmsAdapter.providerOptions` and receive them as `AdapterMessage.providerFields`.
 - `createSmsClient` with `send()`, `validate()`, and `capabilities()`. `send()` resolves only on provider acceptance. Rejections and unknown outcomes throw typed errors with `code`, `retrySafe`, and redacted `attempts`.
-- Adapters: [Twilio](/providers/twilio) (supported), [Telnyx](/providers/telnyx) (supported), [Plivo](/providers/plivo) (partial), and [Vonage](/providers/vonage) Messages API with Basic or JWT auth (partial).
+- Adapters: [Twilio](/providers/twilio) (supported), [Telnyx](/providers/telnyx) (supported), [Plivo](/providers/plivo) (partial), [Vonage](/providers/vonage) Messages API with Basic or JWT auth (partial), [Bandwidth](/providers/bandwidth) (partial), and [Sinch](/providers/sinch) (partial).
 - Opt-in fallback (`fallback: "on-known-rejection"`) for `auth`, `rate_limited`, `sender`, and `account` rejections only, never after an unknown outcome.
 - Rate-limit retries with exponential backoff, full jitter, and bounded `Retry-After`. A 429 counts as a rate limit only with the provider's documented rate-limit error. Any other 429 is an unknown outcome.
 - Per-request timeout and `AbortSignal` support.
 - The `IdempotencyStore` contract with atomic `reserve` and owner-checked `finalize`, plus `memoryIdempotencyStore()`.
 - GSM-7 and UCS-2 segment estimates, including extension characters and surrogate pairs at segment boundaries.
-- `/webhooks`: verified, normalized events for all four providers, with dedupe keys and STOP/HELP detection.
-- `/testing`: the `memory()` adapter, `mockFetch()`, signed webhook request builders, and `runSmsAdapterContract()`.
+- `/webhooks`: verified, normalized events for every provider, with dedupe keys and STOP/HELP detection.
+- `/testing`: the `memory()` adapter, `mockFetch()`, signed webhook request builders for Twilio, Telnyx, Plivo, and Vonage, and `runSmsAdapterContract()`.
 - `sms-sdk doctor`: a dry-run configuration check with a gated `--live` send.

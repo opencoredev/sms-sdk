@@ -3,7 +3,7 @@ title: "Idempotency store"
 description: "The IdempotencyStore interface, its record states, the reserve and finalize contract, and memoryIdempotencyStore()."
 ---
 
-The client uses an `IdempotencyStore` to remember what happened to each `idempotencyKey`. Use the built-in memory store for one process, or implement the interface on a shared database. Guides: [Idempotency](/sending/idempotency), [Deploy with multiple instances](/advanced/multiple-instances).
+The client uses an `IdempotencyStore` to remember what happened to each `idempotencyKey`. Use the built-in memory store for one process, or implement the interface on a shared database. Guides: [Prevent duplicate sends](/sending/idempotency), [Share idempotency across servers](/advanced/multiple-instances).
 
 ## `memoryIdempotencyStore()`
 

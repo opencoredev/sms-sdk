@@ -48,7 +48,7 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // "SM..." ("MM..." for MMS)
 ```
 
-Pass either `authToken` or `apiKeySid` with `apiKeySecret`, not both. `twilio()` throws `ConfigurationError` at startup when the Account SID is malformed or a credential is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.twilio.com`) and `fetch`. To test without a Twilio account, see [Local testing](/getting-started/local-testing).
+Pass either `authToken` or `apiKeySid` with `apiKeySecret`, not both. `twilio()` throws `ConfigurationError` at startup when the Account SID is malformed or a credential is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.twilio.com`) and `fetch`. To test without a Twilio account, see [Test without a provider](/getting-started/local-testing).
 
 The adapter calls `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` with a form body. A 2xx without a valid `SM` or `MM` SID is an unknown outcome.
 
@@ -61,7 +61,7 @@ The adapter calls `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` with a 
 | Alphanumeric sender ID | `{ senderId: "Acme" }` | `From` |
 | Messaging Service | `{ messagingService: "MG…" }` | `MessagingServiceSid` |
 
-Which senders work depends on the destination country, and a sender Twilio refuses is a `sender` rejection. In the US, long codes need A2P 10DLC registration, toll-free numbers need verification before they reach the US or Canada, and alphanumeric sender IDs are not supported. Twilio's [SMS guidelines](https://www.twilio.com/en-us/guidelines/sms) list the rules for each country. SMS SDK does not check them before sending; see [Sender registration and consent](/providers/registration-and-consent).
+Which senders work depends on the destination country, and a sender Twilio refuses is a `sender` rejection. In the US, long codes need A2P 10DLC registration, toll-free numbers need verification before they reach the US or Canada, and alphanumeric sender IDs are not supported. Twilio's [SMS guidelines](https://www.twilio.com/en-us/guidelines/sms) list the rules for each country. SMS SDK does not check them before sending; see [Registration and consent](/providers/registration-and-consent).
 
 ## Features
 
@@ -186,5 +186,5 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 ## Next steps
 
 - [Migrate from the Twilio SDK](/migration/migrate-from-twilio)
-- [Receiving overview](/receiving/webhooks)
-- [Switch Twilio to Telnyx](/migration/switch-providers)
+- [Receive webhooks](/receiving/webhooks)
+- [Switch providers](/migration/switch-providers)

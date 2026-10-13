@@ -65,7 +65,7 @@ Where to find each credential:
 - Bandwidth: the callback username and password you set on the messaging application.
 - Sinch: the Basic credentials on your callback URL, or the HMAC secret your Sinch account manager set up.
 
-Twilio, Plivo, Bandwidth, and Sinch with Basic auth sign no timestamp, so someone who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/webhooks#duplicates-and-ordering).
+Twilio, Plivo, Bandwidth, and Sinch with Basic auth sign no timestamp, so someone who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Receive webhooks](/receiving/webhooks#duplicates-and-ordering).
 
 ## Fix URL mismatches behind a proxy
 
@@ -100,7 +100,7 @@ Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body once with 
 
 ## Skipping verification in tests
 
-`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Local testing](/getting-started/local-testing).
+`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/getting-started/local-testing).
 
 ## Lower-level helpers
 
@@ -109,4 +109,4 @@ To verify without parsing, for example in middleware, `/webhooks` exports `verif
 ## Next steps
 
 - [Receive webhooks](/receiving/webhooks)
-- [Local testing](/getting-started/local-testing)
+- [Test without a provider](/getting-started/local-testing)

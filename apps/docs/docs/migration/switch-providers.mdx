@@ -155,7 +155,7 @@ export const sms = createSmsClient({
 });
 ```
 
-A Telnyx `auth`, `rate_limited`, `sender`, or `account` rejection now goes through Twilio. Other rejections, and outcomes where Telnyx may have sent the message, never fall back. See [Retries and fallback](/sending/fallback-and-retries). Watch `result.attemptedProviders` or the `onAttempt` hook to see how often Twilio is used.
+A Telnyx `auth`, `rate_limited`, `sender`, or `account` rejection now goes through Twilio. Other rejections, and outcomes where Telnyx may have sent the message, never fall back. See [Fallback and retries](/sending/fallback-and-retries). Watch `result.attemptedProviders` or the `onAttempt` hook to see how often Twilio is used.
 
 Each adapter sends from its own number, so recipients may see two sender numbers during this phase. If that matters, move one message type at a time instead, with a second client for the new provider.
 
@@ -172,4 +172,4 @@ Until you release the old number or close the account, rollback is a code change
 ## Next steps
 
 - [Choose a provider](/providers/overview)
-- [Retries and fallback](/sending/fallback-and-retries)
+- [Fallback and retries](/sending/fallback-and-retries)

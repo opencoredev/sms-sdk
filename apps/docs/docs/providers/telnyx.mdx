@@ -48,7 +48,7 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // the Telnyx message ID (data.id)
 ```
 
-`telnyx()` throws `ConfigurationError` at startup when `apiKey` is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.telnyx.com`) and `fetch`. To test without a Telnyx account, see [Local testing](/getting-started/local-testing).
+`telnyx()` throws `ConfigurationError` at startup when `apiKey` is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.telnyx.com`) and `fetch`. To test without a Telnyx account, see [Test without a provider](/getting-started/local-testing).
 
 The adapter calls `POST /v2/messages` with a JSON body. Delivery comes from `data.to[0].status`, usually `queued`. A 2xx without `data.id` is an unknown outcome.
 
@@ -63,7 +63,7 @@ The adapter calls `POST /v2/messages` with a JSON body. Delivery comes from `dat
 
 An alphanumeric sender without `messagingProfileId` on the adapter fails local validation before any request. In Telnyx, assign each number to a messaging profile before it sends.
 
-US A2P traffic to mobile numbers needs 10DLC registration, toll-free numbers need verification, and a short code works in one country only. Alphanumeric senders can't reach the US, Canada, or Puerto Rico, and recipients can't reply to them. Some countries, such as the UK and France, require sender ID registration in advance. Telnyx's [sender type guide](https://developers.telnyx.com/docs/messaging/getting-started/choosing-your-sender-type) covers the rules. SMS SDK does not check them before sending; see [Sender registration and consent](/providers/registration-and-consent).
+US A2P traffic to mobile numbers needs 10DLC registration, toll-free numbers need verification, and a short code works in one country only. Alphanumeric senders can't reach the US, Canada, or Puerto Rico, and recipients can't reply to them. Some countries, such as the UK and France, require sender ID registration in advance. Telnyx's [sender type guide](https://developers.telnyx.com/docs/messaging/getting-started/choosing-your-sender-type) covers the rules. SMS SDK does not check them before sending; see [Registration and consent](/providers/registration-and-consent).
 
 ## Features
 
@@ -148,7 +148,7 @@ Telnyx sends no opt-out flag, so opt-outs come from keyword detection. `dedupeKe
 
 ## Limitations
 
-- No `validityPeriodSec`. For an expiry, use Twilio, Plivo, or Vonage.
+- No `validityPeriodSec`. For an expiry, use Twilio, Plivo, Vonage, or Sinch.
 - Error 40008 is not mapped to `message.filtered`, because Telnyx's pages disagree on its meaning. It stays `message.undelivered`.
 
 ## Error codes
@@ -183,6 +183,6 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 
 ## Next steps
 
-- [Switch Twilio to Telnyx](/migration/switch-providers)
-- [Receiving overview](/receiving/webhooks)
-- [Retries and fallback](/sending/fallback-and-retries)
+- [Switch providers](/migration/switch-providers)
+- [Receive webhooks](/receiving/webhooks)
+- [Fallback and retries](/sending/fallback-and-retries)
