@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://sms-sdk.vercel.app"><img alt="SMS SDK: one send() for every SMS provider. Twilio rejects the sender, Telnyx accepts, and the text is delivered. Plivo, Vonage, Bandwidth, and Sinch are wired to the same call." src=".github/assets/readme-banner.png" width="100%" /></a>
+  <a href="https://sms-sdk.vercel.app"><img alt="SMS SDK: one send() for every SMS provider. Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch." src=".github/assets/readme-banner.png" width="100%" /></a>
 </p>
 
 <p align="center">
