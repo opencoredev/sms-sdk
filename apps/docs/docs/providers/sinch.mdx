@@ -3,41 +3,31 @@ title: "Sinch"
 description: "Send and schedule SMS through the Sinch SMS API with the SMS SDK sinch() adapter, and receive delivery reports and inbound messages with Basic or HMAC callback authentication."
 ---
 
-The `sinch()` adapter sends SMS through the Sinch SMS REST API (`/xms/v1/{servicePlanId}/batches`) and parses Sinch delivery reports and inbound messages.
-
-To compare providers, see the [Providers overview](/providers/overview).
+The `sinch()` adapter sends and schedules SMS through the Sinch SMS REST API and parses Sinch delivery reports and inbound messages. To compare it with other providers, see [Choose a provider](/providers/overview).
 
 ## Support status
 
 **Partial.** The adapter passes the shared contract tests, with these limits:
 
 - No MMS. `mediaUrls` throws `UnsupportedFieldError` before any request.
-- Only a few rejections are classified: 401 and 403 are `auth`, a 429 with Sinch's rate-limit code is `rate_limited`, codes 40002/40003 are `recipient`, 40004/40005 are `sender`, and 40301/40302 are `account`. Everything else is `request`, which never falls back. A 429 without the rate-limit code is an unknown outcome.
-- Sinch's SMS docs do not publish the HMAC callback format. See [Webhooks](#webhooks).
+- Only a few rejections are classified (see [Error codes](#error-codes)). Everything else is `request`, which never falls back.
+- Sinch's SMS docs do not publish the HMAC callback format. Basic callback credentials are the documented option. See [Webhooks](#webhooks).
 
 The same notes are in `adapter.support.notes` at runtime.
 
-## Installation
+## Setup
 
 ```package-install
 npm install @opencoredev/sms-sdk
 ```
 
-```ts
-import { sinch } from "@opencoredev/sms-sdk/sinch";
-```
-
-## Environment variables
-
 | Variable | Required | Used for |
 | --- | --- | --- |
 | `SINCH_SERVICE_PLAN_ID` | Yes | Your service plan ID, used in the API path. |
 | `SINCH_API_TOKEN` | Yes | API token, sent as a Bearer token. |
-| `SINCH_FROM` | No | Default sender: a number, short code, or alphanumeric sender ID. |
+| `SINCH_FROM` | No | Default sender. |
 
-The examples and the doctor CLI use these names. The adapter itself reads no environment variables.
-
-## Basic usage
+The adapter reads no environment variables itself. The examples and the [doctor CLI](/reference/doctor-cli) use these names.
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -57,34 +47,54 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // the Sinch batch ID
 ```
 
-`providerId` is the batch ID. Delivery reports refer to the same ID.
+The adapter sends `POST /xms/v1/{servicePlanId}/batches`. `providerId` is the batch ID, and delivery reports refer to the same ID. `sinch()` throws `ConfigurationError` when `servicePlanId` or `apiToken` is empty. `baseUrl` (default `https://sms.api.sinch.com`) and `fetch` are optional.
 
-## Scheduling, validity, and callback URL
+## Senders
 
-Sinch supports all three portable fields:
+Sinch sends from a long code, a toll-free number, a short code, or an alphanumeric sender ID (`{ senderId: "Acme" }`). `{ messagingService }` is not supported. Which senders your account may use depends on the destination country; see [Sender registration and consent](/providers/registration-and-consent).
 
-- `sendAt` maps to `send_at`.
-- `validityPeriodSec` (1 to 2,592,000 seconds) becomes `expire_at`, counted from the moment of the request.
-- `webhookUrl` maps to `callback_url` for this message.
+## Features
+
+| Feature | Support |
+| --- | --- |
+| MMS (`mediaUrls`) | No |
+| Scheduling (`sendAt`) | Yes, sent as `send_at` |
+| Validity period (`validityPeriodSec`) | 1 to 2,592,000 seconds, sent as `expire_at` counted from the moment of the request |
+| Per-message `webhookUrl` | Yes, sent as `callback_url` |
+| Empty body | Not allowed |
+| Native idempotency | No. Use an [idempotency store](/sending/idempotency). |
 
 ## Provider options
 
 Pass Sinch-only fields under `providerOptions.sinch`:
 
+```ts
+// Loading the adapter module adds the typed providerOptions.sinch entry.
+import "@opencoredev/sms-sdk/sinch";
+import { sms } from "./sms";
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your order has shipped.",
+  providerOptions: { sinch: { deliveryReport: "per_recipient", clientReference: "order-123" } },
+});
+```
+
 | Option | Wire field | Type |
 | --- | --- | --- |
-| `deliveryReport` | `delivery_report` | `none`, `per_recipient`, `per_recipient_final`, `summary`, `full` |
-| `clientReference` | `client_reference` | string, up to 128 characters |
+| `deliveryReport` | `delivery_report` | `"none" \| "per_recipient" \| "per_recipient_final" \| "summary" \| "full"` |
+| `clientReference` | `client_reference` | `string`, up to 128 characters |
 | `maxNumberOfMessageParts` | `max_number_of_message_parts` | integer, 1 to 255 |
 
 Set `deliveryReport: "per_recipient"` to receive a status webhook for each message.
 
 ## Webhooks
 
-Sinch authenticates callbacks in one of two ways, configured on your callback URL or service plan. Pass the matching `credentials`:
+Sinch authenticates callbacks in one of two ways, configured on your callback URL or service plan. Point Sinch at your handler with a per-message `webhookUrl` or the callback URL on the service plan, then pass the matching `credentials`:
 
 ```ts
 import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -97,7 +107,9 @@ export async function POST(request: Request): Promise<Response> {
         password: process.env.SINCH_CALLBACK_PASSWORD ?? "",
       },
     });
-    console.log(event.type, event.dedupeKey);
+    if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
+      console.log(event.type);
+    }
     return new Response(null, { status: 204 });
   } catch (error) {
     if (error instanceof WebhookSignatureError) return new Response(null, { status: 401 });
@@ -106,19 +118,42 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-- **Basic** (`{ kind: "basic", username, password }`): Sinch documents this for SMS callbacks. Use it unless you have a reason not to.
-- **HMAC** (`{ kind: "hmac", webhookSecret }`): Sinch sets this up through your account manager and does not publish the SMS format. The parser uses the scheme Sinch documents for its Conversation API, with a 300-second timestamp window (`toleranceSec`). Confirm the format with Sinch before relying on it.
+- **Basic** (`{ kind: "basic", username, password }`): Sinch documents this for SMS callbacks. Use it unless you have a reason not to. Basic requests carry no timestamp, so there is no replay window.
+- **HMAC** (`{ kind: "hmac", webhookSecret }`): Sinch sets this up through your account manager and does not publish the SMS format. The parser uses the scheme Sinch documents for its Conversation API: a base64 HMAC-SHA256 of `body.nonce.timestamp` from the `x-sinch-webhook-signature`, `-nonce`, and `-timestamp` headers, with a 300-second timestamp window (`toleranceSec`). Confirm the format with Sinch before relying on it.
 
-OAuth 2.0 callbacks are not supported. Sinch can send a report more than once and out of order; store `event.dedupeKey` and skip repeats.
+OAuth 2.0 callbacks are not supported. Sinch can send a report more than once and out of order, so store `event.dedupeKey` and skip repeats. The key is `sinch:{batchId}:{recipient}:{status}` for delivery reports and `sinch:{messageId}:received` for inbound messages.
 
 | Sinch status | SMS SDK event |
 | --- | --- |
-| inbound `mo_text` | `message.received`, or `recipient.opted_out` / `recipient.help` for STOP and HELP keywords |
+| inbound `mo_text`, `mo_binary`, `inbound_sms` | `message.received`, or `recipient.opted_out` / `recipient.help` for STOP and HELP keywords |
 | `Queued`, `Pending` | `message.queued` |
 | `Sent`, `Accepted` | `message.sent` |
 | `Delivered` | `message.delivered` |
 | `Failed`, `Undelivered`, `Expired` | `message.undelivered` |
-| `Rejected` with code 40003 | `message.filtered` |
+| `Rejected` or `Filtered` with code 40003 | `message.filtered` |
+| `Rejected` or `Filtered` with any other code | `message.undelivered` |
+| anything else | `unrecognized` |
+
+## Limitations
+
+- No MMS. Use Twilio, Telnyx, or Plivo.
+- OAuth 2.0 callback authentication is not supported.
+- The HMAC callback format is unconfirmed for SMS. Prefer Basic credentials.
+
+## Error codes
+
+| Sinch response | Category | Falls back |
+| --- | --- | --- |
+| 401 or 403 | `auth` | Yes |
+| 429 with code `429` or `TOO_MANY_REQUESTS` | `rate_limited` | Yes, after retries |
+| Code 40004 or 40005 | `sender` | Yes |
+| Code 40301 or 40302 | `account` | Yes |
+| Code 40002 or 40003 | `recipient` | No |
+| Any other 4xx | `request` | No |
+| 429 without the rate-limit code | unknown | Never |
+| 5xx, network error, timeout, or 2xx without a batch ID | unknown | Never |
+
+`error.provider.requestId` holds the `X-Request-Id` header. See [Fallback and retries](/sending/fallback-and-retries) for what each category does.
 
 ## Official documentation
 
@@ -128,5 +163,6 @@ OAuth 2.0 callbacks are not supported. Sinch can send a report more than once an
 
 ## Next steps
 
-- [Providers overview](/providers/overview)
+- [Receive status and inbound webhooks](/receiving/webhooks)
 - [Webhook security](/receiving/webhook-security)
+- [Choose a provider](/providers/overview)

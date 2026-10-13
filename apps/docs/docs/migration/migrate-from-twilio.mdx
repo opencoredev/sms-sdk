@@ -3,13 +3,11 @@ title: "Migrate from the Twilio SDK"
 description: "Move SMS sending and webhooks from the twilio npm package to SMS SDK while staying on Twilio: concept mapping, code, and a rollback path."
 ---
 
-This page moves SMS code from the `twilio` npm package to SMS SDK while you stay on Twilio. The account, numbers, and webhook URLs do not change. To change providers afterwards, see [Switch Twilio to Telnyx](/migration/switch-providers).
+This page moves SMS code from the `twilio` npm package to SMS SDK while you stay on Twilio. Your account, numbers, and webhook URLs do not change. To change providers afterwards, see [Switch providers](/migration/switch-providers).
 
-Both libraries can run side by side during the move. SMS SDK replaces only the SMS parts, so keep the Twilio SDK for voice, Verify, Lookup, and the rest.
+The two libraries can run side by side during the move. SMS SDK replaces only the SMS parts, so keep the Twilio SDK for voice, Verify, Lookup, and the rest.
 
-## Inventory what must keep working
-
-List what your current integration does and find its replacement:
+## What maps to what
 
 | Behavior | Twilio SDK | SMS SDK |
 | --- | --- | --- |
@@ -53,11 +51,7 @@ export const sms = createSmsClient({
 });
 ```
 
-### Key changes
-
-- The default sender moves into the adapter, so call sites no longer pass `from`.
-- A malformed Account SID or empty token throws `ConfigurationError` at startup.
-- To use API keys, pass `apiKeySid` and `apiKeySecret` instead of `authToken`.
+The default sender moves into the adapter, so call sites no longer pass `from`. A malformed Account SID or empty token throws `ConfigurationError` at startup. To use API keys, pass `apiKeySid` and `apiKeySecret` instead of `authToken`.
 
 ## 2. Send a message
 
@@ -88,12 +82,10 @@ const result = await sms.send({
 await db.messages.create({ id: result.id, provider: result.provider, providerId: result.providerId, to: "+14155550123", status: result.delivery });
 ```
 
-### Key changes
-
 - `message.sid` becomes `result.providerId`. It is the same Twilio SID, so stored IDs and status callbacks still match.
-- `message.status` values `queued`, `accepted`, and `scheduled` all become `result.delivery: "queued"`.
-- `to` must be E.164. Any other format throws `InvalidRecipientError` before the request. See [Senders and E.164](/sending/send-a-message).
-- An `idempotencyKey` plus a store stops retried jobs from sending twice. See [Idempotency](/sending/idempotency).
+- Twilio's `queued`, `accepted`, and `scheduled` all become `result.delivery: "queued"`.
+- `to` must be E.164. Any other format throws `InvalidRecipientError` before the request. See [Send a message](/sending/send-a-message).
+- An `idempotencyKey` plus a store stops a retried job from sending twice. See [Prevent duplicate sends](/sending/idempotency).
 
 ## 3. Handle errors
 
@@ -125,18 +117,16 @@ try {
   if (error instanceof ProviderRejectedError && error.category === "compliance") {
     await db.suppressions.add(to); // Twilio 21610
   } else if (error instanceof HandoffUnknownError) {
-    await db.messages.markNeedsReview("order:123:shipped:v1", error.reason); // 5xx or timeout: do not resend blindly
+    await db.messages.markNeedsReview("order:123:shipped:v1", error.reason); // do not resend blindly
   } else {
     throw error;
   }
 }
 ```
 
-### Key changes
-
-- Twilio error codes map to categories, and `error.provider.code` keeps the raw code, such as `"21610"`. See the [Twilio error mapping](/providers/twilio#error-mapping).
-- 5xx responses, timeouts, and network errors throw `HandoffUnknownError`, which SMS SDK never retries. See [Idempotency](/sending/idempotency) for how to resolve them.
-- A 429 with Twilio error 20429 is retried once by default before `ProviderRateLimitedError` is thrown. A 429 without that code is an unknown outcome.
+- Twilio error codes map to categories, and `error.provider.code` keeps the raw code, such as `"21610"`. See [Twilio error codes](/providers/twilio#error-codes).
+- After a 5xx, timeout, or network error, Twilio may have sent the message, so SMS SDK throws `HandoffUnknownError` and never retries. [Prevent duplicate sends](/sending/idempotency) explains how to resolve one.
+- A 429 with Twilio error 20429 is retried once by default, then throws `ProviderRateLimitedError`. A 429 without that code is treated as unknown.
 
 ## 4. Verify and parse webhooks
 
@@ -176,9 +166,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-### Key changes
-
-- `parseSmsWebhook()` needs the raw web `Request`. Remove `express.urlencoded()` from webhook routes, or use a framework that passes a web `Request`. See [Use with Hono and Bun](/receiving/webhooks).
+- `parseSmsWebhook()` needs the raw web `Request`. Remove `express.urlencoded()` from webhook routes, or use a framework that passes a web `Request`. See [Receive webhooks](/receiving/webhooks).
 - `publicUrl` replaces the URL argument of `validateRequest`. See [Webhook security](/receiving/webhook-security).
 - STOP is detected from `OptOutType` and from keywords. Set `detectKeywords: false` to keep only Twilio's signal.
 
@@ -186,7 +174,7 @@ export async function POST(request: Request): Promise<Response> {
 
 - TwiML replies. Return TwiML yourself, or reply with `sms.send()`.
 - Fetching, listing, updating, or deleting messages. Keep the Twilio SDK for these.
-- Content templates through `contentSid` and `contentVariables`. Keep those sends on the Twilio SDK or [write your own adapter](/advanced/writing-an-adapter). Other Twilio parameters, such as `shortenUrls` and `riskCheck`, go in `providerOptions.twilio`. See [Provider options](/providers/twilio#provider-options).
+- Content templates (`contentSid`, `contentVariables`). Keep those sends on the Twilio SDK or [write your own adapter](/advanced/writing-an-adapter). Other Twilio parameters, such as `shortenUrls` and `riskCheck`, go in `providerOptions.twilio`. See [Twilio provider options](/providers/twilio#provider-options).
 - WhatsApp, Conversations, Verify, and voice. These are out of scope.
 
 ## Cut over with a rollback path
@@ -195,7 +183,8 @@ export async function POST(request: Request): Promise<Response> {
 2. Move one message type, such as shipping notifications, to `sms.send()`. Watch `onFailure` hooks and delivery webhooks.
 3. Move webhook routes to `parseSmsWebhook()`. Status callbacks carry the same SIDs, so existing rows still match.
 4. Move the remaining message types.
-5. To roll back a message type, point its call site back at `client.messages.create()`. Nothing changed on the Twilio side, so there is nothing to undo there.
+
+To roll back a message type, point its call site back at `client.messages.create()`. Nothing changed on the Twilio side, so there is nothing to undo there.
 
 ## Need help?
 

@@ -1,12 +1,12 @@
 ---
-title: "Idempotency"
-description: "Use idempotency keys and a store so a retried job does not send the same SMS twice, and know where exactly-once ends."
+title: "Prevent duplicate sends"
+description: "Use idempotency keys and a store so a retried job does not send the same SMS twice, and know what to do when the outcome is unknown."
 ---
 
 A retried job should not text the customer twice. Give each message an `idempotencyKey` and give the client a store. A repeat send with the same key returns the first result instead of sending again.
 
 :::warning[Exactly once is not possible]
-None of the supported providers documents send idempotency for SMS, so no client can guarantee exactly-once delivery. If a process crashes or a request times out after the provider received it, the outcome is unknown. SMS SDK records that and refuses to resend. You reconcile it by hand.
+None of the supported providers deduplicates SMS sends, so no client can promise exactly-once delivery. If a process crashes or a request times out after the provider received it, nobody knows whether it went out. The SDK records that and refuses to resend, and you check with the provider by hand.
 :::
 
 ## Add a key and a store
@@ -23,7 +23,10 @@ const sms = createSmsClient({
       from: "+15550100001",
     }),
   ],
-  idempotency: { store: memoryIdempotencyStore() },
+  idempotency: {
+    store: memoryIdempotencyStore(),
+    ttlSec: 7 * 24 * 60 * 60, // remember sends for 7 days
+  },
 });
 
 const first = await sms.send({ to: "+14155550123", body: "Order 123 shipped.", idempotencyKey: "order:123:shipped:v1" });
@@ -34,52 +37,38 @@ console.log(second.replayed, second.providerId === first.providerId); // true tr
 
 The second call makes no request. It returns the stored result with `replayed: true`.
 
-A key names the message, not the attempt: `order:123:shipped:v1`, `appointment:88:reminder:24h`. Keys are 1 to 255 characters. Bump the version suffix to deliberately send the same event again.
+A key names the message, not the attempt: `order:123:shipped:v1`, `appointment:88:reminder:24h`. Keys are 1 to 255 characters. To send the same event again on purpose, bump the version suffix.
+
+| `idempotency` option | Default | Meaning |
+| --- | --- | --- |
+| `store` | required | Where records live. |
+| `ttlSec` | `86400` (24 hours) | How long accepted and rejected sends are remembered. Set it longer than your job queue's longest retry window, or a late retry sends again. Unknown outcomes are kept until you delete them. |
+| `staleReservationSec` | `300` | How long a send may stay unfinished before it counts as an unknown outcome. Set it longer than your slowest possible send. |
+
+Without a store, keys still help a little: two `send()` calls with the same key running at the same time on one client share one request, and the second gets `replayed: true`. Nothing is remembered after the first call finishes.
 
 :::note
-`memoryIdempotencyStore()` lives in one process. It is lost on restart and not shared across instances, serverless invocations, or workers. In production, implement `IdempotencyStore` on your database or Redis. See [Deploy with multiple instances](/advanced/multiple-instances).
+`memoryIdempotencyStore()` lives in one process. It is lost on restart and not shared across servers, workers, or serverless functions. For those, use a shared store. See [Share idempotency across servers](/advanced/multiple-instances).
 :::
 
 ## What happens on a repeat key
 
-| Stored record | Same payload | Different payload or sender |
+The SDK compares the new send with the stored one by a SHA-256 fingerprint of `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, and any `providerOptions` for adapters the client has.
+
+| Stored record | Same message | Different message |
 | --- | --- | --- |
 | None | Sends | Sends |
-| `accepted` | Returns the stored result, `replayed: true`, no request | `IdempotencyConflictError` |
-| `rejected` | Sends again | `IdempotencyConflictError` |
-| `unknown` | `HandoffUnknownError` (`reason: "replayed_unknown"`), never resends | `IdempotencyConflictError` |
-| `reserved`, younger than `staleReservationSec` | `IdempotencyInProgressError` (another process is sending) | `IdempotencyConflictError` |
-| `reserved`, older than `staleReservationSec` | `HandoffUnknownError` (`reason: "stale_reservation"`), never resends | `IdempotencyConflictError` |
+| Accepted | Returns the stored result, `replayed: true`, no request | `IdempotencyConflictError` |
+| Rejected | Sends again | `IdempotencyConflictError` |
+| Unknown | `HandoffUnknownError` (`reason: "replayed_unknown"`), never resends | `IdempotencyConflictError` |
+| Still sending, younger than `staleReservationSec` | `IdempotencyInProgressError`: another process is sending. Retry later. | `IdempotencyConflictError` |
+| Still sending, older than `staleReservationSec` | `HandoffUnknownError` (`reason: "stale_reservation"`), never resends | `IdempotencyConflictError` |
 
-"Same payload" means the same `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, and `webhookUrl`, plus any `providerOptions` that apply to a configured adapter, compared by a SHA-256 fingerprint.
-
-Two concurrent `send()` calls with the same key on one client share one request, even without a store. The second gets the same result with `replayed: true`. Without a store, nothing is remembered once the first call finishes.
-
-## Options
-
-```ts
-import { createSmsClient, memoryIdempotencyStore } from "@opencoredev/sms-sdk";
-import { memory } from "@opencoredev/sms-sdk/testing";
-
-const sms = createSmsClient({
-  adapters: [memory()],
-  idempotency: {
-    store: memoryIdempotencyStore(),
-    ttlSec: 7 * 24 * 60 * 60, // keep accepted and rejected records for 7 days
-    staleReservationSec: 120, // treat a reservation older than 2 minutes as unknown
-  },
-});
-```
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `store` | required | The `IdempotencyStore`. |
-| `ttlSec` | `86400` (24 hours) | How long accepted and rejected records are kept. Set it longer than your longest job retry window. Unknown records are kept until you delete them. |
-| `staleReservationSec` | `300` | Age after which an unfinished reservation counts as an unknown outcome. Set it longer than `timeoutMs` times the number of requests one send can make. |
+`IdempotencyConflictError` means you reused a key for a different message. Nothing was sent, and retrying will not help: use a new key.
 
 ## Reconcile an unknown outcome
 
-When a send throws `HandoffUnknownError`, the store records the key as `unknown`, and every later send with that key throws again. To resolve it:
+When a send throws `HandoffUnknownError`, the store marks the key unknown, and every later send with that key throws again. To resolve it:
 
 1. Look the message up with the provider: its console, its message list API, or a status webhook for that recipient around that time.
 2. If the provider has the message, stop. It went out.
@@ -94,9 +83,9 @@ const store = memoryIdempotencyStore();
 await store.delete("order:123:shipped:v1");
 ```
 
-`delete` exists on the memory store. Your own store needs some way for an operator to clear a key.
+The memory store has `delete`. A store you write needs some way for an operator to clear a key.
 
 ## Next steps
 
-- [Deploy with multiple instances](/advanced/multiple-instances)
+- [Share idempotency across servers](/advanced/multiple-instances)
 - [Idempotency store reference](/reference/idempotency-store)

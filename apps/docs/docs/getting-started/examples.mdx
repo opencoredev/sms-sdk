@@ -1,16 +1,16 @@
 ---
 title: "Examples"
-description: "Runnable SMS SDK examples in the repository: a Twilio send, provider fallback, a webhook handler, and tests with the memory adapter."
+description: "Runnable SMS SDK examples in the repository: tests with the memory adapter, a Twilio send, provider fallback, and a webhook handler."
 ---
 
-The runnable examples live in [`packages/sms-sdk/examples`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples), simplest first below. By default each one runs offline against a mocked provider API or the `memory()` adapter, so running them never sends a message. The test suite runs every example, which keeps them in step with the code.
+The runnable examples live in [`packages/sms-sdk/examples`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples). Each one runs offline against a mocked provider API or the `memory()` adapter, so running them never sends a message. The test suite runs every example, which keeps them in step with the code.
 
-| Example | Shows | Docs |
+| Example | Shows | Read next |
 | --- | --- | --- |
-| [`test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter) | App code tested with `memory()`, including a scripted compliance rejection. | [Local testing](/getting-started/local-testing) |
-| [`twilio`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/twilio) | One send through Twilio. Mocked by default; opt into a live send with environment variables. | [Twilio](/providers/twilio) |
-| [`failover`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/failover) | Twilio first, Telnyx after a known sender rejection, with handling for unknown outcomes. | [Retries and fallback](/sending/fallback-and-retries) |
-| [`webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) | A plain `fetch` handler for Twilio and Telnyx webhooks: verification, deduplication, and a rejected forgery. Works with `Bun.serve`, Hono, and Next.js route handlers. | [Receiving overview](/receiving/webhooks) |
+| [`test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter) | App code tested with `memory()`, including a scripted compliance rejection. | [Test without a provider](/getting-started/local-testing) |
+| [`twilio`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/twilio) | One send through Twilio. Mocked unless you opt into a live send. | [Twilio](/providers/twilio) |
+| [`failover`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/failover) | Twilio first, Telnyx after a known sender rejection, with handling for unknown outcomes. | [Fallback and retries](/sending/fallback-and-retries) |
+| [`webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) | A plain `fetch` handler for Twilio and Telnyx webhooks: verification, deduplication, and a rejected forgery. It works with `Bun.serve`, Hono, and Next.js route handlers. | [Webhooks](/receiving/webhooks) |
 
 ## Run them
 
@@ -25,11 +25,11 @@ bun examples/failover/index.ts
 bun examples/webhooks/index.ts
 ```
 
-Each prints what happened, such as `twilio accepted SM0123456789abcdef0123456789abcdef (handoff accepted, delivery queued)`.
+Each prints what happened. The Twilio example prints `twilio accepted SM0123456789abcdef0123456789abcdef (handoff accepted, delivery queued)`.
 
 ## Send for real
 
-Only the `twilio` example can send a real message, and only when you opt in. In `packages/sms-sdk`, copy `.env.example` to `.env`, fill in your Twilio credentials, and run:
+Only the `twilio` example can send a real message, and only when you opt in. In `packages/sms-sdk`, copy `.env.example` to `.env`, fill in `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM`, then run:
 
 ```bash
 SMS_EXAMPLE_LIVE=true SMS_EXAMPLE_TO=+14155550123 bun examples/twilio/index.ts

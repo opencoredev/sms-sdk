@@ -3,25 +3,21 @@ title: "Overview"
 description: "SMS SDK sends and receives transactional SMS through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one typed TypeScript API."
 ---
 
-SMS SDK (`@opencoredev/sms-sdk`) sends transactional SMS through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one TypeScript API, and turns their delivery and inbound webhooks into one event shape.
+SMS SDK (`@opencoredev/sms-sdk`) sends transactional SMS through six providers with one TypeScript API, and turns their delivery and inbound webhooks into one event shape.
 
 - New here? Send a message in the [Quick start](/getting-started/quick-start).
 - Already on the Twilio SDK? Read [Migrate from the Twilio SDK](/migration/migrate-from-twilio).
-- Moving from Twilio to Telnyx? Read [Switch Twilio to Telnyx](/migration/switch-providers).
-- Deciding whether to use it? Read [Why SMS SDK](/getting-started/overview).
 
 ## What it solves
 
-Each provider has its own request format, error codes, status names, and webhook signatures. Code written for one is hard to move, and the failure cases are easy to get wrong:
+Every provider has its own request format, error codes, status names, and webhook signatures. Code written for one is hard to move, and the failure cases are easy to get wrong:
 
-- A timeout does not tell you whether the provider created the message. Retrying it, or failing over to a second provider, can text the recipient twice.
-- A `201` means the provider queued the message. Delivery is reported later, by webhook.
+- A timeout does not tell you whether the provider created the message. Retrying it, or trying a second provider, can text the recipient twice.
+- A successful response only means the provider queued the message. Delivery is reported later, by webhook.
 - A provider that cannot schedule or send MMS may ignore the field or fail in its own way.
-- Each provider signs callbacks differently, and a proxy in front of your app often breaks verification.
+- Each provider signs its callbacks differently, and a proxy in front of your app often breaks verification.
 
-With SMS SDK, a send either resolves with an accepted result or throws a typed error that says whether a retry is safe. Unsupported fields throw before any request. Webhooks are verified before any field is read.
-
-## The core idea
+With SMS SDK, a send either returns a result or throws an error that says whether sending again is safe. Fields the provider cannot handle throw before any request. Webhooks are verified before any field is read.
 
 ```ts
 import { createSmsClient, HandoffUnknownError } from "@opencoredev/sms-sdk";
@@ -40,53 +36,44 @@ try {
   console.log(result.providerId, result.delivery); // the provider's message ID, "queued"
 } catch (error) {
   if (error instanceof HandoffUnknownError) {
-    // The provider may have accepted it. Check before sending again.
+    // The provider may have sent it. Check before sending again.
   }
   throw error;
 }
 ```
 
-Replace `telnyx(...)` with `twilio(...)`, `plivo(...)`, or `vonage(...)` to change provider. The `send()` call stays the same. Runnable versions are in the [examples](/getting-started/examples).
-
-## Packages
-
-One npm package, no runtime or peer dependencies. Each part is a subpath import, and importing one adapter never loads another.
-
-| Import | What it gives you |
-| --- | --- |
-| `@opencoredev/sms-sdk` | `createSmsClient`, error classes, types, `isE164`, `estimateSegments`, `memoryIdempotencyStore` |
-| `@opencoredev/sms-sdk/twilio` | The `twilio()` adapter |
-| `@opencoredev/sms-sdk/telnyx` | The `telnyx()` adapter |
-| `@opencoredev/sms-sdk/plivo` | The `plivo()` adapter |
-| `@opencoredev/sms-sdk/vonage` | The `vonage()` adapter (Vonage Messages API) |
-| `@opencoredev/sms-sdk/webhooks` | `parseSmsWebhook()` and per-provider verify helpers |
-| `@opencoredev/sms-sdk/testing` | The `memory()` adapter, `mockFetch()`, signed webhook builders, the adapter contract harness |
-| `@opencoredev/sms-sdk/encoding` | `estimateSegments`, `isGsm7`, GSM-7 tables, `SEGMENT_LIMITS` |
-
-The `sms-sdk doctor` command checks your configuration without sending. See [Doctor CLI](/reference/doctor-cli).
+To change provider, replace `telnyx(...)` with another adapter. The `send()` call stays the same. Runnable versions are in the [examples](/getting-started/examples).
 
 ## Providers
 
-- [Twilio](/providers/twilio): Programmable Messaging, API version `2010-04-01`. Supported.
+- [Twilio](/providers/twilio): Programmable Messaging. Supported.
 - [Telnyx](/providers/telnyx): Messaging API v2. Supported.
-- [Plivo](/providers/plivo): Message API. Partial: most rejections cannot be classified.
-- [Vonage](/providers/vonage): Messages API v1, SMS channel. Partial: error classification is inferred, no short codes or MMS.
+- [Plivo](/providers/plivo): Message API. Partial: Plivo does not document its error body, so most rejections cannot be classified.
+- [Vonage](/providers/vonage): Messages API, SMS channel. Partial: error classification is inferred, and there are no short codes or MMS.
+- [Bandwidth](/providers/bandwidth): Messaging API v2. Partial: SMS only, and most rejections cannot be classified.
+- [Sinch](/providers/sinch): SMS API. Partial: no MMS, and most rejections cannot be classified.
 
-[Providers overview](/providers/overview) compares them.
+[Choose a provider](/providers/overview) compares what each one supports.
 
 ## Scope and limits
 
-SMS SDK is a transport library. It does not include:
+SMS SDK is a transport library for your server. It does not include:
 
 - Conversation threads, an inbox, chatbots, WhatsApp, RCS, or iMessage.
 - An OTP verification service, a hosted API, a dashboard, or number purchasing.
 - 10DLC, toll-free, or sender ID registration. You do that with each provider. See [Sender registration and consent](/providers/registration-and-consent).
-- Exactly-once delivery. None of the supported providers offers send idempotency, so no SMS library can promise it. SMS SDK reports an unknown outcome instead of guessing. See [Idempotency](/sending/idempotency).
+- Exactly-once delivery. No supported provider offers send idempotency, so no SMS library can promise it. SMS SDK tells you when an outcome is unknown instead of guessing. See [Prevent duplicate sends](/sending/idempotency).
 
-It runs on the server only, on Node.js 20+ or Bun 1.1+. See [Installation](/getting-started/installation).
+## When to use the provider's own SDK instead
+
+Use the provider's SDK when you need more than SMS: voice, verification, number lookup, number purchasing, account management, or Twilio Content Templates. It also types a new API parameter the day it ships, where SMS SDK passes it through `providerOptions.<provider>.extra` unvalidated until a release adds it. Provider SDKs have years of production use; SMS SDK is at 0.1.0.
+
+Use SMS SDK when you only send and receive SMS, may change or add providers, and want timeouts and duplicate risks handled for you. It has no runtime dependencies.
+
+You can use both: SMS SDK for sending and webhooks, the provider SDK for everything else.
 
 ## Next steps
 
 - [Quick start](/getting-started/quick-start)
-- [Important defaults](/getting-started/how-sending-works)
-- [Providers overview](/providers/overview)
+- [How sending works](/getting-started/how-sending-works)
+- [Choose a provider](/providers/overview)

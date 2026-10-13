@@ -3,42 +3,32 @@ title: "Bandwidth"
 description: "Send SMS through the Bandwidth Messaging API v2 with the SMS SDK bandwidth() adapter, and receive delivery and inbound callbacks behind Basic authentication."
 ---
 
-The `bandwidth()` adapter sends SMS through the Bandwidth Messaging API v2 and parses Bandwidth's delivery and inbound callbacks.
-
-To compare providers, see the [Providers overview](/providers/overview).
+The `bandwidth()` adapter sends SMS through the Bandwidth Messaging API v2 and parses Bandwidth's delivery and inbound callbacks. To compare it with other providers, see [Choose a provider](/providers/overview).
 
 ## Support status
 
 **Partial.** The adapter passes the shared contract tests, with these limits:
 
-- SMS only. `mediaUrls`, `sendAt`, and `validityPeriodSec` throw `UnsupportedFieldError` before any request.
-- Bandwidth does not sign callbacks. The webhook parser checks the Basic credentials you set on your Bandwidth application instead.
-- Rejections are classified by HTTP status: 401 and 403 are `auth`, 404 is `account`, a 429 with a Bandwidth error body is `rate_limited`, and any other 4xx is `request`, which never falls back. A 429 without a Bandwidth error body, such as a proxy page, is an unknown outcome.
+- SMS only. `mediaUrls`, `sendAt`, `validityPeriodSec`, and a per-message `webhookUrl` throw `UnsupportedFieldError` before any request.
+- Bandwidth does not sign callbacks. The webhook parser requires the Basic credentials you set on your Bandwidth application instead.
+- Rejections are classified by HTTP status only. Bandwidth's full error code list is not mapped, so most rejections are `request` and do not fall back.
 
 The same notes are in `adapter.support.notes` at runtime.
 
-## Installation
+## Setup
 
 ```package-install
 npm install @opencoredev/sms-sdk
 ```
-
-```ts
-import { bandwidth } from "@opencoredev/sms-sdk/bandwidth";
-```
-
-## Environment variables
 
 | Variable | Required | Used for |
 | --- | --- | --- |
 | `BANDWIDTH_USER_ID` | Yes | Your Bandwidth account ID, used in the API path. |
 | `BANDWIDTH_API_TOKEN`, `BANDWIDTH_API_SECRET` | Yes | API credentials, sent as HTTP Basic auth. |
 | `BANDWIDTH_APPLICATION_ID` | Yes | The messaging application linked to your sending number. |
-| `BANDWIDTH_FROM` | No | Default sender: a Bandwidth long code, toll-free number, or short code. |
+| `BANDWIDTH_FROM` | No | Default sender. |
 
-The examples and the doctor CLI use these names. The adapter itself reads no environment variables.
-
-## Basic usage
+The adapter reads no environment variables itself. The examples and the [doctor CLI](/reference/doctor-cli) use these names.
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -60,19 +50,31 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // the Bandwidth message ID
 ```
 
-Bandwidth accepts text up to 2,048 characters. Alphanumeric senders and Messaging Services are not supported.
+`bandwidth()` throws `ConfigurationError` when any of the four credentials is empty. `baseUrl` (default `https://messaging.bandwidth.com`) and `fetch` are optional.
+
+## Senders
+
+Bandwidth sends from a long code, a toll-free number, or a short code. Alphanumeric sender IDs and `{ messagingService }` fail validation before any request. US long codes, toll-free numbers, and short codes need registration with carriers; see [Sender registration and consent](/providers/registration-and-consent).
+
+## Features
+
+| Feature | Support |
+| --- | --- |
+| MMS (`mediaUrls`) | No |
+| Scheduling (`sendAt`) | No |
+| Validity period (`validityPeriodSec`) | No |
+| Per-message `webhookUrl` | No. Callbacks go to the URL on your Bandwidth application. |
+| Text length | Up to 2,048 characters, checked before sending |
+| Native idempotency | No. Use an [idempotency store](/sending/idempotency). |
 
 ## Provider options
 
 Pass Bandwidth-only fields under `providerOptions.bandwidth`:
 
 ```ts
-import { createSmsClient } from "@opencoredev/sms-sdk";
-import { bandwidth } from "@opencoredev/sms-sdk/bandwidth";
-
-const sms = createSmsClient({
-  adapters: [bandwidth({ userId: "u", apiToken: "t", apiSecret: "s", applicationId: "a", from: "+15550100001" })],
-});
+// Loading the adapter module adds the typed providerOptions.bandwidth entry.
+import "@opencoredev/sms-sdk/bandwidth";
+import { sms } from "./sms";
 
 await sms.send({
   to: "+14155550123",
@@ -83,15 +85,16 @@ await sms.send({
 
 | Option | Wire field | Type |
 | --- | --- | --- |
-| `tag` | `tag` | string, up to 1,024 characters, returned in callbacks |
-| `priority` | `priority` | `default` or `high` |
+| `tag` | `tag` | `string`, up to 1,024 characters, returned in callbacks |
+| `priority` | `priority` | `"default" \| "high"` |
 
 ## Webhooks
 
-Bandwidth posts delivery and inbound events to the callback URL on your messaging application. Set callback credentials on that application, then pass the same values to the parser:
+Bandwidth posts delivery and inbound events to the callback URL on your messaging application. Set callback credentials on that application, then pass the same values to the parser. The credentials are required.
 
 ```ts
 import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -103,7 +106,9 @@ export async function POST(request: Request): Promise<Response> {
         password: process.env.BANDWIDTH_CALLBACK_PASSWORD ?? "",
       },
     });
-    console.log(event.type, event.dedupeKey);
+    if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
+      console.log(event.type);
+    }
     return new Response(null, { status: 204 });
   } catch (error) {
     if (error instanceof WebhookSignatureError) return new Response(null, { status: 401 });
@@ -112,7 +117,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-A request without a matching `Authorization` header throws `WebhookSignatureError`. Bandwidth sends no timestamp, so there is no replay window: store `event.dedupeKey` and skip repeats.
+A request without a matching `Authorization` header throws `WebhookSignatureError`. The comparison runs in constant time. Bandwidth sends no signature and no timestamp, so there is no replay window: store `event.dedupeKey` and skip repeats.
 
 | Bandwidth event | SMS SDK event |
 | --- | --- |
@@ -122,6 +127,28 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 | `message-failed` | `message.undelivered` |
 | anything else | `unrecognized` |
 
+`dedupeKey` is `bandwidth:{messageId}:{type}`.
+
+## Limitations
+
+- No MMS. Use Twilio, Telnyx, or Plivo.
+- No scheduling or validity period. Use Telnyx or Sinch for scheduling, and Twilio, Plivo, Vonage, or Sinch for a validity period.
+- No alphanumeric sender IDs.
+- Callbacks carry no signature, so the Basic credentials and HTTPS are the only proof a request came from Bandwidth.
+
+## Error codes
+
+| Bandwidth response | Category | Falls back |
+| --- | --- | --- |
+| 401 or 403 | `auth` | Yes |
+| 404 | `account` | Yes |
+| 429 with a Bandwidth error body (JSON with `type` or `description`) | `rate_limited` | Yes, after retries |
+| Any other 4xx | `request` | No |
+| 429 without a Bandwidth error body, such as a proxy page | unknown | Never |
+| 5xx, network error, timeout, or 2xx without a message ID | unknown | Never |
+
+`error.provider.requestId` holds the `X-Request-Id` or `X-Correlation-Id` header. See [Fallback and retries](/sending/fallback-and-retries) for what each category does.
+
 ## Official documentation
 
 - [Messaging API](https://dev.bandwidth.com/docs/messaging)
@@ -129,5 +156,6 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 
 ## Next steps
 
-- [Providers overview](/providers/overview)
+- [Receive status and inbound webhooks](/receiving/webhooks)
 - [Webhook security](/receiving/webhook-security)
+- [Choose a provider](/providers/overview)

@@ -1,13 +1,11 @@
 ---
-title: "Policy checks and hooks"
-description: "Block sends with beforeSend, such as to suppressed recipients, and log or meter every attempt with redacted hooks."
+title: "Block and log sends"
+description: "Block sends with beforeSend, such as to people who opted out, and log or meter every attempt with hooks that never see phone numbers or message text."
 ---
 
-`beforeSend` blocks messages, for example to people who opted out. `hooks` give you logs and metrics for every send without leaking phone numbers or message text.
+`beforeSend` blocks a message before it reaches a provider, for example when the recipient opted out. `hooks` give you logs and metrics for every send without leaking phone numbers or message text.
 
 ## Block sends with beforeSend
-
-`beforeSend` runs once per logical send, after local validation and the idempotency check, before any provider request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`.
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -28,27 +26,6 @@ export const sms = createSmsClient({
     }
     return { kind: "allow" };
   },
-});
-```
-
-A rejection throws `PolicyRejectedError`. Nothing is sent, and fallback never runs. Your `reason` appears only on `error.reason`. It stays out of the error message, `toJSON()`, hooks, and the idempotency store, because it may name a person.
-
-The callback receives `{ id, message, encoding, segments }`: the logical send ID, your `SmsSendInput` as passed, and the segment estimate.
-
-- If `beforeSend` throws, the error propagates out of `send()` unchanged and nothing is sent.
-- With an idempotency store, a policy rejection is stored as `rejected`, so the same key can send once the policy allows it.
-- It runs inside every `send()`, so keep it fast.
-
-Use it for a suppression list, quiet hours, per-recipient rate limits, or a segment budget. SMS SDK keeps no suppression list for you. [STOP, HELP, and opt-outs](/receiving/opt-outs) shows how to fill one from webhooks.
-
-## Observe sends with hooks
-
-```ts
-import { createSmsClient } from "@opencoredev/sms-sdk";
-import { telnyx } from "@opencoredev/sms-sdk/telnyx";
-
-export const sms = createSmsClient({
-  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" })],
   hooks: {
     onAttempt: ({ id, to, attempt }) => {
       console.log("sms.attempt", { id, to, provider: attempt.provider, outcome: attempt.outcome, ms: attempt.durationMs });
@@ -63,23 +40,35 @@ export const sms = createSmsClient({
 });
 ```
 
-This logs one `sms.attempt` line per provider request, then one `sms.accepted` or `sms.failed` line per send.
+`beforeSend` runs once per send, after local validation and the idempotency check, before any provider request. It receives `{ id, message, encoding, segments }`: the SDK's send ID, your input as passed, and the segment estimate. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`.
+
+A rejection throws `PolicyRejectedError`. Nothing is sent and fallback never runs. Your `reason` appears only on `error.reason`. It stays out of the error message, `toJSON()`, hooks, and the idempotency store, because it may name a person.
+
+- If `beforeSend` throws, that error comes out of `send()` unchanged and nothing is sent.
+- With an idempotency store, a rejection is stored as rejected, so the same key can send once the policy allows it.
+- It runs inside every `send()`, so keep it fast.
+
+Use it for a suppression list, quiet hours, per-recipient rate limits, or a [segment budget](/sending/length-and-cost#block-long-messages). The SDK keeps no suppression list for you. [STOP, HELP, and opt-outs](/receiving/opt-outs) shows how to fill one from webhooks.
+
+## Log sends with hooks
+
+The client above logs one `sms.attempt` line per provider request, then one `sms.accepted` or `sms.failed` line per send.
 
 | Hook | When | Payload beyond the shared fields |
 | --- | --- | --- |
-| `onAttempt` | After every provider request | `attempt`: a `SendAttempt` |
+| `onAttempt` | After every provider request | `attempt`: a `SendAttempt` with provider, outcome, status, code, and duration |
 | `onAccepted` | Once, when a send is accepted | `provider`, `providerId`, `attempts` |
 | `onFailure` | Once, when a send ends in an error | `errorCode`, `retrySafe`, `attempts` |
 
-Every payload has `id`, `to` (masked, such as `+1********23`), `encoding`, `segments`, and `idempotencyKey` when set. Hooks never receive the message body, credentials, or full phone numbers.
+Every payload has `id`, `to` masked as `+1********23`, `encoding`, `segments`, and `idempotencyKey` when set. Hooks never receive the message body, credentials, or full phone numbers.
 
-SMS SDK ignores a hook that throws or rejects, so a broken logger cannot change a send's outcome. `send()` does not await hooks.
+The SDK ignores a hook that throws or rejects, and `send()` does not wait for hooks, so a broken logger cannot change a send's outcome.
 
-`onFailure` does not run for errors thrown before the send starts: local validation errors, idempotency replays and conflicts, and errors thrown by `beforeSend`.
+`onFailure` does not run for errors thrown before the send starts: local validation errors, idempotency replays and conflicts, and errors thrown by `beforeSend`. A `beforeSend` rejection does run it.
 
-## Logging errors
+## Log errors safely
 
-`SmsError.toJSON()` returns a redacted object with `name`, `code`, `message`, `retrySafe`, `attempts`, and `provider`. Phone numbers in provider messages are masked, and the messages are cut to 200 characters. `cause` is never serialized. If your logger serializes everything, log `error.toJSON()` instead of the raw error.
+`SmsError.toJSON()` returns a redacted object with `name`, `code`, `message`, `retrySafe`, `attempts`, and `provider`. Phone numbers in provider messages are masked, those messages are cut to 200 characters, and `cause` is never included. If your logger serializes whole objects, log `error.toJSON()` instead of the raw error.
 
 ## Next steps
 

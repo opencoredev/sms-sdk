@@ -1,74 +1,69 @@
 ---
-title: "Providers overview"
-description: "Compare the built-in SMS adapters: support status, sender types, MMS, scheduling, webhooks, and limits."
+title: "Choose a provider"
+description: "Pick an SMS provider for SMS SDK: a quick decision table, support status, capability matrix, and sender types for Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch."
 sidebar:
   label: "Overview"
 ---
 
-Every adapter uses the same `send()` call and the same webhook events. Pick a provider by the capabilities below, the provider's own coverage and pricing, and where your senders are already provisioned.
+Every adapter uses the same `send()` call and the same webhook events, so you can pick by features and switch later. Start with the provider where your numbers and sender registrations already live.
+
+## Which one should I pick?
+
+| Your situation | Use |
+| --- | --- |
+| You already have an account and registered senders somewhere | That provider |
+| You need MMS | [Twilio](/providers/twilio), [Telnyx](/providers/telnyx), or [Plivo](/providers/plivo) |
+| You need short codes | Twilio, Telnyx, Plivo, [Bandwidth](/providers/bandwidth), or [Sinch](/providers/sinch) |
+| You need scheduled sends from any sender | Telnyx or Sinch |
+| You need scheduling from a Twilio Messaging Service | Twilio |
+| You want fallback to trigger on exactly the right errors | Twilio or Telnyx. Their error codes are fully documented. |
+| You use the Vonage Messages API | [Vonage](/providers/vonage), with JWT auth if you need webhooks |
+| You want a second provider for fallback | Any two. Put a Supported one first if you mix statuses. See [Fallback and retries](/sending/fallback-and-retries). |
 
 ## Support status
 
-| Provider | API | Status | Why |
+| Provider | API | Status | Main limits |
 | --- | --- | --- | --- |
-| [Twilio](/providers/twilio) | Programmable Messaging, Message resource, `2010-04-01` | Supported | Request, response, error codes, statuses, and webhook signing come from Twilio's docs. Twilio's published signature example is a test vector. |
-| [Telnyx](/providers/telnyx) | Messaging API v2, `POST /v2/messages` | Supported | Request, response, error catalog, and Ed25519 webhook signing come from Telnyx's docs and official SDK source. |
-| [Plivo](/providers/plivo) | Message API, `POST /v1/Account/{auth_id}/Message/` | Partial | Plivo does not document its API error body, so only 401 (auth) and 429 with Plivo's `api_id` (rate limit) are told apart. Other 4xx responses are `request` rejections and never fall back. |
-| [Vonage](/providers/vonage) | Messages API v1, `POST /v1/messages`, channel `sms` | Partial | Vonage does not document the HTTP status for each error code. Classification uses the documented 401, 402, and 422 statuses and the error code in the response. No short codes, no MMS. |
-| [Bandwidth](/providers/bandwidth) | Messaging API v2, `POST /api/v2/users/{userId}/messages` | Partial | SMS only, no MMS. Bandwidth does not sign callbacks, so the webhook parser checks the Basic credentials set on your Bandwidth application. Only 401/403, 404, and 429 are classified; other 4xx responses are `request` rejections. |
-| [Sinch](/providers/sinch) | SMS API, `POST /xms/v1/{servicePlanId}/batches` | Partial | No MMS. Webhooks are verified with Basic credentials (documented) or HMAC, whose SMS format Sinch does not publish. Only a few error codes are classified. |
+| [Twilio](/providers/twilio) | Programmable Messaging, `2010-04-01` | Supported | None |
+| [Telnyx](/providers/telnyx) | Messaging API v2 | Supported | None |
+| [Plivo](/providers/plivo) | Message API v1 | Partial | Plivo does not document its error body, so 4xx responses other than 401 and 429 are `request` and never fall back. |
+| [Vonage](/providers/vonage) | Messages API v1, channel `sms` | Partial | Error classification is inferred. No short codes, no MMS. Basic auth gets no webhooks. |
+| [Bandwidth](/providers/bandwidth) | Messaging API v2 | Partial | SMS only. Callbacks are unsigned and checked with Basic credentials. Errors classified by HTTP status only. |
+| [Sinch](/providers/sinch) | SMS API (`/xms/v1`) | Partial | No MMS. HMAC callback format is unpublished; Basic is the documented option. Few error codes classified. |
 
-Supported adapters implement requests, responses, error mapping, and webhooks from official documentation and pass the adapter contract tests. Partial adapters pass the same tests, but some provider behavior could not be confirmed from official documentation. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
+Supported adapters build requests, responses, error mapping, and webhooks from official documentation and pass the adapter contract tests. Partial adapters pass the same tests, but some provider behavior could not be confirmed from official documentation. Each provider page lists the gaps. Read the status at runtime from `adapter.support` or `sms.capabilities()`.
 
-None of the providers documents send idempotency for SMS, so no adapter has native idempotency. See [Idempotency](/sending/idempotency).
+None of the providers documents send idempotency for SMS, so no adapter has native idempotency. See [Prevent duplicate sends](/sending/idempotency).
 
 ## Capabilities
 
 | | Twilio | Telnyx | Plivo | Vonage (JWT) | Vonage (Basic) | Bandwidth | Sinch |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Send text | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | MMS (`mediaUrls`) | ✅ max 10 | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Scheduling (`sendAt`) | ✅ Messaging Service only | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Validity period (`validityPeriodSec`) | 1 to 36000 s | ❌ | 5 to 10799 s | 20 to 604800 s | 20 to 604800 s | ❌ | 1 to 2592000 s |
+| Validity period (`validityPeriodSec`) | 1 to 36,000 s | ❌ | 5 to 10,799 s | 20 to 604,800 s | 20 to 604,800 s | ❌ | 1 to 2,592,000 s |
 | Per-message `webhookUrl` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
 | Delivery status webhooks | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
 | Inbound webhooks | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| Provider-declared STOP/HELP | ✅ `OptOutType` | Keyword only | Keyword only | Keyword only | ❌ | Keyword only | Keyword only |
+| STOP/HELP detection | ✅ provider `OptOutType` | Keyword | Keyword | Keyword | ❌ | Keyword | Keyword |
 | Webhook replay window | None | 300 s | None | 300 s | n/a | None | 300 s with HMAC, none with Basic |
+
+Every adapter sends text. An unsupported field throws `UnsupportedFieldError` before any request, so nothing is sent. "Keyword" means SMS SDK detects STOP and HELP in the message text; Twilio also reports its own opt-out signal. Without a replay window, store each event's `dedupeKey` and skip repeats, as covered in [Webhook security](/receiving/webhook-security).
 
 ## Sender types
 
-| Sender | Twilio | Telnyx | Plivo | Vonage |
-| --- | --- | --- | --- | --- |
-| Long code | ✅ | ✅ | ✅ | ✅ |
-| Toll-free | ✅ | ✅ | ✅ | ✅ |
-| Short code | ✅ | ✅ | ✅ | ❌ |
-| Alphanumeric sender ID | ✅ | ✅ needs `messagingProfileId` | ✅ | ✅ |
-| `{ messagingService }` | Messaging Service SID | Messaging profile ID | Powerpack UUID | ❌ |
+| Sender | Twilio | Telnyx | Plivo | Vonage | Bandwidth | Sinch |
+| --- | --- | --- | --- | --- | --- | --- |
+| Long code | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Toll-free | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Short code | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Alphanumeric sender ID | ✅ | ✅ needs `messagingProfileId` | ✅ | ✅ | ❌ | ✅ |
+| `{ messagingService }` | Messaging Service SID | Messaging profile ID | Powerpack UUID | ❌ | ❌ | ❌ |
 
-This table says what the adapter can send from. The provider decides whether your account may use that sender in a given country. Each provider page lists the provider's rules under Regions and countries, and [Senders and E.164 numbers](/sending/send-a-message) covers the general idea.
-
-## Choosing
-
-| You need | Use |
-| --- | --- |
-| Scheduling with any sender | Telnyx |
-| Scheduling from a Twilio Messaging Service | Twilio |
-| MMS | Twilio, Telnyx, or Plivo |
-| Short codes | Twilio, Telnyx, or Plivo |
-| The most precise rejection categories, so fallback triggers on the right errors | Twilio or Telnyx |
-| A second provider for fallback | Any two. Put the supported one first if you mix statuses. |
+This table says what the adapter can send from. The provider and the carriers decide whether your account may use that sender in a given country. Each provider page lists its rules under Senders, and [Sender registration and consent](/providers/registration-and-consent) covers 10DLC, toll-free verification, short codes, and sender IDs.
 
 ## Switching providers
 
-Changing the adapter is one line of code. The account work takes longer:
+Changing the adapter is one line of code. The account work takes longer: senders and their registrations belong to one provider account, and you need new webhook URLs and credentials. See [Switch providers](/migration/switch-providers) for the checklist.
 
-- Provision and register a sender with the new provider. Numbers, short codes, 10DLC campaigns, and toll-free verifications belong to one provider account.
-- Configure webhook URLs and webhook credentials on the new provider.
-- Check sender rules for each destination country.
-
-See [Switch Twilio to Telnyx](/migration/switch-providers) for the full checklist.
-
-## Another provider
-
-For a provider that is not listed, implement the adapter contract and check it with the contract harness. See [Build a provider adapter](/advanced/writing-an-adapter).
+For a provider that is not listed, see [Build your own adapter](/advanced/writing-an-adapter).

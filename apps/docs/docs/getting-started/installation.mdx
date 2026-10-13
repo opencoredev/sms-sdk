@@ -15,12 +15,10 @@ npm install @opencoredev/sms-sdk
 | --- | --- |
 | Node.js | 20 or newer |
 | Bun | 1.1 or newer |
-| TypeScript (optional) | 5.x with `"moduleResolution"` set to `"bundler"`, `"node16"`, or `"nodenext"` so subpath exports resolve |
+| TypeScript (optional) | 5.x with `"moduleResolution"` set to `"bundler"`, `"node16"`, or `"nodenext"` so subpath imports resolve |
 | Module format | ESM only. There is no CommonJS build. |
 
-The package uses only web-standard APIs: `fetch`, `URL`, `URLSearchParams`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto (`crypto.subtle`). Telnyx webhook verification needs Ed25519, and Vonage JWT auth needs RSA signing. Node.js 20 and Bun 1.1 have both.
-
-Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet.
+The package uses only web-standard APIs: `fetch`, `URL`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto. Telnyx webhook verification needs Ed25519 and Vonage JWT auth needs RSA signing; Node.js 20 and Bun 1.1 have both. Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet.
 
 :::warning[Server only]
 SMS SDK holds provider credentials. Run it in a route handler, job worker, or script on your server. Never import it into browser code or expose its environment variables to the client.
@@ -28,24 +26,19 @@ SMS SDK holds provider credentials. Run it in a route handler, job worker, or sc
 
 ## Import what you use
 
-Each provider is its own subpath. Importing `@opencoredev/sms-sdk/telnyx` never loads the Twilio, Plivo, or Vonage code, and the package is marked `"sideEffects": false` for bundlers.
+Each part is its own subpath, and importing one adapter never loads another. The package is marked `"sideEffects": false` for bundlers.
 
-```ts
-import { createSmsClient } from "@opencoredev/sms-sdk";
-import { telnyx } from "@opencoredev/sms-sdk/telnyx";
-
-const sms = createSmsClient({
-  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100001" })],
-});
-
-console.log(sms.capabilities().map((adapter) => adapter.name)); // ["telnyx"]
-```
-
-The full list of subpaths is on the [Overview](/getting-started/overview#packages).
+| Import | What it gives you |
+| --- | --- |
+| `@opencoredev/sms-sdk` | `createSmsClient`, error classes, types, `isE164`, `estimateSegments`, `memoryIdempotencyStore` |
+| `@opencoredev/sms-sdk/twilio`, `/telnyx`, `/plivo`, `/vonage`, `/bandwidth`, `/sinch` | One provider adapter each, such as `twilio()` |
+| `@opencoredev/sms-sdk/webhooks` | `parseSmsWebhook()` and per-provider verify helpers |
+| `@opencoredev/sms-sdk/testing` | The `memory()` adapter, `mockFetch()`, signed webhook builders, the adapter contract harness |
+| `@opencoredev/sms-sdk/encoding` | `estimateSegments`, `isGsm7`, GSM-7 tables, `SEGMENT_LIMITS` |
 
 ## Environment variables
 
-These are the names the examples and the doctor CLI read. Keep them in your server environment or secret manager, not in source control.
+The SDK never reads environment variables itself; you pass values to the adapter. These are the names the examples and the [doctor CLI](/reference/doctor-cli) use:
 
 | Provider | Variables |
 | --- | --- |
@@ -53,20 +46,12 @@ These are the names the examples and the doctor CLI read. Keep them in your serv
 | Telnyx | `TELNYX_API_KEY`, `TELNYX_FROM`, optional `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_PUBLIC_KEY` for webhooks |
 | Plivo | `PLIVO_AUTH_ID`, `PLIVO_AUTH_TOKEN`, `PLIVO_FROM` or `PLIVO_POWERPACK_UUID` |
 | Vonage | `VONAGE_API_KEY` and `VONAGE_API_SECRET`, or `VONAGE_APPLICATION_ID` and `VONAGE_PRIVATE_KEY`; `VONAGE_FROM`; `VONAGE_SIGNATURE_SECRET` for webhooks |
+| Bandwidth | `BANDWIDTH_USER_ID`, `BANDWIDTH_API_TOKEN`, `BANDWIDTH_API_SECRET`, `BANDWIDTH_APPLICATION_ID`, `BANDWIDTH_FROM` |
+| Sinch | `SINCH_SERVICE_PLAN_ID`, `SINCH_API_TOKEN`, `SINCH_FROM` |
 
-The SDK never reads environment variables itself. You pass values to the adapter factory, so these names are only a convention.
-
-## Check your setup
-
-The doctor command reads your environment and validates the adapter configuration and sender. It makes no network calls:
-
-```bash
-npx @opencoredev/sms-sdk doctor --adapter twilio
-```
-
-See [Doctor CLI](/reference/doctor-cli) for every flag.
+Keep them in your server environment or secret manager, not in source control. To check them without sending, run `npx @opencoredev/sms-sdk doctor --adapter twilio`.
 
 ## Next steps
 
 - [Quick start](/getting-started/quick-start)
-- [Local testing](/getting-started/local-testing)
+- [Test without a provider](/getting-started/local-testing)

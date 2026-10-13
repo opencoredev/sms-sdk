@@ -1,66 +1,74 @@
 ---
-title: "Sending overview"
-description: "How sms.send() decides between accepted, rejected, and unknown, and which page covers each part of sending."
-sidebar:
-  label: "Overview"
+title: "How sending works"
+description: "The three outcomes of sms.send(), the order a send runs in, and every default with the option that changes it."
 ---
 
-Every send ends in one of three outcomes, and SMS SDK handles each one differently.
+Every send ends one of three ways, and SMS SDK treats each one differently. Learn these and the rest of the docs follow.
 
 ## Three outcomes
 
-| Outcome | Meaning | What `send()` does |
+| Outcome | What happened | What `send()` does |
 | --- | --- | --- |
-| Accepted | The provider created or queued the message. This is not handset delivery. | Resolves with an `SmsSendResult` (`handoff: "accepted"`). |
-| Rejected | The provider definitely did not create the message: bad credentials, an unregistered sender, an invalid number, an opt-out. | Throws `ProviderRejectedError` or a subclass, with `retrySafe: true`. Falls back if you enabled it. |
-| Unknown | The request may have reached the provider, but the response does not show what happened: a timeout, a network error, a 5xx, a malformed success response. | Throws `HandoffUnknownError` with `retrySafe: false`. Never retries or falls back. |
+| Accepted | The provider took the message and queued it. The phone may not have it yet. | Returns a result with the provider's message ID (`handoff: "accepted"`). |
+| Rejected | The provider said no and did not create the message: bad credentials, an unregistered sender, an invalid number, an opted-out recipient. | Throws `ProviderRejectedError` (or a subclass). Sending again cannot cause a duplicate, so `retrySafe` is `true`. |
+| Unknown | The request may have reached the provider, but the answer does not prove what happened: a timeout, a network error, a 5xx, a garbled success response. | The provider may have sent it, so the SDK stops and tells you (`HandoffUnknownError`, `retrySafe: false`). It never retries or tries another provider. |
 
-Delivery is a separate question, answered later by a [status webhook](/receiving/webhooks).
+There is no `{ ok: false }` result: `send()` returns only when the message was accepted. Whether the phone received it is a separate question, answered later by a [delivery webhook](/receiving/webhooks).
 
-## How a send runs
+:::warning[Unknown outcomes are never retried]
+On `HandoffUnknownError`, check the provider console or wait for a status webhook before you send again. Resending blindly can text the recipient twice. No option changes this.
+:::
 
-1. **Local checks.** The recipient must be E.164, the sender valid for the primary adapter, and every field supported. A failure throws before any network request. See [Validation and encoding](/sending/length-and-cost).
-2. **Idempotency.** With a store and an `idempotencyKey`, an earlier accepted send is returned instead of sending again. See [Idempotency](/sending/idempotency).
-3. **Policy.** Your `beforeSend` callback can block the message, for example for a suppressed recipient. See [Policy checks and hooks](/advanced/policy-and-hooks).
-4. **Requests.** The primary adapter sends. A documented rate limit is retried on the same adapter. With `fallback: "on-known-rejection"`, an eligible rejection moves to the next adapter. See [Retries and fallback](/sending/fallback-and-retries).
-5. **Result.** The first accepted response resolves the call. Anything else throws.
+## The order a send runs in
+
+1. **Local checks.** The recipient must be an E.164 number, the sender must suit the first adapter, and the adapter must support every field you set (media, scheduling, expiry, callback URL). A failure throws before any request, so nothing is silently dropped. See [Validation and encoding](/sending/length-and-cost).
+2. **Duplicate check.** If the same `idempotencyKey` was already accepted, you get the stored result back with `replayed: true` instead of a second text. See [Prevent duplicate sends](/sending/idempotency).
+3. **Your policy.** A `beforeSend` callback can block the message, for example for a suppressed recipient. See [Policy checks and hooks](/advanced/policy-and-hooks).
+4. **The request.** The first adapter sends. A documented rate limit is retried on the same adapter. If you turned fallback on and the provider clearly rejected the message, the next adapter tries. See [Fallback and retries](/sending/fallback-and-retries).
+5. **The result.** The first accepted response resolves the call. Anything else throws.
 
 ```mermaid
 flowchart TD
   A[sms.send] --> B{Local checks pass?}
-  B -- no --> E1[Throw Invalid*/UnsupportedFieldError]
-  B -- yes --> C{Idempotency record?}
-  C -- accepted --> R1[Return stored result, replayed: true]
-  C -- none --> D{beforeSend allows?}
+  B -- no --> E1[Throw before any request]
+  B -- yes --> C{Key already accepted?}
+  C -- yes --> R1[Return stored result]
+  C -- no --> D{beforeSend allows?}
   D -- no --> E2[Throw PolicyRejectedError]
   D -- yes --> F[Provider request]
-  F -- accepted --> R2[Resolve SmsSendResult]
+  F -- accepted --> R2[Return result]
   F -- rate limited --> G{Retry left?}
   G -- yes --> F
   G -- no --> H
-  F -- rejected --> H{Fallback on and eligible?}
+  F -- rejected --> H{Fallback on?}
   H -- yes --> F2[Next adapter]
   F2 --> F
   H -- no --> E3[Throw ProviderRejectedError]
   F -- unknown --> E4[Throw HandoffUnknownError]
 ```
 
-## Choose a page
+## Defaults
 
-| You want to | Page |
-| --- | --- |
-| Send a message and read the result | [Send your first SMS](/sending/send-a-message) |
-| Send from a short code, sender ID, or Messaging Service | [Senders and E.164 numbers](/sending/send-a-message) |
-| Check a message before sending | [Validation and encoding](/sending/length-and-cost) |
-| Estimate segments | [Segments and billing](/sending/length-and-cost) |
-| Send media, schedule, or set an expiry | [MMS, scheduling, and validity](/sending/send-a-message) |
-| Add a second provider | [Retries and fallback](/sending/fallback-and-retries) |
-| Avoid duplicate sends on retry | [Idempotency](/sending/idempotency) |
-| Block suppressed recipients, log attempts | [Policy checks and hooks](/advanced/policy-and-hooks) |
+SMS SDK picks the safe option when you pass nothing, even when that means an error instead of an automatic retry.
 
-## Best practices
+| Behavior | Default | Change it in |
+| --- | --- | --- |
+| Fallback | Off. With several adapters, only the first is used. Turn on with `fallback: "on-known-rejection"`. | [Fallback and retries](/sending/fallback-and-retries) |
+| Retries | Rate limits only, at most 2 requests per adapter (`retry.maxAttempts`). Backoff starts at 500 ms and caps at 10 s (`retry.baseDelayMs`, `retry.maxDelayMs`). A `Retry-After` longer than the cap stops retrying. A 429 without the provider's documented rate-limit error counts as unknown. | [Fallback and retries](/sending/fallback-and-retries) |
+| Timeout | 10 seconds per request (`timeoutMs`). A timeout after the request starts is an unknown outcome. | [createSmsClient](/reference/create-sms-client) |
+| Duplicate protection | Without a store, an `idempotencyKey` only joins identical calls running at the same time in one process. With `idempotency.store`, accepted results are kept 24 hours (`ttlSec`), unknown outcomes until you delete them, and a send stuck for 5 minutes (`staleReservationSec`) becomes unknown, never a resend. | [Prevent duplicate sends](/sending/idempotency) |
+| Duplicate store | `memoryIdempotencyStore()` protects one process. It is lost on restart and not shared across instances or serverless invocations. | [Multiple instances](/advanced/multiple-instances) |
+| Sender | A message without `from` uses the adapter's `from`. With neither, `send()` throws `InvalidSenderError`. | [Send a message](/sending/send-a-message) |
+| Segment count | `result.segments` and `validate()` estimate GSM-7 and UCS-2 segments. The provider decides what it bills. | [Length and cost](/sending/length-and-cost) |
+| Hooks | Phone numbers are masked, bodies are never included, and a hook that throws is ignored. | [Policy checks and hooks](/advanced/policy-and-hooks) |
+| Webhook verification | On. An unsigned or altered request throws `WebhookSignatureError`. `unsafeSkipVerification: true` is for tests only. | [Webhook security](/receiving/webhook-security) |
+| Proxy headers | Ignored. Pass `publicUrl`, or `trustProxy: true` only if a proxy you control sets `X-Forwarded-Proto` and `X-Forwarded-Host`. | [Webhook security](/receiving/webhook-security) |
+| Replay window | Signed timestamps must be within 5 minutes (`toleranceSec: 300`) for Telnyx, Vonage, and Sinch HMAC. Twilio, Plivo, and Bandwidth sign no timestamp, so deduplicate with `dedupeKey`. | [Webhook security](/receiving/webhook-security) |
+| Keyword detection | On. An inbound message that is only `STOP`, `UNSUBSCRIBE`, `HELP`, or a similar keyword becomes `recipient.opted_out` or `recipient.help`. Turn off with `detectKeywords: false`. SMS SDK never replies itself. | [Opt-outs](/receiving/opt-outs) |
+| Unknown webhook statuses | A verified event the SDK does not map becomes `{ type: "unrecognized" }` with the payload in `raw`. It does not throw. | [Webhook events](/reference/webhook-events) |
 
-- Pass an `idempotencyKey` for every message. It should name the message, such as `order:123:shipped:v1`, not the attempt.
-- On `HandoffUnknownError`, check the provider console or wait for a status webhook before you send again.
-- Store `providerId`. Status webhooks identify the message by it.
-- Keep fallback off until you need it. When you turn it on, give the second provider its own provisioned sender.
+## Next steps
+
+- [Send a message](/sending/send-a-message)
+- [Fallback and retries](/sending/fallback-and-retries)
+- [createSmsClient reference](/reference/create-sms-client)

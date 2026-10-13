@@ -3,7 +3,7 @@ title: "Webhook security"
 description: "How SMS SDK verifies Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch webhooks, and how to fix verification behind a proxy."
 ---
 
-Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature before it reads any field and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
+Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature or credentials before it reads any field, and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
 
 ## Respond to failures
 
@@ -36,11 +36,11 @@ export async function POST(request: Request): Promise<Response> {
 
 | `reason` | Meaning |
 | --- | --- |
-| `missing_signature` | The signature header or the Plivo nonce is absent. |
-| `invalid_signature` | The signature does not match. Usually a wrong credential or a URL mismatch. |
-| `stale_timestamp` | Telnyx or Vonage signed time is more than `toleranceSec` (default 300) from now. |
+| `missing_signature` | The signature or `Authorization` header, or the Plivo nonce, is absent. |
+| `invalid_signature` | The signature or Basic credentials do not match. Usually a wrong credential or a URL mismatch. |
+| `stale_timestamp` | The Telnyx, Vonage, or Sinch HMAC signed time is more than `toleranceSec` (default 300) from now. |
 | `body_hash_mismatch` | Twilio `bodySHA256` or Vonage `payload_hash` does not match the body. |
-| `malformed_signature` | The signature or token cannot be decoded. |
+| `malformed_signature` | The signature, token, or timestamp cannot be decoded. |
 | `invalid_credentials` | The credential you passed is malformed, such as a Telnyx public key that is not 32 bytes of base64. |
 
 `WebhookPayloadError` means the request was authentic but lacks required fields.
@@ -49,25 +49,27 @@ export async function POST(request: Request): Promise<Response> {
 
 | Provider | Credential | Scheme | Replay window |
 | --- | --- | --- | --- |
-| Twilio | `{ authToken }` | `X-Twilio-Signature`: Base64 HMAC-SHA1 of the URL plus sorted form parameters. For JSON bodies, the URL carries `bodySHA256` and only the URL is signed. | None. Twilio signs no timestamp. |
+| Twilio | `{ authToken }` | `X-Twilio-Signature`: Base64 HMAC-SHA1 of the URL plus sorted form parameters. For JSON bodies, the URL carries `bodySHA256` and only the URL is signed. | None |
 | Telnyx | `{ publicKey }` | `telnyx-signature-ed25519`: Ed25519 over `` `${telnyx-timestamp}|${rawBody}` ``. | `toleranceSec`, default 300 |
-| Plivo | `{ authToken }` | `X-Plivo-Signature-V2` (or `X-Plivo-Signature-Ma-V2`): Base64 HMAC-SHA256 of the URL without its query string plus `X-Plivo-Signature-V2-Nonce`. | None. Plivo signs no timestamp, and the form parameters are not signed. |
+| Plivo | `{ authToken }` | `X-Plivo-Signature-V2` (or `X-Plivo-Signature-Ma-V2`): Base64 HMAC-SHA256 of the URL without its query string plus `X-Plivo-Signature-V2-Nonce`. The form parameters are not signed. | None |
 | Vonage | `{ signatureSecret }` | `Authorization: Bearer <JWT>`, HS256 with the signature secret. `payload_hash`, when present, is the SHA-256 of the body. | `toleranceSec` on the JWT `iat`, default 300 |
-| Bandwidth | `{ username, password }` | No signature. `Authorization: Basic` must match the callback credentials set on your Bandwidth application. | None. |
-| Sinch | `{ kind: "basic", username, password }` or `{ kind: "hmac", webhookSecret }` | Basic: `Authorization: Basic` must match the credentials on your callback URL. HMAC: Base64 HMAC-SHA256 of `body.nonce.timestamp` in `x-sinch-webhook-signature`; Sinch does not publish this format for SMS. See [Sinch](/providers/sinch#webhooks). | HMAC: `toleranceSec`, default 300. Basic: none. |
+| Bandwidth | `{ username, password }` | No signature. `Authorization: Basic` must match the callback credentials set on your Bandwidth application. | None |
+| Sinch | `{ kind: "basic", username, password }` or `{ kind: "hmac", webhookSecret }` | Basic: `Authorization: Basic` must match the credentials on your callback URL. HMAC: Base64 HMAC-SHA256 of `body.nonce.timestamp` in `x-sinch-webhook-signature`. Sinch does not publish this format for SMS; see [Sinch](/providers/sinch#webhooks). | HMAC: `toleranceSec`, default 300. Basic: none. |
 
 Where to find each credential:
 
-- Twilio uses the Auth Token of the account that owns the number. API keys cannot verify webhooks.
-- Telnyx uses the base64 public key from Mission Control, under Keys & Credentials.
-- Plivo uses the Auth Token of the account or subaccount. `X-Plivo-Signature-Ma-V2` is signed with the main account's token.
-- Vonage uses the signature secret in the dashboard settings for the API key that signs your webhooks.
+- Twilio: the Auth Token of the account that owns the number. API keys cannot verify webhooks.
+- Telnyx: the base64 public key in Mission Control, under Keys & Credentials.
+- Plivo: the Auth Token of the account or subaccount. `X-Plivo-Signature-Ma-V2` is signed with the main account's token.
+- Vonage: the signature secret in the dashboard settings for the API key that signs your webhooks.
+- Bandwidth: the callback username and password you set on the messaging application.
+- Sinch: the Basic credentials on your callback URL, or the HMAC secret your Sinch account manager set up.
 
-Twilio, Plivo, Bandwidth, and Sinch with Basic auth send no signed timestamp, so they have no replay protection. An attacker who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/webhooks).
+Twilio, Plivo, Bandwidth, and Sinch with Basic auth sign no timestamp, so someone who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/webhooks#duplicates-and-ordering).
 
 ## Fix URL mismatches behind a proxy
 
-Twilio and Plivo sign the exact URL they called, such as `https://example.com/webhooks/sms/twilio`. Behind a load balancer, tunnel, or platform proxy, your app often sees a different URL, such as `http://10.0.0.5:3000/webhooks/sms/twilio`. Verification then fails with `invalid_signature`.
+Twilio and Plivo sign the exact URL they called, such as `https://example.com/webhooks/sms/twilio`. Behind a load balancer, tunnel, or platform proxy, your app often sees another URL, such as `http://10.0.0.5:3000/webhooks/sms/twilio`, and verification fails with `invalid_signature`.
 
 Pass the public URL exactly as configured with the provider:
 
@@ -86,25 +88,25 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-If `publicUrl` has no query string, SMS SDK appends the request's query string, so Twilio's `bodySHA256` and any parameters you added still verify. For Twilio it also tries the URL with and without the default port, `:443` or `:80`.
+If `publicUrl` has no query string, SMS SDK appends the request's, so Twilio's `bodySHA256` and any parameters you added still verify. For Twilio it also tries the URL with and without the default port, `:443` or `:80`.
 
-The alternative is `trustProxy: true`, which builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host`. Use it only when a proxy you control sets those headers and strips any a client sent. Otherwise anyone can forge them. With neither option, SMS SDK uses `request.url` and ignores forwarded headers.
+The alternative is `trustProxy: true`, which builds the URL from `X-Forwarded-Proto` and `X-Forwarded-Host`. Use it only when a proxy you control sets those headers and strips any a client sent; otherwise anyone can forge them. With neither option, SMS SDK uses `request.url` and ignores forwarded headers.
 
-Telnyx and Vonage do not sign the URL, so these options do not exist for them.
-
-## Skipping verification in tests
-
-`unsafeSkipVerification: true` parses without checking the signature. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better because they exercise the real verification path. See [Local testing](/getting-started/local-testing).
+The other providers do not sign the URL, so these options exist only for Twilio and Plivo.
 
 ## The raw body
 
 Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body once with `request.text()`. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
 
+## Skipping verification in tests
+
+`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Local testing](/getting-started/local-testing).
+
 ## Lower-level helpers
 
-To verify without parsing, `/webhooks` exports `verifyTwilioSignature`, `verifyTelnyxSignature`, `verifyPlivoSignatureV2`, and `verifyVonageSignature`, plus `computeTwilioSignature` and `computePlivoSignatureV2`. See [Webhook events](/reference/webhook-events#verify-helpers).
+To verify without parsing, for example in middleware, `/webhooks` exports `verifyTwilioSignature`, `verifyTelnyxSignature`, `verifyPlivoSignatureV2`, `verifyVonageSignature`, and `verifySinchSignature`, plus `computeTwilioSignature` and `computePlivoSignatureV2`. See [Webhook events](/reference/webhook-events#verify-helpers).
 
 ## Next steps
 
-- [Duplicates and ordering](/receiving/webhooks)
+- [Receive webhooks](/receiving/webhooks)
 - [Local testing](/getting-started/local-testing)

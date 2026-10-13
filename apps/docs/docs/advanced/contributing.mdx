@@ -1,20 +1,48 @@
 ---
-title: "Contributing"
-description: "Report issues, propose providers, and send pull requests to SMS SDK: setup, test commands, and the rules every change follows."
+title: "Contributing and support"
+description: "Where to ask questions about SMS SDK, how to report bugs and security issues, how to set up the repository and run the tests, and how to propose a new provider."
 ---
 
-SMS SDK is MIT licensed and developed on [GitHub](https://github.com/opencoredev/sms-sdk). We take bug reports, provider corrections with evidence, docs fixes, and pull requests.
+SMS SDK is MIT licensed and maintained on [GitHub](https://github.com/opencoredev/sms-sdk). There is no paid support plan. Bug reports, provider corrections with evidence, docs fixes, and pull requests are welcome.
 
-## Report a problem
+## Where to ask
 
-Open an [issue](https://github.com/opencoredev/sms-sdk/issues) with:
+| You have | Go to |
+| --- | --- |
+| A bug, or behavior that contradicts these docs | [GitHub issues](https://github.com/opencoredev/sms-sdk/issues) |
+| A question about using SMS SDK | A GitHub issue with the `question` label |
+| A provider fact that looks wrong | An issue with a link to the provider's official documentation |
+| A docs mistake | An issue, or a pull request against `apps/docs` |
+| A sender, delivery, account, or billing problem | Your SMS provider's support (see below) |
+
+Before you ask, run the [doctor CLI](/reference/doctor-cli). A dry run catches many configuration problems without any network calls:
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter telnyx --to +14155550123
+```
+
+## Report a bug
+
+Include:
 
 - the SMS SDK version, and your runtime (Node.js or Bun) and its version
 - the provider and adapter options, without credentials
-- the error's `toJSON()` output, which is already redacted
+- the error's `toJSON()` output, which is redacted and safe to paste
 - what you expected, with a link to the provider's documentation when the behavior concerns a provider
 
-A correction to provider behavior needs a source. Link the provider's official documentation, or include a reproducible request and response with secrets and numbers removed.
+Never post credentials, full phone numbers, or message contents. A correction to provider behavior needs a source: the provider's official documentation, or a reproducible request and response with secrets and numbers removed.
+
+## Report a security issue
+
+:::warning
+Do not open a public issue for a vulnerability, such as a way to bypass webhook signature verification.
+:::
+
+Use GitHub's [private vulnerability reporting](https://github.com/opencoredev/sms-sdk/security/advisories/new). If that form is not available, open an issue asking for a private contact, and leave out every detail of the vulnerability.
+
+## Questions for your provider
+
+SMS SDK cannot see or change your provider account. Ask your provider about sender provisioning, number porting, 10DLC, toll-free verification, short code approval, messages accepted but not delivered or filtered by carriers, account limits, trial restrictions, geographic permissions, and pricing. Give them the message's `providerId` from the send result or status webhook. Providers look messages up by their own ID.
 
 ## Set up the repository
 
@@ -22,13 +50,14 @@ A correction to provider behavior needs a source. Link the provider's official d
 git clone https://github.com/opencoredev/sms-sdk.git
 cd sms-sdk
 bun install
-cd packages/sms-sdk
-bun run check-types   # source, tests, and examples
-bun test              # unit, contract, webhook, CLI, examples, packaging
-bun run build         # dist/ via tsc
+bun run typecheck   # SDK source, tests, and examples
+bun run test        # unit, contract, webhook, CLI, examples, packaging
+bun run build       # the SDK, then the docs site
 ```
 
-Tests mock `fetch` and never contact a provider. `test/integration/live.test.ts` sends real messages only with `LIVE_SMS_TESTS=true`, a `LIVE_SMS_TO` listed in `LIVE_SMS_ALLOWLIST`, and provider credentials. Never enable it in CI for pull requests.
+Tests mock `fetch` and never contact a provider. `packages/sms-sdk/test/integration/live.test.ts` sends one real, billable message per configured provider, and only with `LIVE_SMS_TESTS=true`, a `LIVE_SMS_TO` listed in `LIVE_SMS_ALLOWLIST`, and provider credentials (see `packages/sms-sdk/.env.example`). Never enable it in CI for pull requests.
+
+For the docs, run `bun run dev` for a local preview and `cd apps/docs && bun run check:snippets` to type-check every TypeScript snippet against the SDK source. Pages are MDX files in `apps/docs/docs`, and each folder's `meta.ts` sets the sidebar order. Mark a block that cannot type-check, such as code for another library, with `ignore="reason"` in its fence. Snippets may import the stub modules `./db`, `./sms`, and `./notify`.
 
 ## Rules for code changes
 
@@ -38,19 +67,6 @@ Tests mock `fetch` and never contact a provider. `test/integration/live.test.ts`
 - Never log or serialize credentials, message bodies, or full phone numbers.
 - Every provider fact needs an official source in `PROVIDERS.md`, with the date it was checked. If something cannot be confirmed, the adapter is `partial` and `support.notes` says why.
 
-## Add a provider
+## Propose a provider
 
-Follow [Build a provider adapter](/advanced/writing-an-adapter), then the checklist in the repository's [CONTRIBUTING.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CONTRIBUTING.md). It covers the adapter file and its `providerOptions` spec, error mapping, the subpath export, contract fixtures from the provider's documented examples, the webhook parser and signed request builders, and entries in `PROVIDERS.md`, the README, and the doctor environment table.
-
-## Improve the docs
-
-This site lives in `apps/docs` and is built with [Blume](https://useblume.dev). Pages are MDX files in `apps/docs/docs`, and each folder's `meta.ts` sets the sidebar order.
-
-```bash
-cd apps/docs
-bun run dev             # local preview
-bun run check:snippets  # type-check every TypeScript snippet against the SDK source
-bun run build
-```
-
-Every `ts` snippet must type-check against the SDK. Mark a block that cannot, such as code for another library, with `ignore="reason"` in its fence, as in ` ```ts ignore="Twilio SDK code" `. Snippets may import the stub modules `./db`, `./sms`, and `./notify` from `apps/docs/scripts/snippet-stubs`.
+Build it with [Build your own adapter](/advanced/writing-an-adapter), then open an issue with links to the provider's official API, error, and webhook documentation, and contract fixtures built from those docs. The repository's [CONTRIBUTING.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CONTRIBUTING.md) has the full checklist: the adapter file and its `providerOptions` spec, error mapping, the subpath export, contract fixtures, the webhook parser and signed request builders, and entries in `PROVIDERS.md`, the README, and the doctor environment table.

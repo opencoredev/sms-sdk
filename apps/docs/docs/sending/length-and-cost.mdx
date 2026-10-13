@@ -1,11 +1,11 @@
 ---
-title: "Validation and encoding"
-description: "Check a message locally with sms.validate() before you pay for a send: E.164, sender, capabilities, encoding, and segments."
+title: "Message length and cost"
+description: "Check a message with sms.validate() before you send, see how GSM-7 and UCS-2 change the segment count, and why the estimate is not a price."
 ---
 
-`sms.validate()` tells you whether a message would be refused and how many segments it uses, before you send. It is synchronous, free, and never contacts a provider.
+Providers bill SMS per segment, not per message. `sms.validate()` tells you how many segments a message uses and whether it would be refused, before you send. It runs locally, costs nothing, and never contacts a provider.
 
-## Validate a message
+## Check a message
 
 ```ts
 import { sms } from "./sms";
@@ -21,11 +21,9 @@ console.log(check.nonGsmCharacters); // ["📦"]
 console.log(check.issues); // []
 ```
 
-`supported` is `true` when the primary adapter can send the message and nothing is wrong with it. The emoji forces UCS-2, as `encoding` and `nonGsmCharacters` show.
+`supported` is `true` when the first adapter can send the message and nothing is wrong with it. The emoji forces UCS-2 encoding, as `encoding` and `nonGsmCharacters` show.
 
-## Read the issues
-
-Each problem is a `ValidationIssue` with a stable `code`, the `field` it concerns, a readable `message`, and `provider` when it applies to one adapter.
+When something is wrong, `issues` lists each problem with a `code`, the `field`, a readable `message`, and `provider` when it applies to one adapter:
 
 ```ts
 import { sms } from "./sms";
@@ -43,67 +41,80 @@ for (const issue of check.issues) {
 
 With an adapter that cannot schedule, this prints one `unsupported_field` issue for `sendAt`, and `supported` is `false`.
 
-| `code` | Meaning |
-| --- | --- |
-| `invalid_recipient` | `to` is not E.164. |
-| `invalid_sender` | `from` (or the adapter default) is malformed, such as a 12-character sender ID. |
-| `missing_sender` | No `from` on the message and no default on the adapter. |
-| `empty_body` | The body is empty and there is no media. |
-| `unsupported_field` | The adapter cannot send this field or sender type. |
-| `invalid_field` | A field is malformed or outside the adapter's range: a relative URL, an invalid `Date`, a `validityPeriodSec` outside the provider's range, a Twilio body over 1600 characters, more than 10 Twilio media URLs, or an `idempotencyKey` outside 1 to 255 characters. |
+With several adapters, `validate()` checks each one. `adapterCandidates` lists the adapters that could send the message, in order, and `issues` holds the problems from the rest. `supported` still reflects only the first adapter, because `send()` throws when the first adapter cannot send the message, even with fallback on.
 
-## Check every adapter
+[validate() reference](/reference/validate) has every issue code and the full result shape. Validation checks format and declared capabilities only. It cannot see whether your sender is registered, whether the country accepts your sender type, whether the recipient opted out with the provider, or your balance. The provider reports those when you send.
 
-With several adapters, `validate()` checks each one. `adapterCandidates` lists the adapters that could send the message, in order. `issues` collects the problems from the rest.
+## GSM-7 and UCS-2
+
+A message uses GSM-7 when every character is in the GSM 03.38 alphabet or its extension table. Otherwise the whole message uses UCS-2, which fits fewer characters per segment.
+
+| Encoding | Counts | One segment holds | Each part of a longer message holds |
+| --- | --- | --- | --- |
+| GSM-7 | Septets | 160 | 153 |
+| UCS-2 | UTF-16 code units | 70 | 67 |
+
+A longer message loses a few units per part to the header that joins the parts. So 161 GSM-7 septets cost 2 segments.
+
+The SDK also applies these rules:
+
+- Extension characters count 2 septets: form feed, `^`, `{`, `}`, `\`, `[`, `~`, `]`, `|`, and `€`. Eighty `€` signs fill one segment.
+- An extension character's two septets never split across segments.
+- Most emoji count 2 code units in UCS-2, and they never split across segments.
+
+## Why one emoji changes the count
+
+One character outside GSM-7 switches the whole message to UCS-2. That lowers the limit from 160 to 70, so a message that fit easily can suddenly need more segments.
+
+```ts
+import { estimateSegments } from "@opencoredev/sms-sdk";
+
+const body = "Hi Sam, your order #4821 has shipped and should arrive Thursday. Reply STOP to opt out.";
+
+console.log(estimateSegments(body).segments); // 1 (gsm7, 87 septets)
+console.log(estimateSegments(`${body} 🎉`).segments); // 2 (ucs2, 90 code units)
+```
+
+Curly quotes (`“ ”`), long dashes, and many accented letters do the same. The SDK never rewrites your text to stay in GSM-7. `nonGsmCharacters` lists what forced UCS-2, so you can change the text yourself.
+
+`estimateSegments(body)` is also exported from `@opencoredev/sms-sdk/encoding`, and every `SmsSendResult` includes `encoding` and `segments`.
+
+## The estimate is not a price
+
+The count is how a standard handset would split the message. Your bill can differ:
+
+- Some providers can replace characters such as curly quotes before sending, which lowers the count. Twilio does this with the `smartEncoded` [provider option](/sending/send-a-message#provider-options).
+- Some toll-free and international routes split messages differently or have their own length limit. Twilio accepts at most 1600 characters and Bandwidth 2048, and the SDK checks both before sending.
+- Providers set their own prices for MMS, carrier fees, failed messages, and each country, sender type, and contract.
+
+Use the count to catch surprises, such as a template that grew past 160 characters or a stray emoji. Use your provider's pricing pages and invoices for money.
+
+## Block long messages
+
+`beforeSend` receives the segment estimate, so you can refuse messages longer than you expect:
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
-import { telnyx } from "@opencoredev/sms-sdk/telnyx";
-import { vonage } from "@opencoredev/sms-sdk/vonage";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
 
 const sms = createSmsClient({
   adapters: [
-    vonage({ apiKey: process.env.VONAGE_API_KEY ?? "", apiSecret: process.env.VONAGE_API_SECRET ?? "", from: "+15550100001" }),
-    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
   ],
-  fallback: "on-known-rejection",
+  beforeSend: ({ segments, encoding }) =>
+    segments > 3
+      ? { kind: "reject", reason: `Message is ${segments} ${encoding} segments; the limit is 3.` }
+      : { kind: "allow" },
 });
-
-const check = sms.validate({
-  to: "+14155550123",
-  body: "See the attached receipt.",
-  mediaUrls: ["https://example.com/receipt.png"],
-});
-
-console.log(check.supported); // false: Vonage cannot send MMS
-console.log(check.adapterCandidates); // ["telnyx"]
 ```
 
-`supported` reflects only the primary adapter, because `send()` throws `UnsupportedFieldError` when the primary cannot send the message, even with fallback on.
-
-## What validate() cannot know
-
-Validation checks format and declared capabilities. It cannot see whether your sender is provisioned or registered for 10DLC or toll-free, whether the destination country accepts your sender type, whether the recipient opted out with the provider, or your balance, trial status, and geographic permissions. The provider reports those as rejections when you send.
-
-## Encoding
-
-Every result includes the `estimateSegments()` fields:
-
-| Field | Meaning |
-| --- | --- |
-| `encoding` | `"gsm7"` when every character is in the GSM-7 alphabet or its extension table, otherwise `"ucs2"`. |
-| `units` | GSM-7 septets (extension characters such as `€`, `[`, `{` count 2) or UTF-16 code units. |
-| `segments` | Estimated segments. `0` for an empty body. |
-| `unitsPerSegment` | 160 or 153 for GSM-7, 70 or 67 for UCS-2. |
-| `remainingInSegment` | Units left before another segment starts. |
-| `containsUnicode` | `true` when at least one character forces UCS-2. |
-| `nonGsmCharacters` | The distinct characters that forced UCS-2, in order. |
-
-The [validate() reference](/reference/validate) has the full result type.
-
-SMS SDK never rewrites your text. One curly quote or emoji puts the whole message in UCS-2. For GSM-7, replace those characters yourself. [Segments and billing](/sending/length-and-cost) covers the counting rules.
+A refused message throws `PolicyRejectedError` before any request, so nothing is billed. See [Block and log sends](/advanced/policy-and-hooks).
 
 ## Next steps
 
-- [Segments and billing](/sending/length-and-cost)
 - [validate() reference](/reference/validate)
+- [Block and log sends](/advanced/policy-and-hooks)

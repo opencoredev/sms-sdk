@@ -3,10 +3,10 @@ title: "STOP, HELP, and opt-outs"
 description: "Record opt-outs from STOP replies, answer HELP, and block sends to suppressed recipients. SMS SDK helps; compliance stays your app's job."
 ---
 
-When someone replies STOP, you must stop texting them on every provider you use. SMS SDK turns opt-out and help replies into events and lets you block sends with `beforeSend`.
+When someone replies STOP, you must stop texting them on every provider you use. SMS SDK turns STOP, START, and HELP replies into events, and lets you block sends with `beforeSend`.
 
 :::warning[No compliance guarantee]
-SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also act on STOP replies with their own rules. Treat these events as inputs to your own records. See [Sender registration and consent](/providers/registration-and-consent).
+SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also act on STOP replies by their own rules. Treat these events as inputs to your own records. See [Registration and consent](/providers/registration-and-consent).
 :::
 
 ## Opt-out and help events
@@ -19,12 +19,12 @@ An inbound message becomes one of these instead of `message.received`:
 | `recipient.opted_in` | Twilio `OptOutType=START` only |
 | `recipient.help` | Twilio `OptOutType=HELP`, or a whole-message keyword: `HELP`, `INFO` |
 
-Each event has `from`, the person who texted, `to`, your number, plus the original `body`, `keyword`, `providerId`, and `source`. The `source` tells you who detected it:
+Each event has `from` (the person who texted), `to` (your number), the original `body`, `keyword`, `providerId`, and `source`, which says who detected it:
 
-- `"provider"` means the provider flagged it. Only Twilio sends this signal, in `OptOutType`, and only when Advanced Opt-Out is enabled on the Messaging Service.
-- `"keyword"` means SMS SDK matched the whole message after trimming, ignoring case and a trailing `.`, `!`, or `?`. "stop" and "Stop!" match. "Please stop texting me" does not.
+- `"provider"`: the provider flagged it. Only Twilio does this, in `OptOutType`, and only with Advanced Opt-Out enabled on the Messaging Service.
+- `"keyword"`: SMS SDK matched the whole message, ignoring case, surrounding spaces, and a trailing `.`, `!`, or `?`. "Stop!" matches. "Please stop texting me" does not.
 
-Keyword matching is a convenience. Carriers and providers may treat other words or languages as opt-outs. Set `detectKeywords: false` to receive every inbound message as `message.received` and apply your own rules with `detectKeyword()` or your own matcher.
+Keyword matching is a convenience. Carriers and providers may treat other words or languages as opt-outs. Set `detectKeywords: false` to receive every inbound text as `message.received`, then apply your own rules with `detectKeyword()` or your own matcher.
 
 ## Record opt-outs
 
@@ -63,27 +63,18 @@ The suppression list lives in your database, so it covers every provider you sen
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
 import { telnyx } from "@opencoredev/sms-sdk/telnyx";
-import { twilio } from "@opencoredev/sms-sdk/twilio";
 import { db } from "./db";
 
 export const sms = createSmsClient({
-  adapters: [
-    twilio({
-      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
-      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
-      from: "+15550100001",
-    }),
-    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
-  ],
-  fallback: "on-known-rejection",
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" })],
   beforeSend: async ({ message }) =>
     (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "Recipient opted out." } : { kind: "allow" },
 });
 ```
 
-A suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
+Sending to a suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
 
-A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or sends it through another provider. See [Retries and fallback](/sending/fallback-and-retries). Add the number to your suppression list when you see one:
+A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or tries another provider. See [Retries and fallback](/sending/fallback-and-retries). Add the number to your list when you see one:
 
 ```ts
 import { ProviderRejectedError } from "@opencoredev/sms-sdk";
@@ -103,7 +94,7 @@ try {
 
 ## Answer HELP
 
-SMS SDK never replies on its own. Some providers answer HELP and STOP automatically for some sender types, so check your provider settings to avoid sending two replies. To reply yourself:
+SMS SDK never replies on its own. Some providers answer HELP and STOP automatically for some sender types, so check your provider settings before adding a reply, or the recipient gets two.
 
 ```ts
 import { isE164 } from "@opencoredev/sms-sdk";
@@ -121,11 +112,13 @@ export async function answerHelp(event: SmsEvent): Promise<void> {
 }
 ```
 
-## What else you are responsible for
+The idempotency key comes from the inbound event, so a repeated webhook cannot send a second reply.
 
-Your app also has to collect and store consent before texting anyone, register senders, and follow quiet hours, content rules, and country requirements. Sender registration covers US A2P 10DLC campaigns, toll-free verification, short code approval, and sender ID registration where required. [Sender registration and consent](/providers/registration-and-consent) links to each provider's rules. They change, so check them directly.
+## What else is your job
+
+Your app also collects and stores consent before texting anyone, registers senders (US A2P 10DLC, toll-free verification, short codes, and sender IDs where required), and follows quiet hours, content rules, and country requirements. [Registration and consent](/providers/registration-and-consent) links to each provider's rules. They change, so check them directly.
 
 ## Next steps
 
 - [Policy checks and hooks](/advanced/policy-and-hooks)
-- [Sender registration and consent](/providers/registration-and-consent)
+- [Registration and consent](/providers/registration-and-consent)
