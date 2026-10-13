@@ -7,10 +7,10 @@ The runnable examples live in [`packages/sms-sdk/examples`](https://github.com/o
 
 | Example | Shows | Docs |
 | --- | --- | --- |
-| [`test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter) | App code tested with `memory()`, including a scripted compliance rejection. | [Local testing](/guides/local-testing) |
+| [`test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter) | App code tested with `memory()`, including a scripted compliance rejection. | [Local testing](/getting-started/local-testing) |
 | [`twilio`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/twilio) | One send through Twilio. Mocked by default; opt into a live send with environment variables. | [Twilio](/providers/twilio) |
-| [`failover`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/failover) | Twilio first, Telnyx after a known sender rejection, with handling for unknown outcomes. | [Retries and fallback](/sending/retries-and-fallback) |
-| [`webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) | A plain `fetch` handler for Twilio and Telnyx webhooks: verification, deduplication, and a rejected forgery. Works with `Bun.serve`, Hono, and Next.js route handlers. | [Receiving overview](/receiving/overview) |
+| [`failover`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/failover) | Twilio first, Telnyx after a known sender rejection, with handling for unknown outcomes. | [Retries and fallback](/sending/fallback-and-retries) |
+| [`webhooks`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/webhooks) | A plain `fetch` handler for Twilio and Telnyx webhooks: verification, deduplication, and a rejected forgery. Works with `Bun.serve`, Hono, and Next.js route handlers. | [Receiving overview](/receiving/webhooks) |
 
 ## Run them
 

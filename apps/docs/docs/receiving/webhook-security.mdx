@@ -63,7 +63,7 @@ Where to find each credential:
 - Plivo uses the Auth Token of the account or subaccount. `X-Plivo-Signature-Ma-V2` is signed with the main account's token.
 - Vonage uses the signature secret in the dashboard settings for the API key that signs your webhooks.
 
-Twilio, Plivo, Bandwidth, and Sinch with Basic auth send no signed timestamp, so they have no replay protection. An attacker who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+Twilio, Plivo, Bandwidth, and Sinch with Basic auth send no signed timestamp, so they have no replay protection. An attacker who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Duplicates and ordering](/receiving/webhooks).
 
 ## Fix URL mismatches behind a proxy
 
@@ -94,7 +94,7 @@ Telnyx and Vonage do not sign the URL, so these options do not exist for them.
 
 ## Skipping verification in tests
 
-`unsafeSkipVerification: true` parses without checking the signature. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better because they exercise the real verification path. See [Local testing](/guides/local-testing).
+`unsafeSkipVerification: true` parses without checking the signature. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better because they exercise the real verification path. See [Local testing](/getting-started/local-testing).
 
 ## The raw body
 
@@ -106,5 +106,5 @@ To verify without parsing, `/webhooks` exports `verifyTwilioSignature`, `verifyT
 
 ## Next steps
 
-- [Duplicates and ordering](/receiving/duplicates-and-ordering)
-- [Local testing](/guides/local-testing)
+- [Duplicates and ordering](/receiving/webhooks)
+- [Local testing](/getting-started/local-testing)

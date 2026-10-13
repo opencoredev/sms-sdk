@@ -159,7 +159,7 @@ No store removes this step. None of the supported providers deduplicates SMS sen
 
 ## Webhooks across instances
 
-Webhook deduplication has the same problem. Store `dedupeKey` under a unique constraint in the shared database, not in process memory. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+Webhook deduplication has the same problem. Store `dedupeKey` under a unique constraint in the shared database, not in process memory. See [Duplicates and ordering](/receiving/webhooks).
 
 ## Other state that is per process
 

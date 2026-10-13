@@ -46,7 +46,7 @@ None of the providers documents send idempotency for SMS, so no adapter has nati
 | Alphanumeric sender ID | ✅ | ✅ needs `messagingProfileId` | ✅ | ✅ |
 | `{ messagingService }` | Messaging Service SID | Messaging profile ID | Powerpack UUID | ❌ |
 
-This table says what the adapter can send from. The provider decides whether your account may use that sender in a given country. Each provider page lists the provider's rules under Regions and countries, and [Senders and E.164 numbers](/sending/senders-and-e164) covers the general idea.
+This table says what the adapter can send from. The provider decides whether your account may use that sender in a given country. Each provider page lists the provider's rules under Regions and countries, and [Senders and E.164 numbers](/sending/send-a-message) covers the general idea.
 
 ## Choosing
 
@@ -67,8 +67,8 @@ Changing the adapter is one line of code. The account work takes longer:
 - Configure webhook URLs and webhook credentials on the new provider.
 - Check sender rules for each destination country.
 
-See [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx) for the full checklist.
+See [Switch Twilio to Telnyx](/migration/switch-providers) for the full checklist.
 
 ## Another provider
 
-For a provider that is not listed, implement the adapter contract and check it with the contract harness. See [Build a provider adapter](/providers/writing-an-adapter).
+For a provider that is not listed, implement the adapter contract and check it with the contract harness. See [Build a provider adapter](/advanced/writing-an-adapter).

@@ -37,7 +37,7 @@ The second call makes no request. It returns the stored result with `replayed: t
 A key names the message, not the attempt: `order:123:shipped:v1`, `appointment:88:reminder:24h`. Keys are 1 to 255 characters. Bump the version suffix to deliberately send the same event again.
 
 :::note
-`memoryIdempotencyStore()` lives in one process. It is lost on restart and not shared across instances, serverless invocations, or workers. In production, implement `IdempotencyStore` on your database or Redis. See [Deploy with multiple instances](/guides/multiple-instances).
+`memoryIdempotencyStore()` lives in one process. It is lost on restart and not shared across instances, serverless invocations, or workers. In production, implement `IdempotencyStore` on your database or Redis. See [Deploy with multiple instances](/advanced/multiple-instances).
 :::
 
 ## What happens on a repeat key
@@ -98,5 +98,5 @@ await store.delete("order:123:shipped:v1");
 
 ## Next steps
 
-- [Deploy with multiple instances](/guides/multiple-instances)
+- [Deploy with multiple instances](/advanced/multiple-instances)
 - [Idempotency store reference](/reference/idempotency-store)

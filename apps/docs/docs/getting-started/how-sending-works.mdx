@@ -15,14 +15,14 @@ Every send ends in one of three outcomes, and SMS SDK handles each one different
 | Rejected | The provider definitely did not create the message: bad credentials, an unregistered sender, an invalid number, an opt-out. | Throws `ProviderRejectedError` or a subclass, with `retrySafe: true`. Falls back if you enabled it. |
 | Unknown | The request may have reached the provider, but the response does not show what happened: a timeout, a network error, a 5xx, a malformed success response. | Throws `HandoffUnknownError` with `retrySafe: false`. Never retries or falls back. |
 
-Delivery is a separate question, answered later by a [status webhook](/receiving/delivery-status-webhooks).
+Delivery is a separate question, answered later by a [status webhook](/receiving/webhooks).
 
 ## How a send runs
 
-1. **Local checks.** The recipient must be E.164, the sender valid for the primary adapter, and every field supported. A failure throws before any network request. See [Validation and encoding](/sending/validation-and-encoding).
+1. **Local checks.** The recipient must be E.164, the sender valid for the primary adapter, and every field supported. A failure throws before any network request. See [Validation and encoding](/sending/length-and-cost).
 2. **Idempotency.** With a store and an `idempotencyKey`, an earlier accepted send is returned instead of sending again. See [Idempotency](/sending/idempotency).
-3. **Policy.** Your `beforeSend` callback can block the message, for example for a suppressed recipient. See [Policy checks and hooks](/sending/policy-and-hooks).
-4. **Requests.** The primary adapter sends. A documented rate limit is retried on the same adapter. With `fallback: "on-known-rejection"`, an eligible rejection moves to the next adapter. See [Retries and fallback](/sending/retries-and-fallback).
+3. **Policy.** Your `beforeSend` callback can block the message, for example for a suppressed recipient. See [Policy checks and hooks](/advanced/policy-and-hooks).
+4. **Requests.** The primary adapter sends. A documented rate limit is retried on the same adapter. With `fallback: "on-known-rejection"`, an eligible rejection moves to the next adapter. See [Retries and fallback](/sending/fallback-and-retries).
 5. **Result.** The first accepted response resolves the call. Anything else throws.
 
 ```mermaid
@@ -49,14 +49,14 @@ flowchart TD
 
 | You want to | Page |
 | --- | --- |
-| Send a message and read the result | [Send your first SMS](/sending/send-your-first-sms) |
-| Send from a short code, sender ID, or Messaging Service | [Senders and E.164 numbers](/sending/senders-and-e164) |
-| Check a message before sending | [Validation and encoding](/sending/validation-and-encoding) |
-| Estimate segments | [Segments and billing](/sending/segments-and-billing) |
-| Send media, schedule, or set an expiry | [MMS, scheduling, and validity](/sending/mms-and-scheduling) |
-| Add a second provider | [Retries and fallback](/sending/retries-and-fallback) |
+| Send a message and read the result | [Send your first SMS](/sending/send-a-message) |
+| Send from a short code, sender ID, or Messaging Service | [Senders and E.164 numbers](/sending/send-a-message) |
+| Check a message before sending | [Validation and encoding](/sending/length-and-cost) |
+| Estimate segments | [Segments and billing](/sending/length-and-cost) |
+| Send media, schedule, or set an expiry | [MMS, scheduling, and validity](/sending/send-a-message) |
+| Add a second provider | [Retries and fallback](/sending/fallback-and-retries) |
 | Avoid duplicate sends on retry | [Idempotency](/sending/idempotency) |
-| Block suppressed recipients, log attempts | [Policy checks and hooks](/sending/policy-and-hooks) |
+| Block suppressed recipients, log attempts | [Policy checks and hooks](/advanced/policy-and-hooks) |
 
 ## Best practices
 

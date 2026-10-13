@@ -24,7 +24,7 @@ SMS SDK does not move numbers, 10DLC campaigns, toll-free verifications, or mess
 1. Create a Telnyx API v2 key.
 2. Get a sender on Telnyx: buy a number, or port your Twilio number. A port moves the number off Twilio, so plan the cutover around it.
 3. Assign the number to a messaging profile.
-4. Register it with an A2P 10DLC brand and campaign for US long codes, or toll-free verification. Twilio registrations do not transfer. See [Sender registration and consent](/guides/sender-registration-and-consent).
+4. Register it with an A2P 10DLC brand and campaign for US long codes, or toll-free verification. Twilio registrations do not transfer. See [Sender registration and consent](/providers/registration-and-consent).
 5. Copy the public key from Mission Control, under Keys & Credentials, for webhook verification.
 
 Check the setup without sending:
@@ -127,7 +127,7 @@ Telnyx `dedupeKey`s start with `telnyx:` and use the event ID, so they never col
 Twilio, not Telnyx, holds the opt-outs from people who replied STOP to your Twilio number. Before the first Telnyx send:
 
 - Make sure your suppression list has every opt-out you received from Twilio webhooks.
-- Check the list in `beforeSend` so it applies to Telnyx sends. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs#block-sends-to-suppressed-recipients).
+- Check the list in `beforeSend` so it applies to Telnyx sends. See [STOP, HELP, and opt-outs](/receiving/opt-outs#block-sends-to-suppressed-recipients).
 - If you used Twilio Advanced Opt-Out, export its opt-out list and import it into your suppression list.
 
 ## 5. Cut over gradually
@@ -152,7 +152,7 @@ export const sms = createSmsClient({
 });
 ```
 
-With this config, a Telnyx `auth`, `rate_limited`, `sender`, or `account` rejection goes through Twilio instead. Other rejections and unknown outcomes never fall back. See [Retries and fallback](/sending/retries-and-fallback). Watch `result.attemptedProviders` or the `onAttempt` hook to see how often Twilio is used.
+With this config, a Telnyx `auth`, `rate_limited`, `sender`, or `account` rejection goes through Twilio instead. Other rejections and unknown outcomes never fall back. See [Retries and fallback](/sending/fallback-and-retries). Watch `result.attemptedProviders` or the `onAttempt` hook to see how often Twilio is used.
 
 Each adapter sends from its own number, so recipients may see two sender numbers during this phase. If that matters, move message types one at a time instead. Create a second client for Telnyx and switch call sites gradually.
 
@@ -169,4 +169,4 @@ Until you release the Twilio number or close the account, rollback is a code cha
 ## Next steps
 
 - [Telnyx provider page](/providers/telnyx)
-- [Retries and fallback](/sending/retries-and-fallback)
+- [Retries and fallback](/sending/fallback-and-retries)

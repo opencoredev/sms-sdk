@@ -7,8 +7,8 @@ SMS SDK (`@opencoredev/sms-sdk`) sends transactional SMS through Twilio, Telnyx,
 
 - New here? Send a message in the [Quick start](/getting-started/quick-start).
 - Already on the Twilio SDK? Read [Migrate from the Twilio SDK](/migration/migrate-from-twilio).
-- Moving from Twilio to Telnyx? Read [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx).
-- Deciding whether to use it? Read [Why SMS SDK](/getting-started/why-sms-sdk).
+- Moving from Twilio to Telnyx? Read [Switch Twilio to Telnyx](/migration/switch-providers).
+- Deciding whether to use it? Read [Why SMS SDK](/getting-started/overview).
 
 ## What it solves
 
@@ -46,7 +46,7 @@ try {
 }
 ```
 
-Replace `telnyx(...)` with `twilio(...)`, `plivo(...)`, or `vonage(...)` to change provider. The `send()` call stays the same. Runnable versions are in the [examples](/examples/overview).
+Replace `telnyx(...)` with `twilio(...)`, `plivo(...)`, or `vonage(...)` to change provider. The `send()` call stays the same. Runnable versions are in the [examples](/getting-started/examples).
 
 ## Packages
 
@@ -80,7 +80,7 @@ SMS SDK is a transport library. It does not include:
 
 - Conversation threads, an inbox, chatbots, WhatsApp, RCS, or iMessage.
 - An OTP verification service, a hosted API, a dashboard, or number purchasing.
-- 10DLC, toll-free, or sender ID registration. You do that with each provider. See [Sender registration and consent](/guides/sender-registration-and-consent).
+- 10DLC, toll-free, or sender ID registration. You do that with each provider. See [Sender registration and consent](/providers/registration-and-consent).
 - Exactly-once delivery. None of the supported providers offers send idempotency, so no SMS library can promise it. SMS SDK reports an unknown outcome instead of guessing. See [Idempotency](/sending/idempotency).
 
 It runs on the server only, on Node.js 20+ or Bun 1.1+. See [Installation](/getting-started/installation).
@@ -88,5 +88,5 @@ It runs on the server only, on Node.js 20+ or Bun 1.1+. See [Installation](/gett
 ## Next steps
 
 - [Quick start](/getting-started/quick-start)
-- [Important defaults](/getting-started/important-defaults)
+- [Important defaults](/getting-started/how-sending-works)
 - [Providers overview](/providers/overview)

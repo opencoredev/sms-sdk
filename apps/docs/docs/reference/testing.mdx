@@ -7,7 +7,7 @@ description: "@opencoredev/sms-sdk/testing: memory(), outcome helpers, mockFetch
 import { memory, mockFetch, runSmsAdapterContract } from "@opencoredev/sms-sdk/testing";
 ```
 
-Nothing in this subpath sends real messages. Guide: [Local testing](/guides/local-testing).
+Nothing in this subpath sends real messages. Guide: [Local testing](/getting-started/local-testing).
 
 ## `memory(options?)`
 
@@ -97,7 +97,7 @@ Each builder returns a `Promise<Request>` signed the way the provider signs it, 
 
 ## Contract harness
 
-Checks an adapter against the same contract the built-in adapters pass. [Build a provider adapter](/providers/writing-an-adapter#4-run-the-contract-harness) has a complete example.
+Checks an adapter against the same contract the built-in adapters pass. [Build a provider adapter](/advanced/writing-an-adapter#4-run-the-contract-harness) has a complete example.
 
 ### `smsAdapterContractCases(factory, fixtures)`
 

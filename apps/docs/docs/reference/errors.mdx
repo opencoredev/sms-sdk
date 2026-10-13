@@ -81,7 +81,7 @@ The base class. Every error has these fields.
 
 - `code`: `invalid_recipient`. `retrySafe`: true.
 - `to` does not match `^\+[1-9]\d{1,14}$`.
-- Normalize the number to E.164. See [Senders and E.164 numbers](/sending/senders-and-e164).
+- Normalize the number to E.164. See [Senders and E.164 numbers](/sending/send-a-message).
 
 ### `InvalidSenderError`
 
@@ -100,7 +100,7 @@ The base class. Every error has these fields.
 - `code`: `unsupported_field`. `retrySafe`: true. Extra fields: `field: ValidationField`, `providerName: string`.
 - The primary adapter cannot send `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or the sender type. Thrown before any request, even with fallback on.
 - Also thrown, with `field: "providerOptions"`, when any configured adapter's `providerOptions` entry has a key it does not accept, an `extra` key that names a parameter the SDK sets, or the adapter accepts no options at all.
-- Remove the field, change the sender, or put an adapter that supports it first. See [MMS, scheduling, and validity](/sending/mms-and-scheduling).
+- Remove the field, change the sender, or put an adapter that supports it first. See [MMS, scheduling, and validity](/sending/send-a-message).
 
 ## Policy
 

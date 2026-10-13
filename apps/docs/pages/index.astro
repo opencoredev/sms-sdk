@@ -23,8 +23,8 @@ const githubMark =
 const navLinks = [
   { label: "Docs", href: "/getting-started/overview" },
   { label: "Providers", href: "/providers/overview" },
-  { label: "Examples", href: "/examples/overview" },
-  { label: "Changelog", href: "/community/changelog" },
+  { label: "Examples", href: "/getting-started/examples" },
+  { label: "Changelog", href: "/reference/changelog" },
 ];
 
 // Every provider list on the page (lede, matrix, footer, meta description)
@@ -222,8 +222,8 @@ const footerColumns = [
     title: "Docs",
     links: [
       { label: "Quick start", href: "/getting-started/quick-start" },
-      { label: "Sending", href: "/sending/overview" },
-      { label: "Receiving", href: "/receiving/overview" },
+      { label: "Sending", href: "/getting-started/how-sending-works" },
+      { label: "Receiving", href: "/receiving/webhooks" },
       { label: "Reference", href: "/reference/create-sms-client" },
     ],
   },
@@ -236,8 +236,8 @@ const footerColumns = [
     links: [
       { label: "GitHub", href: repoUrl },
       { label: "npm", href: "https://www.npmjs.com/package/@opencoredev/sms-sdk" },
-      { label: "Changelog", href: "/community/changelog" },
-      { label: "Contributing", href: "/community/contributing" },
+      { label: "Changelog", href: "/reference/changelog" },
+      { label: "Contributing", href: "/advanced/contributing" },
     ],
   },
 ];
@@ -352,7 +352,7 @@ const art = (name: string) => ({
           registration, and webhook URLs belong to each provider account, so set those up first.
         </p>
         <CodeCard title="sms.ts" code={switchExample} narrow={switchNarrowExample} class="sms-diff-card" />
-        <p class="sms-more"><a class="sms-link" href="/migration/switch-twilio-to-telnyx">Switching guide</a></p>
+        <p class="sms-more"><a class="sms-link" href="/migration/switch-providers">Switching guide</a></p>
       </div>
     </section>
 
@@ -418,7 +418,7 @@ const art = (name: string) => ({
           Fallback stays off until you turn it on. Then it moves to the next provider only after a
           known rejection. When the SDK can't tell whether a message went out, it stops and tells you.
         </p>
-        <p class="sms-more"><a class="sms-link" href="/sending/retries-and-fallback">Retries and fallback</a></p>
+        <p class="sms-more"><a class="sms-link" href="/sending/fallback-and-retries">Retries and fallback</a></p>
         <figure class="sms-outcomes-art sms-art">
           <img
             {...art("winter-harbour")}
@@ -463,7 +463,7 @@ const art = (name: string) => ({
             anyone. <code>validate()</code> counts segments locally too. Try the counter: it runs the
             SDK's own estimator in your browser.
           </p>
-          <p class="sms-more"><a class="sms-link" href="/guides/local-testing">Local testing</a></p>
+          <p class="sms-more"><a class="sms-link" href="/getting-started/local-testing">Local testing</a></p>
         </div>
         <div class="sms-local-grid">
           <CodeCard title="send.test.ts" code={testingExample} narrow={testingNarrowExample} class="sms-flat-card" />

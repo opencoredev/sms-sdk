@@ -127,7 +127,7 @@ Vonage documents these rules for the United States and Canada:
 
 Elsewhere, sender ID rules vary by country, and some countries require registration through Vonage's [Global Sender ID portal](https://api.support.vonage.com/hc/en-us/articles/6791919802652-Global-Sender-ID-Registration-Guide). Vonage's [country-specific features and restrictions](https://api.support.vonage.com/hc/en-us/sections/200622473-Country-Specific-Features-and-Restrictions) list the rules for each country.
 
-SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/guides/sender-registration-and-consent).
+SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/providers/registration-and-consent).
 
 ## Capabilities
 
@@ -218,7 +218,7 @@ try {
 }
 ```
 
-You see `Vonage accepted <uuid> (queued)`. Acceptance is not delivery. Vonage posts status updates to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/delivery-status-webhooks).
+You see `Vonage accepted <uuid> (queued)`. Acceptance is not delivery. Vonage posts status updates to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/webhooks).
 
 ## Delivery and inbound webhooks
 
@@ -306,7 +306,7 @@ await sms.send({ to: "+14155550123", body: "Hi" });
 console.log(JSON.parse(fake.calls[0]?.body ?? "{}").to); // "14155550123"
 ```
 
-Test your webhook handler with `signedVonageRequest()`. See [Local testing](/guides/local-testing#test-webhook-handlers).
+Test your webhook handler with `signedVonageRequest()`. See [Local testing](/getting-started/local-testing#test-webhook-handlers).
 
 The adapter's own tests live in the SMS SDK repository. From `packages/sms-sdk`:
 
@@ -352,5 +352,5 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 ## Next steps
 
 - [Providers overview](/providers/overview)
-- [Delivery status webhooks](/receiving/delivery-status-webhooks)
+- [Delivery status webhooks](/receiving/webhooks)
 - [Webhook security](/receiving/webhook-security)

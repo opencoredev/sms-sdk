@@ -7,7 +7,7 @@ sidebar:
 
 Providers report delivery status and incoming texts by calling a webhook on your server. Each provider has its own payload and signature. `parseSmsWebhook()` verifies the request and returns one `SmsEvent` shape for all four.
 
-A successful `send()` only means the provider accepted the message. Whether it reached the phone arrives later as a status webhook. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
+A successful `send()` only means the provider accepted the message. Whether it reached the phone arrives later as a status webhook. See [Delivery status webhooks](/receiving/webhooks).
 
 ## How it works
 
@@ -73,15 +73,15 @@ export async function handleTelnyxWebhook(request: Request): Promise<Response> {
 }
 ```
 
-The handler answers 401 to forged requests, acknowledges repeats without reprocessing them, and records the events it cares about. Framework versions are in [Next.js](/guides/nextjs) and [Hono and Bun](/guides/hono-and-bun).
+The handler answers 401 to forged requests, acknowledges repeats without reprocessing them, and records the events it cares about. Framework versions are in [Next.js](/receiving/webhooks) and [Hono and Bun](/receiving/webhooks).
 
 ## Event types
 
 | `type` | When |
 | --- | --- |
-| `message.queued`, `message.sent`, `message.delivered`, `message.undelivered`, `message.filtered` | A status update for a message you sent. See [Delivery status webhooks](/receiving/delivery-status-webhooks). |
-| `message.received` | Someone texted your number. See [Inbound SMS](/receiving/inbound-sms). |
-| `recipient.opted_out`, `recipient.opted_in`, `recipient.help` | An inbound STOP, START, or HELP. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs). |
+| `message.queued`, `message.sent`, `message.delivered`, `message.undelivered`, `message.filtered` | A status update for a message you sent. See [Delivery status webhooks](/receiving/webhooks). |
+| `message.received` | Someone texted your number. See [Inbound SMS](/receiving/webhooks). |
+| `recipient.opted_out`, `recipient.opted_in`, `recipient.help` | An inbound STOP, START, or HELP. See [STOP, HELP, and opt-outs](/receiving/opt-outs). |
 | `unrecognized` | A verified event SMS SDK does not map, such as a new status. `raw` holds the payload. |
 
 Every event has `provider`, `dedupeKey`, and `raw`, plus `occurredAt` when the payload includes a time. The full shapes are in [Webhook events](/reference/webhook-events).
@@ -90,14 +90,14 @@ Every event has `provider`, `dedupeKey`, and `raw`, plus `occurredAt` when the p
 
 | You want to | Page |
 | --- | --- |
-| Track delivery of sent messages | [Delivery status webhooks](/receiving/delivery-status-webhooks) |
-| Read replies | [Inbound SMS](/receiving/inbound-sms) |
-| Honor STOP and answer HELP | [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs) |
+| Track delivery of sent messages | [Delivery status webhooks](/receiving/webhooks) |
+| Read replies | [Inbound SMS](/receiving/webhooks) |
+| Honor STOP and answer HELP | [STOP, HELP, and opt-outs](/receiving/opt-outs) |
 | Fix signature failures behind a proxy | [Webhook security](/receiving/webhook-security) |
-| Handle repeats and out-of-order events | [Duplicates and ordering](/receiving/duplicates-and-ordering) |
+| Handle repeats and out-of-order events | [Duplicates and ordering](/receiving/webhooks) |
 
 ## Best practices
 
 - Verify every request. Never set `unsafeSkipVerification` outside tests. See [Webhook security](/receiving/webhook-security).
 - Respond fast. Store the event and do slow work in a background job. Providers retry webhooks that time out, which creates duplicates.
-- Deduplicate on `dedupeKey`, and do not trust order. A `message.sent` can arrive after `message.delivered`. See [Duplicates and ordering](/receiving/duplicates-and-ordering).
+- Deduplicate on `dedupeKey`, and do not trust order. A `message.sent` can arrive after `message.delivered`. See [Duplicates and ordering](/receiving/webhooks).

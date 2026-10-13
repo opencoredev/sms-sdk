@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Guides: [Receiving overview](/receiving/overview), [Webhook security](/receiving/webhook-security).
+Guides: [Receiving overview](/receiving/webhooks), [Webhook security](/receiving/webhook-security).
 
 ### Parameters
 
@@ -78,7 +78,7 @@ Every event has these fields.
 { type: "message.received"; providerId: string; from: string; to: string; body: string; mediaUrls: readonly string[] }
 ```
 
-An inbound message. See [Inbound SMS](/receiving/inbound-sms).
+An inbound message. See [Inbound SMS](/receiving/webhooks).
 
 ### Status events
 
@@ -93,7 +93,7 @@ An inbound message. See [Inbound SMS](/receiving/inbound-sms).
 }
 ```
 
-A status update for an outbound message. `MessageStatusType` is the union of these five types. The mapping per provider is in [Delivery status webhooks](/receiving/delivery-status-webhooks#status-mapping).
+A status update for an outbound message. `MessageStatusType` is the union of these five types. The mapping per provider is in [Delivery status webhooks](/receiving/webhooks#status-mapping).
 
 ### Opt-out and help events
 
@@ -109,7 +109,7 @@ A status update for an outbound message. `MessageStatusType` is the union of the
 }
 ```
 
-`source: "provider"` comes from Twilio's `OptOutType`. `source: "keyword"` comes from whole-message keyword matching. `recipient.opted_in` comes only from Twilio `OptOutType=START`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+`source: "provider"` comes from Twilio's `OptOutType`. `source: "keyword"` comes from whole-message keyword matching. `recipient.opted_in` comes only from Twilio `OptOutType=START`. See [STOP, HELP, and opt-outs](/receiving/opt-outs).
 
 ### `unrecognized`
 

@@ -22,7 +22,7 @@ const result = await sms.send(
 console.log(result.providerId, result.delivery, result.segments);
 ```
 
-Guide with error handling: [Send your first SMS](/sending/send-your-first-sms).
+Guide with error handling: [Send your first SMS](/sending/send-a-message).
 
 ### Parameters
 
@@ -35,7 +35,7 @@ Guide with error handling: [Send your first SMS](/sending/send-your-first-sms).
 
 - Type: `` `+${string}` `` (`E164`)
 - Required
-- Recipient. Checked at runtime against `^\+[1-9]\d{1,14}$`. See [Senders and E.164 numbers](/sending/senders-and-e164).
+- Recipient. Checked at runtime against `^\+[1-9]\d{1,14}$`. See [Senders and E.164 numbers](/sending/send-a-message).
 
 ### `from`
 

@@ -6,7 +6,7 @@ description: "Record opt-outs from STOP replies, answer HELP, and block sends to
 When someone replies STOP, you must stop texting them on every provider you use. SMS SDK turns opt-out and help replies into events and lets you block sends with `beforeSend`.
 
 :::warning[No compliance guarantee]
-SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also act on STOP replies with their own rules. Treat these events as inputs to your own records. See [Sender registration and consent](/guides/sender-registration-and-consent).
+SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also act on STOP replies with their own rules. Treat these events as inputs to your own records. See [Sender registration and consent](/providers/registration-and-consent).
 :::
 
 ## Opt-out and help events
@@ -83,7 +83,7 @@ export const sms = createSmsClient({
 
 A suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
 
-A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or sends it through another provider. See [Retries and fallback](/sending/retries-and-fallback). Add the number to your suppression list when you see one:
+A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or sends it through another provider. See [Retries and fallback](/sending/fallback-and-retries). Add the number to your suppression list when you see one:
 
 ```ts
 import { ProviderRejectedError } from "@opencoredev/sms-sdk";
@@ -123,9 +123,9 @@ export async function answerHelp(event: SmsEvent): Promise<void> {
 
 ## What else you are responsible for
 
-Your app also has to collect and store consent before texting anyone, register senders, and follow quiet hours, content rules, and country requirements. Sender registration covers US A2P 10DLC campaigns, toll-free verification, short code approval, and sender ID registration where required. [Sender registration and consent](/guides/sender-registration-and-consent) links to each provider's rules. They change, so check them directly.
+Your app also has to collect and store consent before texting anyone, register senders, and follow quiet hours, content rules, and country requirements. Sender registration covers US A2P 10DLC campaigns, toll-free verification, short code approval, and sender ID registration where required. [Sender registration and consent](/providers/registration-and-consent) links to each provider's rules. They change, so check them directly.
 
 ## Next steps
 
-- [Policy checks and hooks](/sending/policy-and-hooks)
-- [Sender registration and consent](/guides/sender-registration-and-consent)
+- [Policy checks and hooks](/advanced/policy-and-hooks)
+- [Sender registration and consent](/providers/registration-and-consent)

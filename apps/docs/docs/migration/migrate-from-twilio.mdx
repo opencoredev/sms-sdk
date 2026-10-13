@@ -3,7 +3,7 @@ title: "Migrate from the Twilio SDK"
 description: "Move SMS sending and webhooks from the twilio npm package to SMS SDK while staying on Twilio: concept mapping, code, and a rollback path."
 ---
 
-This page moves SMS code from the `twilio` npm package to SMS SDK while you stay on Twilio. The account, numbers, and webhook URLs do not change. To change providers afterwards, see [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx).
+This page moves SMS code from the `twilio` npm package to SMS SDK while you stay on Twilio. The account, numbers, and webhook URLs do not change. To change providers afterwards, see [Switch Twilio to Telnyx](/migration/switch-providers).
 
 Both libraries can run side by side during the move. SMS SDK replaces only the SMS parts, so keep the Twilio SDK for voice, Verify, Lookup, and the rest.
 
@@ -92,7 +92,7 @@ await db.messages.create({ id: result.id, provider: result.provider, providerId:
 
 - `message.sid` becomes `result.providerId`. It is the same Twilio SID, so stored IDs and status callbacks still match.
 - `message.status` values `queued`, `accepted`, and `scheduled` all become `result.delivery: "queued"`.
-- `to` must be E.164. Any other format throws `InvalidRecipientError` before the request. See [Senders and E.164](/sending/senders-and-e164).
+- `to` must be E.164. Any other format throws `InvalidRecipientError` before the request. See [Senders and E.164](/sending/send-a-message).
 - An `idempotencyKey` plus a store stops retried jobs from sending twice. See [Idempotency](/sending/idempotency).
 
 ## 3. Handle errors
@@ -178,7 +178,7 @@ export async function POST(request: Request): Promise<Response> {
 
 ### Key changes
 
-- `parseSmsWebhook()` needs the raw web `Request`. Remove `express.urlencoded()` from webhook routes, or use a framework that passes a web `Request`. See [Use with Hono and Bun](/guides/hono-and-bun).
+- `parseSmsWebhook()` needs the raw web `Request`. Remove `express.urlencoded()` from webhook routes, or use a framework that passes a web `Request`. See [Use with Hono and Bun](/receiving/webhooks).
 - `publicUrl` replaces the URL argument of `validateRequest`. See [Webhook security](/receiving/webhook-security).
 - STOP is detected from `OptOutType` and from keywords. Set `detectKeywords: false` to keep only Twilio's signal.
 
@@ -186,7 +186,7 @@ export async function POST(request: Request): Promise<Response> {
 
 - TwiML replies. Return TwiML yourself, or reply with `sms.send()`.
 - Fetching, listing, updating, or deleting messages. Keep the Twilio SDK for these.
-- Content templates through `contentSid` and `contentVariables`. Keep those sends on the Twilio SDK or [write your own adapter](/providers/writing-an-adapter). Other Twilio parameters, such as `shortenUrls` and `riskCheck`, go in `providerOptions.twilio`. See [Provider options](/providers/twilio#provider-options).
+- Content templates through `contentSid` and `contentVariables`. Keep those sends on the Twilio SDK or [write your own adapter](/advanced/writing-an-adapter). Other Twilio parameters, such as `shortenUrls` and `riskCheck`, go in `providerOptions.twilio`. See [Provider options](/providers/twilio#provider-options).
 - WhatsApp, Conversations, Verify, and voice. These are out of scope.
 
 ## Cut over with a rollback path
@@ -199,4 +199,4 @@ export async function POST(request: Request): Promise<Response> {
 
 ## Need help?
 
-Open a [GitHub discussion or issue](/community/support) with your current Twilio code and what you expected.
+Open a [GitHub discussion or issue](/advanced/contributing) with your current Twilio code and what you expected.

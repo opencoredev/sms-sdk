@@ -91,7 +91,7 @@ Telnyx documents these rules in [Choosing a sender type](https://developers.teln
 
 Some countries, such as the UK and France, require alphanumeric sender IDs to be registered in advance. Telnyx's [international SMS compliance guide](https://developers.telnyx.com/docs/messaging/messages/international-sms-compliance) covers country rules.
 
-SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/guides/sender-registration-and-consent).
+SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/providers/registration-and-consent).
 
 ## Capabilities
 
@@ -170,7 +170,7 @@ try {
 }
 ```
 
-You see `Telnyx accepted <uuid> (queued)`. Acceptance is not delivery. Telnyx posts `message.sent` and `message.finalized` events to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/delivery-status-webhooks).
+You see `Telnyx accepted <uuid> (queued)`. Acceptance is not delivery. Telnyx posts `message.sent` and `message.finalized` events to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/webhooks).
 
 ## Delivery and inbound webhooks
 
@@ -256,7 +256,7 @@ const result = await sms.send({ to: "+14155550123", body: "Hi" });
 console.log(result.providerId, JSON.parse(fake.calls[0]?.body ?? "{}")); // the id, and the JSON request body
 ```
 
-Test your webhook handler with real signatures from `generateTelnyxKeyPair()` and `signedTelnyxRequest()`. See [Local testing](/guides/local-testing#test-webhook-handlers).
+Test your webhook handler with real signatures from `generateTelnyxKeyPair()` and `signedTelnyxRequest()`. See [Local testing](/getting-started/local-testing#test-webhook-handlers).
 
 The adapter's own tests live in the SMS SDK repository. From `packages/sms-sdk`:
 
@@ -302,6 +302,6 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 
 ## Next steps
 
-- [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx)
-- [Delivery status webhooks](/receiving/delivery-status-webhooks)
-- [Retries and fallback](/sending/retries-and-fallback)
+- [Switch Twilio to Telnyx](/migration/switch-providers)
+- [Delivery status webhooks](/receiving/webhooks)
+- [Retries and fallback](/sending/fallback-and-retries)

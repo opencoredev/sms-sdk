@@ -100,8 +100,8 @@ When every attempted adapter rejects, `send()` throws `AllProvidersRejectedError
 Fallback moves a message to a different provider account. Each account needs:
 
 - A provisioned, registered sender. A 10DLC registration on Twilio does not cover your Telnyx number.
-- Webhook URLs, so status updates and inbound replies arrive from both. See [Delivery status webhooks](/receiving/delivery-status-webhooks).
-- Your app's shared opt-out list. Twilio records a STOP sent to your Twilio number, and Telnyx never sees it. Check your own suppression list in `beforeSend`. See [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs).
+- Webhook URLs, so status updates and inbound replies arrive from both. See [Delivery status webhooks](/receiving/webhooks).
+- Your app's shared opt-out list. Twilio records a STOP sent to your Twilio number, and Telnyx never sees it. Check your own suppression list in `beforeSend`. See [STOP, HELP, and opt-outs](/receiving/opt-outs).
 
 ## Next steps
 

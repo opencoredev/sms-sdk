@@ -39,7 +39,7 @@ The callback receives `{ id, message, encoding, segments }`: the logical send ID
 - With an idempotency store, a policy rejection is stored as `rejected`, so the same key can send once the policy allows it.
 - It runs inside every `send()`, so keep it fast.
 
-Use it for a suppression list, quiet hours, per-recipient rate limits, or a segment budget. SMS SDK keeps no suppression list for you. [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs) shows how to fill one from webhooks.
+Use it for a suppression list, quiet hours, per-recipient rate limits, or a segment budget. SMS SDK keeps no suppression list for you. [STOP, HELP, and opt-outs](/receiving/opt-outs) shows how to fill one from webhooks.
 
 ## Observe sends with hooks
 
@@ -83,5 +83,5 @@ SMS SDK ignores a hook that throws or rejects, so a broken logger cannot change 
 
 ## Next steps
 
-- [STOP, HELP, and opt-outs](/receiving/stop-help-and-opt-outs)
+- [STOP, HELP, and opt-outs](/receiving/opt-outs)
 - [createSmsClient reference](/reference/create-sms-client)

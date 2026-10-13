@@ -21,7 +21,7 @@ console.log(result.id, result.provider, result.providerId, result.delivery);
 
 `send()` resolves only when a provider accepts the message. It logs the library ID (`sms_` plus 32 hex characters), the adapter name such as `twilio`, the provider's message ID, and usually `queued`.
 
-`to` must be E.164: a `+`, the country code, and the number, with no spaces. `from` is optional when the adapter has a default sender. See [Senders and E.164 numbers](/sending/senders-and-e164).
+`to` must be E.164: a `+`, the country code, and the number, with no spaces. `from` is optional when the adapter has a default sender. See [Senders and E.164 numbers](/sending/send-a-message).
 
 ## Read the result
 
@@ -122,6 +122,6 @@ Aborting before any request, or while waiting to retry a rate limit, throws `Sen
 
 ## Next steps
 
-- [Retries and fallback](/sending/retries-and-fallback)
+- [Retries and fallback](/sending/fallback-and-retries)
 - [Idempotency](/sending/idempotency)
 - [send() reference](/reference/send)

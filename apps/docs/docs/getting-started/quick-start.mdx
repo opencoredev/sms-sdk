@@ -6,9 +6,9 @@ description: "Send your first SMS through Twilio with SMS SDK in three steps."
 By the end of this page, a server-side script sends one SMS through Twilio and prints the provider's message ID.
 
 - Using another provider? Swap in the adapter from its [provider page](/providers/overview).
-- No provider account yet? Use the [`memory()` adapter](/guides/local-testing).
+- No provider account yet? Use the [`memory()` adapter](/getting-started/local-testing).
 
-You need a Twilio Account SID, Auth Token, and a Twilio number that can text your destination. Registering that number for 10DLC or toll-free is up to you. See [Sender registration and consent](/guides/sender-registration-and-consent).
+You need a Twilio Account SID, Auth Token, and a Twilio number that can text your destination. Registering that number for 10DLC or toll-free is up to you. See [Sender registration and consent](/providers/registration-and-consent).
 
 ## 1. Install
 
@@ -73,12 +73,12 @@ try {
 
 Run it with `npx tsx --env-file=.env send.ts` on Node.js or `bun send.ts` on Bun, which loads `.env` itself. It prints a line like `Accepted by twilio: SM… (queued)`, and the text reaches your phone shortly after.
 
-`queued` means Twilio accepted the message, not that the phone got it. Delivery is reported later by [webhook](/receiving/delivery-status-webhooks).
+`queued` means Twilio accepted the message, not that the phone got it. Delivery is reported later by [webhook](/receiving/webhooks).
 
 If the send fails, read the error's `code` and `retrySafe`. `provider_auth` means Twilio rejected the credentials. `handoff_unknown` means SMS SDK cannot tell whether Twilio accepted the message, so check the Twilio console before you resend. [Errors](/reference/errors) lists every code.
 
 ## Next steps
 
-- [Important defaults](/getting-started/important-defaults): what the client does without extra options.
-- [Delivery status webhooks](/receiving/delivery-status-webhooks): learn when the message is delivered.
-- [Retries and fallback](/sending/retries-and-fallback): add a second provider safely.
+- [Important defaults](/getting-started/how-sending-works): what the client does without extra options.
+- [Delivery status webhooks](/receiving/webhooks): learn when the message is delivered.
+- [Retries and fallback](/sending/fallback-and-retries): add a second provider safely.

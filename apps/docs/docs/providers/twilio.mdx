@@ -114,7 +114,7 @@ Twilio documents these rules for the United States and Canada:
 
 Elsewhere, alphanumeric sender IDs work only in [supported countries](https://help.twilio.com/hc/en-us/articles/223133767), and some countries require you to [register the sender ID](https://www.twilio.com/docs/glossary/what-alphanumeric-sender-id). Twilio's [SMS guidelines](https://www.twilio.com/en-us/guidelines/sms) list sender types and registration rules for each country.
 
-SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/guides/sender-registration-and-consent).
+SMS SDK does not check these rules before sending, and they have not been tested against live accounts. See [Sender registration and consent](/providers/registration-and-consent).
 
 ## Capabilities
 
@@ -212,7 +212,7 @@ try {
 }
 ```
 
-You see `Twilio accepted SM… (queued)`. Acceptance is not delivery. Twilio posts status updates to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/delivery-status-webhooks).
+You see `Twilio accepted SM… (queued)`. Acceptance is not delivery. Twilio posts status updates to the `webhookUrl`, covered in [Delivery status webhooks](/receiving/webhooks).
 
 ## Delivery and inbound webhooks
 
@@ -282,7 +282,7 @@ Twilio documents that a 429 with error 20429 was not processed. A 429 without th
 
 ## Testing
 
-Unit test your code with the [`memory()` adapter](/guides/local-testing), or point `twilio()` at a fake API with `mockFetch`:
+Unit test your code with the [`memory()` adapter](/getting-started/local-testing), or point `twilio()` at a fake API with `mockFetch`:
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -340,6 +340,6 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 
 ## Next steps
 
-- [Delivery status webhooks](/receiving/delivery-status-webhooks)
+- [Delivery status webhooks](/receiving/webhooks)
 - [Migrate from the Twilio SDK](/migration/migrate-from-twilio)
-- [Switch Twilio to Telnyx](/migration/switch-twilio-to-telnyx)
+- [Switch Twilio to Telnyx](/migration/switch-providers)
