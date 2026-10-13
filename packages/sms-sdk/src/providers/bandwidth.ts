@@ -152,6 +152,9 @@ export function interpretBandwidthResponse(status: number, text: string, headers
     return { kind: "accepted", providerId, delivery: "queued" };
   }
   if (status >= 400 && status < 500) {
+    // A 429 counts as Bandwidth's rate limit only when Bandwidth wrote the body.
+    // A proxy or CDN 429 proves nothing about whether the message was created.
+    if (status === 429 && !isBandwidthErrorBody(record)) return unknownForStatus("bandwidth", status, requestId);
     const category = bandwidthRejectionCategory(status);
     const retryAfterMs = category === "rate_limited" ? parseRetryAfter(headers.get("retry-after")) : undefined;
     const message = record === undefined ? undefined : readString(record, "description") ?? readString(record, "error");
@@ -166,6 +169,10 @@ export function bandwidthRejectionCategory(status: number): RejectionCategory {
   if (status === 429) return "rate_limited";
   if (status === 404) return "account";
   return "request";
+}
+
+function isBandwidthErrorBody(record: Record<string, unknown> | undefined): boolean {
+  return record !== undefined && (readString(record, "description") !== undefined || readString(record, "type") !== undefined);
 }
 
 function requireValue(value: string, field: string): void {

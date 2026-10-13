@@ -219,7 +219,7 @@ Webhooks:
 
 Sources: [Messaging API](https://dev.bandwidth.com/docs/messaging) and [callbacks](https://dev.bandwidth.com/docs/messaging/callbacks).
 
-Sending uses `POST https://messaging.bandwidth.com/api/v2/users/{userId}/messages` with Basic auth, `from`, one-item `to`, `text`, and `applicationId`. The adapter is SMS-only and returns the documented message ID; malformed successes remain unknown. Bandwidth does not sign callbacks. The webhook parser requires the Basic credentials configured on the Bandwidth application and rejects a request whose `Authorization` header does not match them (compared in constant time). Events must still be deduplicated with `dedupeKey`.
+Sending uses `POST https://messaging.bandwidth.com/api/v2/users/{userId}/messages` with Basic auth, `from`, one-item `to`, `text`, and `applicationId`. The adapter is SMS-only and returns the documented message ID; malformed successes remain unknown. Rejections are classified by status: 401/403 `auth`, 404 `account`, other 4xx `request`. A 429 is `rate_limited` only when the body is a Bandwidth error (JSON with `type` or `description`); any other 429 is unknown. Bandwidth does not sign callbacks. The webhook parser requires the Basic credentials configured on the Bandwidth application and rejects a request whose `Authorization` header does not match them (compared in constant time). Events must still be deduplicated with `dedupeKey`.
 
 ## Sinch: partial
 

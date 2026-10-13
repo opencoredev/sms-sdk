@@ -13,7 +13,7 @@ To compare providers, see the [Providers overview](/providers/overview).
 
 - SMS only. `mediaUrls`, `sendAt`, and `validityPeriodSec` throw `UnsupportedFieldError` before any request.
 - Bandwidth does not sign callbacks. The webhook parser checks the Basic credentials you set on your Bandwidth application instead.
-- Rejections are classified by HTTP status only: 401 and 403 are `auth`, 404 is `account`, 429 is `rate_limited`, and any other 4xx is `request`, which never falls back.
+- Rejections are classified by HTTP status: 401 and 403 are `auth`, 404 is `account`, a 429 with a Bandwidth error body is `rate_limited`, and any other 4xx is `request`, which never falls back. A 429 without a Bandwidth error body, such as a proxy page, is an unknown outcome.
 
 The same notes are in `adapter.support.notes` at runtime.
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildBandwidthRequest, bandwidth, bandwidthRejectionCategory } from "../../src/providers/bandwidth.js";
+import { buildBandwidthRequest, bandwidth, bandwidthRejectionCategory, interpretBandwidthResponse } from "../../src/providers/bandwidth.js";
 import { smsAdapterContractCases, type AdapterContractFixtures } from "../../src/testing/contracts.js";
 import { parseSmsWebhook } from "../../src/webhooks/index.js";
 
@@ -40,6 +40,13 @@ describe("bandwidth specifics", () => {
   });
 
   test.each([[401, "auth"], [403, "auth"], [404, "account"], [429, "rate_limited"], [400, "request"]] as const)("HTTP %i is %s", (status, category) => expect(bandwidthRejectionCategory(status)).toBe(category));
+
+  test("treats a 429 without a Bandwidth error body as unknown", () => {
+    for (const text of ["", "<html>Too Many Requests</html>", "{}"]) {
+      expect(interpretBandwidthResponse(429, text, new Headers())).toMatchObject({ kind: "unknown" });
+    }
+    expect(interpretBandwidthResponse(429, JSON.stringify({ type: "rate-limit", description: "slow down" }), new Headers())).toMatchObject({ kind: "rejected", category: "rate_limited" });
+  });
 
   test("requires credentials", () => {
     expect(() => bandwidth({ ...options, apiSecret: "" })).toThrow("apiSecret");
