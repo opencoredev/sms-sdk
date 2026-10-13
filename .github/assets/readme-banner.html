@@ -1,36 +1,87 @@
+<!-- Source for readme-banner.png. Render at 1280x720 with deviceScaleFactor 2 (2560x1440). -->
 <!doctype html>
-<!-- Source for readme-banner.png. Render at 1280x720 with deviceScaleFactor 2 (2560x1440).
-     One idea: one call, six providers. Landing palette and type, nothing decorative. -->
+<!--
+Direction: the landing page's warm dark ground and status language, laid out
+like Social SDK's hub banner. One real send() in the middle; six providers
+wired to it; the fallback story told by their status labels.
+-->
 <html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  :root{--bg:#121110;--surface:#181715;--line:#262420;--line-2:#34312c;--text:#e9e6df;--muted:#8f8c84;--ok:#8fbf8a;--no:#d98a7e;--wait:#d8c79b;--accent:#d97757}
   *{box-sizing:border-box}
-  html,body{margin:0;background:#121110}
-  .frame{position:relative;width:1280px;height:720px;padding:84px 96px;background:#121110;color:#e9e6df;font-family:"DM Sans",sans-serif;display:flex;flex-direction:column}
-  .mark{display:flex;align-items:center;gap:12px;font-weight:600;font-size:24px;letter-spacing:-.02em}
-  .mark svg{width:28px;height:28px}
-  h1{margin:auto 0 0;font-weight:500;font-size:84px;line-height:1;letter-spacing:-.045em;max-width:980px}
-  h1 code{font:500 76px "JetBrains Mono",monospace;letter-spacing:-.05em}
-  .call{margin:30px 0 0;font:400 22px "JetBrains Mono",monospace;color:#8f8c84}
-  .call b{font-weight:400;color:#d39e8a}.call i{font-style:normal;color:#cdbb8c}
-  .foot{margin-top:64px;padding-top:28px;border-top:1px solid #262420;display:flex;align-items:center;justify-content:space-between}
-  .logos{display:flex;align-items:center;gap:34px}
-  .logos img{height:28px;width:auto;max-width:44px}
-  .npm{font:500 18px "JetBrains Mono",monospace;color:#8f8c84}
-  .npm span{color:#e9e6df}
+  html,body{margin:0;background:var(--bg)}
+  .frame{position:relative;width:1280px;height:720px;overflow:hidden;background:var(--bg);color:var(--text);font-family:"DM Sans",sans-serif}
+  svg.wires{position:absolute;inset:0}
+  .wires path{fill:none;stroke:var(--line);stroke-width:1.5;stroke-linecap:round}
+  .wires path.hot{stroke:var(--ok);stroke-dasharray:none;opacity:.7}
+  .wires path.miss{stroke:var(--line-2)}
+
+  .brand{position:absolute;left:0;right:0;top:92px;text-align:center}
+  .brand .mark{display:inline-flex;align-items:center;gap:14px;font-weight:600;font-size:30px;letter-spacing:-.03em}
+  .brand .mark svg{width:34px;height:34px;color:var(--text)}
+  .brand h1{margin:18px 0 0;font-weight:500;font-size:46px;letter-spacing:-.035em;line-height:1.05}
+  .brand h1 code{font:500 42px "JetBrains Mono",monospace;letter-spacing:-.04em;color:var(--text)}
+  .brand p{margin:12px 0 0;color:var(--muted);font-size:19px}
+
+  .card{position:absolute;left:390px;top:310px;width:500px;border:1px solid var(--line-2);border-radius:16px;background:var(--surface);box-shadow:0 30px 80px -30px #000}
+  .card .bar{display:flex;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--line);font:500 12.5px "JetBrains Mono";color:var(--muted)}
+  .card pre{margin:0;padding:18px 20px 20px;font:400 14.5px/1.75 "JetBrains Mono",monospace;color:#d6d2c9}
+  .k{color:#d39e8a}.s{color:#cdbb8c}.f{color:#b7c7d6}.p{color:#a9b8a0}.c{color:#8a867d}
+
+  .tile{position:absolute;width:212px;height:76px;border:1px solid var(--line);border-radius:14px;background:var(--surface);display:flex;align-items:center;gap:14px;padding:0 16px}
+  .tile img{height:26px;width:34px;object-fit:contain;object-position:center}
+  .tile b{display:block;font-weight:500;font-size:17px;letter-spacing:-.01em}
+  .tile i{display:block;white-space:nowrap;font:400 11.5px "JetBrains Mono";font-style:normal;color:var(--muted);margin-top:3px}
+  .tile.no{border-color:#4a3430}.tile.no i{color:var(--no)}
+  .tile.ok{border-color:#38492f}.tile.ok i{color:var(--ok)}
+
+  .bubble{position:absolute;left:440px;top:566px;width:400px;text-align:center}
+  .bubble div{display:inline-block;position:relative;background:#3d5a3a;color:#eef3ea;font-size:16px;padding:10px 15px;border-radius:18px 18px 4px 18px}
+  .bubble small{display:block;margin-top:8px;font:400 11.5px "JetBrains Mono";color:var(--muted)}
+  .bubble small em{font-style:normal;color:var(--ok)}
+
+  .install{position:absolute;left:0;right:0;bottom:44px;text-align:center;font:500 17px "JetBrains Mono";color:var(--muted)}
+  .install span{color:var(--text)}
 </style></head><body>
-<div class="frame">
-  <div class="mark">
-    <svg viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M6 3h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-6.2l-4.6 3.7A.75.75 0 0 1 6 20.1V17a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm3.2 4.2a.9.9 0 0 0-1.3 1.3L9.9 10.5l-2 2a.9.9 0 1 0 1.3 1.3l2.6-2.7a.9.9 0 0 0 0-1.2Zm3.3 5.1a.9.9 0 1 0 0 1.8h3.6a.9.9 0 1 0 0-1.8Z"/></svg>
-    SMS SDK
-  </div>
-  <h1>One <code>send()</code> for<br>every SMS provider.</h1>
-  <p class="call"><b>await</b> sms.send({ to, body: <i>"Your order has shipped."</i> })</p>
-  <div class="foot">
-    <div class="logos">
-      <img src="../../apps/docs/public/providers/color/twilio.svg" alt=""><img src="../../apps/docs/public/providers/color/telnyx.svg" alt=""><img src="../../apps/docs/public/providers/color/plivo-dark.svg" alt=""><img src="../../apps/docs/public/providers/color/vonage-dark.svg" alt=""><img src="../../apps/docs/public/providers/color/bandwidth.svg" alt=""><img src="../../apps/docs/public/providers/color/sinch-dark.svg" alt="">
+<div class="frame" id="frame">
+  <svg class="wires" viewBox="0 0 1280 720">
+    <!-- left column -> card left edge (390, ~360-460) -->
+    <path class="miss" d="M278 330 C334 330 334 372 390 372"/>
+    <path class="hot"  d="M278 455 C334 455 334 410 390 410"/>
+    <path d="M278 580 C334 580 334 450 390 450"/>
+    <!-- right column -> card right edge (890) -->
+    <path d="M1002 330 C946 330 946 372 890 372"/>
+    <path d="M1002 455 C946 455 946 410 890 410"/>
+    <path d="M1002 580 C946 580 946 450 890 450"/>
+  </svg>
+
+  <div class="brand">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M6 3h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-6.2l-4.6 3.7A.75.75 0 0 1 6 20.1V17a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm3.2 4.2a.9.9 0 0 0-1.3 1.3L9.9 10.5l-2 2a.9.9 0 1 0 1.3 1.3l2.6-2.7a.9.9 0 0 0 0-1.2Zm3.3 5.1a.9.9 0 1 0 0 1.8h3.6a.9.9 0 1 0 0-1.8Z"/></svg>
+      SMS SDK
     </div>
-    <div class="npm">npm i <span>@opencoredev/sms-sdk</span></div>
+    <h1>One <code>send()</code> for every SMS provider.</h1>
   </div>
+
+  <div class="tile no" style="left:66px;top:292px"><img src="../../apps/docs/public/providers/color/twilio.svg"><span><b>Twilio</b><i>rejected</i></span></div>
+  <div class="tile ok" style="left:66px;top:417px"><img src="../../apps/docs/public/providers/color/telnyx.svg"><span><b>Telnyx</b><i>accepted</i></span></div>
+  <div class="tile"    style="left:66px;top:542px"><img src="../../apps/docs/public/providers/color/plivo-dark.svg"><span><b>Plivo</b></span></div>
+  <div class="tile"    style="left:1002px;top:292px"><img src="../../apps/docs/public/providers/color/vonage-dark.svg"><span><b>Vonage</b></span></div>
+  <div class="tile"    style="left:1002px;top:417px"><img src="../../apps/docs/public/providers/color/bandwidth.svg"><span><b>Bandwidth</b></span></div>
+  <div class="tile"    style="left:1002px;top:542px"><img src="../../apps/docs/public/providers/color/sinch-dark.svg"><span><b>Sinch</b></span></div>
+
+  <div class="card">
+    <div class="bar"><span>send.ts</span></div>
+<pre><span class="k">const</span> result = <span class="k">await</span> sms.<span class="f">send</span>({
+  <span class="p">to</span>: <span class="s">"+14155550123"</span>,
+  <span class="p">body</span>: <span class="s">"Your order has shipped."</span>,
+});
+result.provider; <span class="c">// "telnyx"</span></pre>
+  </div>
+
+  
+
+  <div class="install">npm i <span>@opencoredev/sms-sdk</span></div>
 </div>
 </body></html>
