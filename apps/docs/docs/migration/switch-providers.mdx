@@ -123,7 +123,7 @@ export async function twilioWebhook(request: Request): Promise<Response> {
 }
 ```
 
-In Telnyx, set the messaging profile's webhook URL to the new route. It receives both status and inbound events. Where to set the URL for each provider is in [Receive webhooks](/receiving/webhooks#delivery-status). Dedupe keys start with the provider name, so keys from the two providers never collide.
+In Telnyx, set the messaging profile's webhook URL to the new route. It receives both status and inbound events. Where to set the URL for each provider is in [Webhook events](/reference/webhook-events#where-to-point-webhooks). Dedupe keys start with the provider name, so keys from the two providers never collide.
 
 ## 4. Carry over opt-outs
 

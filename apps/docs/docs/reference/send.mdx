@@ -43,6 +43,17 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 - Optional
 - Defaults to the adapter's configured `from`. With fallback, each adapter uses its own default when `from` is omitted.
 
+| Shape | Checked locally |
+| --- | --- |
+| E164 string, a long code or toll-free number | E.164 |
+| `{ shortCode }` | 3 to 8 digits |
+| `{ senderId }`, an alphanumeric sender ID | 1 to 11 letters, digits, or spaces, with at least one letter |
+| `{ messagingService }`, a provider sender pool | Not empty. Twilio also checks `MG` plus 32 hex characters. |
+
+`messagingService` is a Twilio Messaging Service SID, a Telnyx messaging profile ID, or a Plivo Powerpack UUID. Which providers support each shape is in [Sender types](/providers/overview#sender-types). A sender the primary adapter cannot use throws `UnsupportedFieldError` (`field: "from"`) before any request; with fallback on, later adapters that cannot use it are skipped.
+
+The SDK cannot see whether a number belongs to your account, is registered for 10DLC or toll-free, or whether the country allows alphanumeric sender IDs (the United States and Canada do not). The provider rejects those with `category: "sender"`. A sender belongs to one provider account, so a second provider needs its own. See [Registration and consent](/providers/registration-and-consent).
+
 ### `body`
 
 - Type: `string`
@@ -59,25 +70,25 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 
 - Type: `readonly string[]`, absolute `http` or `https` URLs
 - Optional
-- MMS media. Needs `capabilities.mms`.
+- MMS media. Needs `capabilities.mms`: Twilio (up to 10 URLs), Telnyx, and Plivo. Each URL must be reachable by the provider, and `body` may be empty. Many countries outside the US and Canada do not support MMS, and the provider rejects it there.
 
 ### `sendAt`
 
 - Type: `Date`
 - Optional
-- Provider-side scheduled send. Needs `capabilities.scheduling`. Twilio also needs a Messaging Service sender.
+- Provider-side scheduled send. Needs `capabilities.scheduling`. The provider holds the message and sends it at `sendAt`; `send()` resolves as soon as the provider accepts it. Telnyx and Sinch schedule from any sender they support. Twilio schedules only from a Messaging Service sender and enforces its own lead-time limits. To cancel a scheduled message, use the provider's API or console.
 
 ### `validityPeriodSec`
 
 - Type: positive integer
 - Optional
-- How long the provider may keep trying. Needs `capabilities.validityPeriod`, and must be within its range.
+- How long the provider may keep trying before the message expires. Needs `capabilities.validityPeriod`. Ranges: Twilio 1 to 36000, Plivo 5 to 10799, Vonage 20 to 604800, Sinch 1 to 2592000. Telnyx and Bandwidth do not support it. Out of range throws `InvalidMessageError`.
 
 ### `webhookUrl`
 
 - Type: absolute `http` or `https` URL
 - Optional
-- Per-message status callback. Needs `capabilities.webhookUrlOverride`.
+- Per-message status callback, overriding the URL on your number or account. Needs `capabilities.webhookUrlOverride`: Twilio, Telnyx, Plivo, and Sinch; Vonage only with JWT auth (`applicationId` and `privateKey`); never Bandwidth. See [Where to point webhooks](/reference/webhook-events#where-to-point-webhooks).
 
 ### `providerOptions`
 
@@ -149,11 +160,11 @@ An adapter you write can accept options too. Set `providerOptions` on the adapte
 | --- | --- | --- |
 | `id` | `string` | `sms_` plus 32 hex characters. The SDK's ID for this logical send. Stable across idempotent replays. |
 | `provider` | `string` | Name of the adapter that accepted. |
-| `providerId` | `string` | The provider's message ID: Twilio `SM…`/`MM…`, Telnyx `data.id`, Plivo `message_uuid[0]`, Vonage `message_uuid`. |
-| `handoff` | `"accepted"` | Always `"accepted"`. |
+| `providerId` | `string` | The provider's message ID: Twilio `SM…`/`MM…`, Telnyx `data.id`, Plivo `message_uuid[0]`, Vonage `message_uuid`, Bandwidth `id`, Sinch batch `id`. Status webhooks carry it as `event.providerId`. |
+| `handoff` | `"accepted"` | Always `"accepted"`: the provider has the message, not yet the phone. |
 | `delivery` | `Delivery` | Status from the response, usually `"queued"`. Not handset delivery. |
 | `encoding` | `"gsm7" \| "ucs2"` | Encoding of the estimate. |
-| `segments` | `number` | Estimated segments. Not a billing figure. |
+| `segments` | `number` | Estimated segments. Not a billing figure. See [Message length and cost](/sending/length-and-cost). |
 | `attemptedProviders` | `readonly string[]` | Adapters tried, in order, without duplicates. |
 | `attempts` | `readonly SendAttempt[]` | Every provider request, in order. |
 | `replayed` | `boolean` | `true` when returned from the idempotency store or a concurrent in-flight call with the same key. |
