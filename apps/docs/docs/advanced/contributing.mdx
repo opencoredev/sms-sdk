@@ -67,6 +67,16 @@ For the docs, run `bun run dev` for a local preview and `cd apps/docs && bun run
 - Never log or serialize credentials, message bodies, or full phone numbers.
 - Every provider fact needs an official source in `PROVIDERS.md`, with the date it was checked. If something cannot be confirmed, the adapter is `partial` and `support.notes` says why.
 
+## How releases work
+
+Every change to `@opencoredev/sms-sdk` ships with a changeset:
+
+```bash
+bun run changeset
+```
+
+Pick patch, minor, or major and write one line for the changelog. When the pull request merges to `main`, the release workflow opens or updates a "chore: version package" pull request that bumps the version and updates `CHANGELOG.md`. Merging that pull request publishes to npm from GitHub Actions with provenance, using npm trusted publishing, so no npm token exists anywhere. Changes to the docs site alone need no changeset.
+
 ## Propose a provider
 
 Build it with [Build your own adapter](/advanced/writing-an-adapter), then open an issue with links to the provider's official API, error, and webhook documentation, and contract fixtures built from those docs. The repository's [CONTRIBUTING.md](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CONTRIBUTING.md) has the full checklist: the adapter file and its `providerOptions` spec, error mapping, the subpath export, contract fixtures, the webhook parser and signed request builders, and entries in `PROVIDERS.md`, the README, and the doctor environment table.

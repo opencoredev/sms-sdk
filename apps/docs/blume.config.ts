@@ -78,8 +78,13 @@ export default defineConfig({
   },
 
   // Server output on Vercel, so the MCP server runs and every page answers
-  // `Accept: text/markdown` at its own URL.
-  deployment: vercel({ site: "https://sms-sdk.vercel.app" }),
+  // `Accept: text/markdown` at its own URL. Vercel sets
+  // VERCEL_PROJECT_PRODUCTION_URL to the project's production domain (the
+  // custom domain once one is added), so llms.txt, the sitemap, and the MCP
+  // server follow the domain without a code change.
+  deployment: vercel({
+    site: `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "sms-sdk.vercel.app"}`,
+  }),
 
   // Old URLs from before the docs were consolidated (LEO-709).
   redirects: [

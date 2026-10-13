@@ -1,3 +1,5 @@
+<p align="center"><a href="https://sms-sdk.vercel.app"><img alt="SMS SDK: one send() for every SMS provider." src="https://raw.githubusercontent.com/opencoredev/sms-sdk/main/.github/assets/readme-banner.png" width="100%" /></a></p>
+
 # SMS SDK
 
 One TypeScript SDK for SMS providers. Send through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one `send()` call, fail over only when a provider proves it rejected the message, and verify webhooks through one normalized API.

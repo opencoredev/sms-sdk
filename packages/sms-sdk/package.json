@@ -15,6 +15,7 @@
     "typescript"
   ],
   "license": "MIT",
+  "homepage": "https://sms-sdk.vercel.app",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/opencoredev/sms-sdk.git",
