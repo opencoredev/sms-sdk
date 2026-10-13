@@ -139,7 +139,7 @@ The parser reads the raw body once and verifies the signature before reading any
 | Bandwidth | partial | Messaging API v2 | long code, toll-free, short code | no | no | no | application boundary |
 | Sinch | partial | SMS API batches | long code, toll-free, short code, alphanumeric | no | yes | 1-2592000 s | configurable callback auth |
 
-Plivo and Vonage are partial because parts of their error responses are undocumented, so fewer rejections can be classified for fallback. [PROVIDERS.md](./PROVIDERS.md) lists every fact used, its source, and what could not be confirmed.
+Plivo, Vonage, Bandwidth, and Sinch are partial because parts of their error responses are undocumented, so fewer rejections can be classified for fallback. Bandwidth does not sign webhooks, so its parser checks the Basic credentials on your Bandwidth application, and Sinch does not publish its SMS HMAC format. [PROVIDERS.md](./PROVIDERS.md) lists every fact used, its source, and what could not be confirmed.
 
 Sender availability also depends on country, registration, and account state. Capability flags are a baseline, not a promise that a route works.
 
@@ -154,7 +154,7 @@ const sms = createSmsClient({ adapters: [adapter] });
 // adapter.sent records every send; nothing touches the network
 ```
 
-`/testing` also has `mockFetch()`, signed webhook request builders for all four providers, and `runSmsAdapterContract()` for adapter authors.
+`/testing` also has `mockFetch()`, signed webhook request builders for Twilio, Telnyx, Plivo, and Vonage, and `runSmsAdapterContract()` for adapter authors.
 
 ## Doctor
 
