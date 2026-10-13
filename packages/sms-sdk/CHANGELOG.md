@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- [`a321c5a`](https://github.com/opencoredev/sms-sdk/commit/a321c5abb26c50c5c066b44a898acf876e63d1d2) - Add the docs site as the package homepage and the SMS SDK banner to the README, and point its Contributing and Examples links at GitHub.
+
+- [`acf9943`](https://github.com/opencoredev/sms-sdk/commit/acf9943ed11d320e5ef8f68013dd5f7869ec0877) - README: explain why Bandwidth and Sinch are partial, and list which providers have signed webhook request builders.
+
 ## 0.1.0
 
 First public version.
