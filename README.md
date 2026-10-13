@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@opencoredev/sms-sdk"><img alt="npm version" src="https://shieldcn.dev/npm/v/@opencoredev/sms-sdk.svg?variant=branded&mode=dark" /></a>
-  <a href="https://github.com/opencoredev/sms-sdk/stargazers"><img alt="GitHub stars" src="https://shieldcn.dev/github/opencoredev/sms-sdk/stars.svg?variant=branded&mode=dark" /></a>
+  <a href="https://github.com/opencoredev/sms-sdk"><img alt="GitHub stars" src="https://shieldcn.dev/github/opencoredev/sms-sdk/stars.svg?variant=branded&mode=dark" /></a>
   <a href="https://x.com/leodev"><img alt="Follow @leodev on X" src="https://shieldcn.dev/x/follow/leodev.svg?variant=branded&mode=dark" /></a>
 </p>
 
