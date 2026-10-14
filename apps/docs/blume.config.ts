@@ -46,6 +46,7 @@ export default defineConfig({
     actions: [
       { label: "Docs", href: "/getting-started/overview" },
       { label: "Providers", href: "/providers/overview" },
+      { label: "GitHub", href: "https://github.com/opencoredev/sms-sdk" },
     ],
   },
 
