@@ -2,7 +2,8 @@
 // Landing page. Direction: the warm dark palette and DM Sans of leodev.cv,
 // widened into a full page. One signature element: the example run, which
 // plays a real fallback (Twilio rejects the sender, Telnyx accepts) next to a
-// phone. The page is always dark, so it sets its own theme mode.
+// phone. Dark by default; the nav's theme toggle switches it to the light
+// palette below, the same warm paper as the docs' light mode (theme.css).
 import PageLayout from "blume/components/layout/PageLayout.astro";
 import data from "blume:data";
 
@@ -95,11 +96,13 @@ const optionsFor = (id: string) => {
 const providers = [
   { id: "twilio", name: "Twilio", logo: "/providers/color/twilio.svg" },
   { id: "telnyx", name: "Telnyx", logo: "/providers/color/telnyx.svg" },
-  { id: "plivo", name: "Plivo", logo: "/providers/color/plivo-dark.svg" },
-  { id: "vonage", name: "Vonage", logo: "/providers/color/vonage-dark.svg" },
+  // Plivo, Vonage, and Sinch publish black marks with white versions for dark
+  // backgrounds.
+  { id: "plivo", name: "Plivo", logo: "/providers/color/plivo.svg", logoDark: "/providers/color/plivo-dark.svg" },
+  { id: "vonage", name: "Vonage", logo: "/providers/color/vonage.svg", logoDark: "/providers/color/vonage-dark.svg" },
   { id: "bandwidth", name: "Bandwidth", logo: "/providers/color/bandwidth.svg" },
-  { id: "sinch", name: "Sinch", logo: "/providers/color/sinch-dark.svg" },
-].map((provider) => ({ ...provider, args: optionsFor(provider.id) }));
+  { id: "sinch", name: "Sinch", logo: "/providers/color/sinch.svg", logoDark: "/providers/color/sinch-dark.svg" },
+].map((provider) => ({ logoDark: provider.logo, ...provider, args: optionsFor(provider.id) }));
 
 // Mirrors isFallbackEligible() in packages/sms-sdk/src/core/errors.ts.
 const outcomes = [
@@ -239,7 +242,8 @@ const footerColumns = [
               data-name={provider.name}
               data-args={provider.args}
             >
-              <img src={provider.logo} alt="" width="26" height="26" />
+              <img class="logo-light" src={provider.logo} alt="" width="26" height="26" />
+              <img class="logo-dark" src={provider.logoDark} alt="" width="26" height="26" />
               <span>{provider.name}</span>
             </button>
           ))}
@@ -319,11 +323,72 @@ const footerColumns = [
     --ok: #8fbf8a;
     --no: #d98a7e;
     --wait: #d8c79b;
+    --hover: #1e1d1a;
+    --glow: #1f1d1a;
+    --tab-on: #4a4640;
+    --bubble: #2b2925;
+    --bubble-sent: #3a5a3c;
+    --line-on: rgba(217, 151, 87, 0.08);
+    --line-on-edge: #d97757;
+    --code: #d6d2c9;
+    --code-k: #d39e8a;
+    --code-s: #cdbb8c;
+    --code-f: #b7c7d6;
+    --code-p: #a9b8a0;
+    --prompt-top: #24221f;
+    --prompt-bottom: #1c1b18;
+    --prompt-border: #45413b;
+    --prompt-border-hover: #615c54;
+    --prompt-shine: rgba(255, 255, 255, 0.05);
+    --agent-ring: #201e1b;
     --sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
     --mono: "JetBrains Mono", ui-monospace, monospace;
     background: var(--bg);
     color: var(--text);
     font: 400 16px/1.6 var(--sans);
+  }
+  /* Light mode: the docs' paper palette (theme.css) and the light code colors
+     (themes/sms-light.ts). Every text color meets 4.5:1 on --bg and --surface. */
+  :global(:root[data-theme="light"]) :is(.home, .home-footer) {
+    --bg: #f7f5f0;
+    --surface: #f1eee7;
+    --line: #e3dfd6;
+    --line-2: #d4cfc4;
+    --text: #1c1a17;
+    --muted: #6b6760;
+    --dim: #6f6a62;
+    --rule: #b9b3a8;
+    --ok: #3d7442;
+    --no: #a8473b;
+    --wait: #8a5a1f;
+    --hover: #e9e5dc;
+    --glow: #e9e5dc;
+    --tab-on: #bdb6aa;
+    --bubble: #e6e1d6;
+    --bubble-sent: #cfe2c9;
+    --line-on: rgba(217, 119, 87, 0.12);
+    --line-on-edge: #c4613f;
+    --code: #1c1a17;
+    --code-k: #9a4a2e;
+    --code-s: #7a5f1a;
+    --code-f: #2f5577;
+    --code-p: #4d6440;
+    --prompt-top: #fdfcfa;
+    --prompt-bottom: #f3f0ea;
+    --prompt-border: #d4cfc4;
+    --prompt-border-hover: #b9b3a8;
+    --prompt-shine: rgba(255, 255, 255, 0.7);
+    --agent-ring: #f9f8f4;
+  }
+  /* Only the provider mark for the current theme shows. */
+  .tab .logo-light {
+    display: none;
+  }
+  :global(:root[data-theme="light"]) .tab .logo-light {
+    display: block;
+  }
+  :global(:root[data-theme="light"]) .tab .logo-dark {
+    display: none;
   }
   .home :is(h1, h2, b, p, button),
   .home-footer :is(b, p, a, span, div) {
@@ -397,9 +462,9 @@ const footerColumns = [
     height: 48px;
     padding: 0 20px 0 12px;
     border-radius: 12px;
-    border: 1px solid #45413b;
-    background: linear-gradient(#24221f, #1c1b18);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--prompt-border);
+    background: linear-gradient(var(--prompt-top), var(--prompt-bottom));
+    box-shadow: inset 0 1px 0 var(--prompt-shine);
     cursor: pointer;
     font-size: 15px;
     transition:
@@ -407,7 +472,7 @@ const footerColumns = [
       transform 0.1s;
   }
   .prompt:hover {
-    border-color: #615c54;
+    border-color: var(--prompt-border-hover);
   }
   .prompt:active {
     transform: scale(0.98);
@@ -425,7 +490,7 @@ const footerColumns = [
     width: 26px;
     height: 26px;
     border-radius: 8px;
-    box-shadow: 0 0 0 2px #201e1b;
+    box-shadow: 0 0 0 2px var(--agent-ring);
     position: relative;
   }
   .agent + .agent {
@@ -448,11 +513,17 @@ const footerColumns = [
     color: #0d0d0d;
     --mark: url("/agents/chatgpt.svg");
   }
+  /* The ChatGPT mark's light tile needs an edge on paper. */
+  :global(:root[data-theme="light"]) .chatgpt {
+    box-shadow:
+      0 0 0 2px var(--agent-ring),
+      inset 0 0 0 1px var(--line-2);
+  }
   .grok {
     background: #000;
     color: #fff;
     box-shadow:
-      0 0 0 2px #201e1b,
+      0 0 0 2px var(--agent-ring),
       inset 0 0 0 1px #3a3733;
     --mark: url("/agents/grok.svg");
   }
@@ -531,7 +602,7 @@ const footerColumns = [
   }
   .replay:hover {
     color: var(--text) !important;
-    background: #1e1d1a;
+    background: var(--hover);
   }
   .run-body {
     display: grid;
@@ -548,7 +619,7 @@ const footerColumns = [
     margin: 0;
     font-size: 13px;
     line-height: 1.85;
-    color: #d6d2c9;
+    color: var(--code);
     overflow-x: auto;
     background: none;
     padding: 0;
@@ -561,20 +632,20 @@ const footerColumns = [
     transition: background 0.3s;
   }
   .ln.on {
-    background: rgba(217, 151, 87, 0.08);
-    box-shadow: inset 2px 0 0 #d97757;
+    background: var(--line-on);
+    box-shadow: inset 2px 0 0 var(--line-on-edge);
   }
   .home :global(.k) {
-    color: #d39e8a;
+    color: var(--code-k);
   }
   .home :global(.s) {
-    color: #cdbb8c;
+    color: var(--code-s);
   }
   .home :global(.f) {
-    color: #b7c7d6;
+    color: var(--code-f);
   }
   .home :global(.p) {
-    color: #a9b8a0;
+    color: var(--code-p);
   }
   .home :global(.c) {
     color: var(--dim);
@@ -583,7 +654,7 @@ const footerColumns = [
     display: flex;
     flex-direction: column;
     gap: 28px;
-    background: radial-gradient(420px 260px at 70% 0%, #1f1d1a, transparent);
+    background: radial-gradient(420px 260px at 70% 0%, var(--glow), transparent);
   }
   .phone {
     flex: 1;
@@ -613,7 +684,7 @@ const footerColumns = [
     max-width: 80%;
     padding: 10px 14px;
     border-radius: 18px 18px 6px 18px;
-    background: #2b2925;
+    background: var(--bubble);
     font-size: 15px;
     opacity: 0;
     transform: translateY(8px) scale(0.97);
@@ -628,7 +699,7 @@ const footerColumns = [
     transform: none;
   }
   .bubble.sent {
-    background: #3a5a3c;
+    background: var(--bubble-sent);
   }
   .status {
     align-self: flex-end;
@@ -729,7 +800,7 @@ const footerColumns = [
   }
   .tab[aria-selected="true"] {
     background: var(--surface);
-    border-color: #4a4640;
+    border-color: var(--tab-on);
   }
   .tab img {
     height: 26px;
