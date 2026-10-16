@@ -23,7 +23,7 @@ Run the [doctor CLI](/reference/doctor-cli) first. Its dry run catches many conf
 npx @opencoredev/sms-sdk doctor --adapter telnyx --to +14155550123
 ```
 
-When you report a problem, include the SMS SDK version, your runtime and its version, and the error's `toJSON()` output, which is redacted and safe to share. Never post credentials, full phone numbers, or message contents.
+When you report a problem, include the SMS SDK version, your runtime and its version, and the error's `toJSON()` output, which masks phone numbers and leaves out message bodies. Read it before you paste it, and never post credentials, full phone numbers, or message contents.
 
 ## Problems only your provider can fix
 
