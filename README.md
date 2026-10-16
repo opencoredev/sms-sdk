@@ -90,7 +90,7 @@ See [Receive webhooks](https://www.sms-sdk.com/receiving/webhooks) for Next.js, 
 
 ## Documentation
 
-Full documentation lives at **[sms-sdk.vercel.app](https://www.sms-sdk.com)**. Coding agents can read it as Markdown, through [`llms.txt`](https://www.sms-sdk.com/llms.txt), or with the MCP server:
+Full documentation lives at **[www.sms-sdk.com](https://www.sms-sdk.com)**. Coding agents can read it as Markdown, through [`llms.txt`](https://www.sms-sdk.com/llms.txt), or with the MCP server:
 
 ```bash
 claude mcp add --transport http sms-sdk https://www.sms-sdk.com/mcp
