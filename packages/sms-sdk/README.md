@@ -1,4 +1,4 @@
-<p align="center"><a href="https://sms-sdk.vercel.app"><img alt="SMS SDK: one send() for every SMS provider." src="https://raw.githubusercontent.com/opencoredev/sms-sdk/main/.github/assets/readme-banner.png" width="100%" /></a></p>
+<p align="center"><a href="https://www.sms-sdk.com"><img alt="SMS SDK: one send() for every SMS provider." src="https://raw.githubusercontent.com/opencoredev/sms-sdk/main/.github/assets/readme-banner.png" width="100%" /></a></p>
 
 # SMS SDK
 

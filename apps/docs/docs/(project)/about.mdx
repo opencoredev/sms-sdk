@@ -1,0 +1,28 @@
+---
+title: "About SMS SDK"
+description: "SMS SDK is an open-source TypeScript library from OpenCore that sends and receives SMS through Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch with one API."
+pagination: false
+related: false
+---
+
+SMS SDK (`@opencoredev/sms-sdk` on npm) is an open-source TypeScript library for sending and receiving transactional SMS. One `send()` call works with Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch, and `parseSmsWebhook()` turns each provider's delivery and inbound webhooks into one verified event shape. It runs on Node.js 20 or later and Bun 1.1 or later, and it has no runtime dependencies.
+
+## Why it exists
+
+Every SMS provider has its own client library, its own error codes, and its own webhook format. Switching providers, or adding a second one as a fallback, usually means rewriting the code that sends messages and the code that receives status updates. SMS SDK puts one typed API in front of all six, so the provider becomes a configuration choice.
+
+It is also strict about the one mistake that costs real money and annoys real people: sending the same text twice. `send()` resolves only when a provider accepted the message. When the outcome is unknown, it throws `HandoffUnknownError` and never retries or falls back on its own. [How sending works](/getting-started/how-sending-works) explains each outcome.
+
+## How provider behavior is documented
+
+Each adapter relies on provider facts: endpoints, error codes, signature schemes, and which errors mean a message was definitely refused. [`PROVIDERS.md`](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/PROVIDERS.md) lists every one of those facts with a link to its source, and says what could not be confirmed. A provider is marked partial when part of its behavior is undocumented.
+
+## Who builds it
+
+SMS SDK is built by [OpenCore](https://github.com/opencoredev) and maintained by [Leo](https://leodev.cv). The code is MIT licensed and lives at [github.com/opencoredev/sms-sdk](https://github.com/opencoredev/sms-sdk). There is no paid tier and no hosted service: the library talks directly to the providers you configure, with your own accounts.
+
+SMS SDK is not affiliated with or endorsed by Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch. Their names identify the services the adapters connect to.
+
+## Get in touch
+
+See [Contact](/contact) for questions, bug reports, and security issues, and [Privacy](/privacy) for what this site and the library collect.
