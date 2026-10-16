@@ -1,0 +1,30 @@
+---
+title: "Contact"
+description: "How to reach the SMS SDK maintainers: GitHub issues for questions and bugs, private vulnerability reporting for security issues, and your provider for account problems."
+pagination: false
+related: false
+---
+
+SMS SDK is maintained in the open on GitHub, so every channel below goes through [github.com/opencoredev/sms-sdk](https://github.com/opencoredev/sms-sdk). There is no sales team, phone line, or paid support plan.
+
+| You want to | Go to |
+| --- | --- |
+| Ask how to use SMS SDK | [Open a GitHub issue](https://github.com/opencoredev/sms-sdk/issues/new/choose) and label it `question` |
+| Report a bug or a docs mistake | [Open a GitHub issue](https://github.com/opencoredev/sms-sdk/issues/new/choose) |
+| Correct a provider fact | An issue with a link to the provider's official documentation |
+| Report a security vulnerability | [Private vulnerability reporting](https://github.com/opencoredev/sms-sdk/security/advisories/new), never a public issue |
+| Contribute code or docs | A pull request; see [Contributing and support](/advanced/contributing) |
+
+## Before you write
+
+Run the [doctor CLI](/reference/doctor-cli) first. Its dry run catches many configuration problems without a network call:
+
+```bash
+npx @opencoredev/sms-sdk doctor --adapter telnyx --to +14155550123
+```
+
+When you report a problem, include the SMS SDK version, your runtime and its version, and the error's `toJSON()` output, which is redacted and safe to share. Never post credentials, full phone numbers, or message contents.
+
+## Problems only your provider can fix
+
+SMS SDK cannot see or change your provider account. Sender registration, 10DLC and toll-free verification, carrier filtering, delivery failures after the provider accepted a message, account limits, and billing all belong with your provider's support team. Give them the message's `providerId` from the send result or status webhook; providers look messages up by their own ID.

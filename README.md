@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://sms-sdk.vercel.app"><img alt="SMS SDK: one send() for every SMS provider. Twilio rejects, Telnyx accepts, and Plivo, Vonage, Bandwidth, and Sinch are wired to the same call." src=".github/assets/readme-banner.png" width="100%" /></a>
+  <a href="https://www.sms-sdk.com"><img alt="SMS SDK: one send() for every SMS provider. Twilio rejects, Telnyx accepts, and Plivo, Vonage, Bandwidth, and Sinch are wired to the same call." src=".github/assets/readme-banner.png" width="100%" /></a>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@ SMS SDK is an open-source TypeScript library for sending and receiving transacti
 
 It never texts anyone twice: it falls back only when a provider proves it refused the message, and stops when the outcome is unknown.
 
-[Start with the quick start](https://sms-sdk.vercel.app/getting-started/quick-start) · [Read the docs](https://sms-sdk.vercel.app) · [Install from npm](https://www.npmjs.com/package/@opencoredev/sms-sdk)
+[Start with the quick start](https://www.sms-sdk.com/getting-started/quick-start) · [Read the docs](https://www.sms-sdk.com) · [Install from npm](https://www.npmjs.com/package/@opencoredev/sms-sdk)
 
 - Adapters for Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch, each behind its own subpath import
 - Opt-in fallback to the next provider after a known rejection, with rate-limit retries that honor `Retry-After`
@@ -54,7 +54,7 @@ console.log(result.provider);
 // "telnyx" when Twilio refused the sender
 ```
 
-`send()` resolves only when a provider accepted the message. A refusal throws `ProviderRejectedError` with `retrySafe: true`. A timeout or unreadable response throws `HandoffUnknownError` with `retrySafe: false`, and the SDK neither retries nor falls back, because the text may already be on its way. [How sending works](https://sms-sdk.vercel.app/getting-started/how-sending-works) covers every outcome and default.
+`send()` resolves only when a provider accepted the message. A refusal throws `ProviderRejectedError` with `retrySafe: true`. A timeout or unreadable response throws `HandoffUnknownError` with `retrySafe: false`, and the SDK neither retries nor falls back, because the text may already be on its way. [How sending works](https://www.sms-sdk.com/getting-started/how-sending-works) covers every outcome and default.
 
 No provider account yet? Swap in `memory()` from `@opencoredev/sms-sdk/testing`. It records every send and calls nothing.
 
@@ -62,14 +62,14 @@ No provider account yet? Swap in `memory()` from `@opencoredev/sms-sdk/testing`.
 
 | Provider | Status | MMS | Scheduling | Webhook verification |
 | --- | --- | --- | --- | --- |
-| [Twilio](https://sms-sdk.vercel.app/providers/twilio) | supported | yes | yes (Messaging Service) | HMAC-SHA1 |
-| [Telnyx](https://sms-sdk.vercel.app/providers/telnyx) | supported | yes | yes | Ed25519 |
-| [Plivo](https://sms-sdk.vercel.app/providers/plivo) | partial | yes | no | HMAC-SHA256 V2 |
-| [Vonage](https://sms-sdk.vercel.app/providers/vonage) | partial | no | no | HS256 JWT |
-| [Bandwidth](https://sms-sdk.vercel.app/providers/bandwidth) | partial | no | no | Basic credentials |
-| [Sinch](https://sms-sdk.vercel.app/providers/sinch) | partial | no | yes | Basic or HMAC |
+| [Twilio](https://www.sms-sdk.com/providers/twilio) | supported | yes | yes (Messaging Service) | HMAC-SHA1 |
+| [Telnyx](https://www.sms-sdk.com/providers/telnyx) | supported | yes | yes | Ed25519 |
+| [Plivo](https://www.sms-sdk.com/providers/plivo) | partial | yes | no | HMAC-SHA256 V2 |
+| [Vonage](https://www.sms-sdk.com/providers/vonage) | partial | no | no | HS256 JWT |
+| [Bandwidth](https://www.sms-sdk.com/providers/bandwidth) | partial | no | no | Basic credentials |
+| [Sinch](https://www.sms-sdk.com/providers/sinch) | partial | no | yes | Basic or HMAC |
 
-Partial means part of the provider's behavior is undocumented, so fewer rejections can be recognized for fallback. [`PROVIDERS.md`](packages/sms-sdk/PROVIDERS.md) lists every provider fact the SDK relies on, its source, and what could not be confirmed. [Choose a provider](https://sms-sdk.vercel.app/providers/overview) has the full capability matrix.
+Partial means part of the provider's behavior is undocumented, so fewer rejections can be recognized for fallback. [`PROVIDERS.md`](packages/sms-sdk/PROVIDERS.md) lists every provider fact the SDK relies on, its source, and what could not be confirmed. [Choose a provider](https://www.sms-sdk.com/providers/overview) has the full capability matrix.
 
 ## Webhooks
 
@@ -86,23 +86,23 @@ const event = await parseSmsWebhook({
 // event.type: "message.delivered", "message.received", "recipient.opted_out", ...
 ```
 
-See [Receive webhooks](https://sms-sdk.vercel.app/receiving/webhooks) for Next.js, Hono, and Bun handlers.
+See [Receive webhooks](https://www.sms-sdk.com/receiving/webhooks) for Next.js, Hono, and Bun handlers.
 
 ## Documentation
 
-Full documentation lives at **[sms-sdk.vercel.app](https://sms-sdk.vercel.app)**. Coding agents can read it as Markdown, through [`llms.txt`](https://sms-sdk.vercel.app/llms.txt), or with the MCP server:
+Full documentation lives at **[sms-sdk.vercel.app](https://www.sms-sdk.com)**. Coding agents can read it as Markdown, through [`llms.txt`](https://www.sms-sdk.com/llms.txt), or with the MCP server:
 
 ```bash
-claude mcp add --transport http sms-sdk https://sms-sdk.vercel.app/mcp
+claude mcp add --transport http sms-sdk https://www.sms-sdk.com/mcp
 ```
 
 Good places to start:
 
-- [Quick start](https://sms-sdk.vercel.app/getting-started/quick-start)
-- [Fallback and retries](https://sms-sdk.vercel.app/sending/fallback-and-retries)
-- [Prevent duplicate sends](https://sms-sdk.vercel.app/sending/idempotency)
-- [Test without a provider](https://sms-sdk.vercel.app/testing/local-testing)
-- [Switch providers](https://sms-sdk.vercel.app/migration/switch-providers)
+- [Quick start](https://www.sms-sdk.com/getting-started/quick-start)
+- [Fallback and retries](https://www.sms-sdk.com/sending/fallback-and-retries)
+- [Prevent duplicate sends](https://www.sms-sdk.com/sending/idempotency)
+- [Test without a provider](https://www.sms-sdk.com/testing/local-testing)
+- [Switch providers](https://www.sms-sdk.com/migration/switch-providers)
 
 ## Contributing
 
@@ -113,7 +113,7 @@ bun run typecheck   # SDK types
 bun run dev         # docs site
 ```
 
-Every change to the package ships with a changeset (`bun run changeset`). See [Contributing and support](https://sms-sdk.vercel.app/advanced/contributing) for the release flow, adding a provider, and reporting security issues.
+Every change to the package ships with a changeset (`bun run changeset`). See [Contributing and support](https://www.sms-sdk.com/advanced/contributing) for the release flow, adding a provider, and reporting security issues.
 
 ## Sponsors
 

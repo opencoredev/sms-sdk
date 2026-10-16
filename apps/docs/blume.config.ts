@@ -74,8 +74,39 @@ export default defineConfig({
         "Every page below is also available as Markdown: append `.md` to its URL.",
       ].join("\n"),
     },
-    // Search and read these docs from an agent: claude mcp add --transport http sms-sdk https://sms-sdk.vercel.app/mcp
+    // Search and read these docs from an agent: claude mcp add --transport http sms-sdk https://www.sms-sdk.com/mcp
     mcp: { enabled: true },
+  },
+
+  // Sitemap <lastmod> and "Last updated" stamps come from each page's last
+  // commit. Vercel clones shallowly by default, so the project sets
+  // VERCEL_DEEP_CLONE=true; without it most pages would build with no date.
+  lastModified: "git",
+
+  seo: {
+    metatags: {
+      // Tells Is Agentic (is-agentic.com) to read this as a documentation site.
+      "is-agentic-site-type": "content",
+    },
+    // JSON-LD: an Organization node on every page, and a SoftwareApplication
+    // node on the homepage so search engines and agents know what the site
+    // documents.
+    organization: {
+      name: "OpenCore",
+      url: "https://github.com/opencoredev",
+      logo: "/logo.svg",
+      sameAs: ["https://github.com/opencoredev", "https://www.npmjs.com/org/opencoredev"],
+    },
+    software: {
+      name: "SMS SDK",
+      license: "https://github.com/opencoredev/sms-sdk/blob/main/LICENSE",
+      operatingSystem: "Node.js 20+, Bun 1.1+",
+      price: 0,
+      sameAs: [
+        "https://www.npmjs.com/package/@opencoredev/sms-sdk",
+        "https://github.com/opencoredev/sms-sdk",
+      ],
+    },
   },
 
   // Server output on Vercel, so the MCP server runs and every page answers

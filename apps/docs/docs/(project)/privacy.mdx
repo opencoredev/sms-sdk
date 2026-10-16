@@ -1,0 +1,30 @@
+---
+title: "Privacy"
+description: "What the SMS SDK website and the @opencoredev/sms-sdk library collect: no analytics, no cookies, no telemetry, and messages that go only to the providers you configure."
+pagination: false
+related: false
+---
+
+This page covers two things: this website (www.sms-sdk.com) and the `@opencoredev/sms-sdk` library you install from npm.
+
+## This website
+
+The site runs no analytics, sets no cookies, and has no accounts or sign-up forms. There is no advertising and no tracking pixel.
+
+- **Hosting.** The site is hosted on [Vercel](https://vercel.com/legal/privacy-policy). Like any web host, Vercel receives each request's IP address, user agent, and the page requested, and keeps request logs to run and secure the service.
+- **Fonts.** The homepage loads DM Sans and JetBrains Mono from Google Fonts, so your browser sends a request, including your IP address, to Google. See [Google's privacy policy](https://policies.google.com/privacy). The documentation pages serve their fonts from this site.
+- **Search.** Search runs in your browser against an index downloaded from this site. Your queries are not sent anywhere. Recent searches are kept in your browser's local storage.
+- **Preferences.** Your light or dark theme choice is kept in your browser's local storage. It never leaves your device, and clearing site data removes it.
+- **Agent endpoints.** The MCP server at `/mcp`, `llms.txt`, and the Markdown versions of each page are served the same way as the pages themselves, with the same hosting logs.
+
+## The library
+
+SMS SDK has no telemetry. It does not report usage, errors, or installs to OpenCore or anyone else.
+
+When you call `send()`, the library makes an HTTPS request straight from your server to the provider you configured (Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch) with the credentials, phone numbers, and message you pass in. Nothing passes through an OpenCore server, because there isn't one. What the provider does with that data is governed by your agreement with them.
+
+Webhook verification with `parseSmsWebhook()` runs entirely in your process. The `memory()` test adapter and the doctor CLI's dry run make no network calls at all. Errors expose a redacted `toJSON()` so credentials and full phone numbers stay out of your logs by default.
+
+## Changes and questions
+
+If this changes, for example if the site adds analytics, this page will say so first. The page's history is public in the [repository](https://github.com/opencoredev/sms-sdk/commits/main/apps/docs/docs/privacy.mdx). For privacy questions, open an issue on [GitHub](https://github.com/opencoredev/sms-sdk/issues).
