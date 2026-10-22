@@ -1321,7 +1321,7 @@
 
 .sms-landing .sms-counter textarea:focus-visible {
   border-color: var(--sms-accent);
-  box-shadow: 0 0 0 3px oklch(from var(--sms-accent) l c h / 0.2);
+  box-shadow: 0 0 0 1px var(--sms-accent), 0 0 0 5px oklch(from var(--sms-accent) l c h / 0.16);
   outline: none;
 }
 
@@ -1722,35 +1722,41 @@
 }
 
 /* Snow: two tiled layers, near and far, drifting down at different
-   speeds. The layer clears an oval around the copy so no flake crosses
-   the type. */
+   speeds, in two plain clipped strips either side of a 46rem column, so
+   no flake crosses the type or the header. Strips rather than one
+   full-width layer under a mask: a mask is recomposited on every frame,
+   which halved the frame rate in a software-rendered trace. */
 .sms-snow {
-  inset: 0;
-  mask-composite: intersect;
-  mask-image:
-    radial-gradient(ellipse 42% 36% at 50% 30%, transparent 70%, #000 100%),
-    linear-gradient(to bottom, transparent 4.5rem, #000 8rem);
+  inline-size: max(0px, (100% - 46rem) / 2);
+  inset-block: 5.5rem 0;
+  inset-inline-start: 0;
+  overflow: hidden;
   pointer-events: none;
   position: absolute;
 }
 
-/* The closing keeps its snow off the copy, the header above it, and the
-   footer that sits over its foot. */
-.sms-closing-art .sms-snow {
-  mask-image:
-    radial-gradient(ellipse 46% 30% at 50% 28%, transparent 70%, #000 100%),
-    linear-gradient(to bottom, transparent 4.5rem, #000 8rem, #000 calc(100% - var(--sms-footer-overlap) - 4rem), transparent calc(100% - var(--sms-footer-overlap)));
+.sms-snow + .sms-snow {
+  inset-inline: auto 0;
 }
 
-/* Phones: the copy spans the width, so the snow keeps to the ground below
-   it, and the hero (all copy) has none. */
+/* The closing's snow stops a little way into the footer, above its
+   text, where the footer's own ground is already most of the way in. */
+.sms-closing-art .sms-snow {
+  inset-block-end: calc(var(--sms-footer-overlap) - 6rem);
+}
+
+/* Phones: the copy spans the width, so the hero (all copy) has no snow
+   and the closing's falls only on the ground below the buttons. */
 @media (max-width: 40rem) {
-  .sms-hero-art .sms-snow {
+  .sms-hero-art .sms-snow,
+  .sms-closing-art .sms-snow + .sms-snow {
     display: none;
   }
 
   .sms-closing-art .sms-snow {
-    mask-image: linear-gradient(to bottom, transparent 42%, #000 55%, #000 calc(100% - var(--sms-footer-overlap) - 4rem), transparent calc(100% - var(--sms-footer-overlap)));
+    inline-size: auto;
+    inset-block-start: 56%;
+    inset-inline: 0;
   }
 }
 
