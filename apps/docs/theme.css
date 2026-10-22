@@ -1509,15 +1509,6 @@
   position: relative;
 }
 
-.sms-footer-inner::before {
-  background: linear-gradient(to right, transparent, oklch(0.95 0.02 85 / 0.18) 20%, oklch(0.95 0.02 85 / 0.18) 80%, transparent);
-  block-size: 1px;
-  content: "";
-  inset-block-start: 0;
-  inset-inline: var(--sms-gutter);
-  position: absolute;
-}
-
 @media (min-width: 56rem) {
   .sms-footer-inner {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2070,13 +2061,20 @@
     inset-inline-start: -0.75rem;
   }
 
+  /* Phones: the copy takes the sky, the lit cabin sits just under the
+     buttons, and the footer rides over the snow in front of it. The cabin's
+     smoke would rise behind the buttons, so it stays still here. */
   .sms-closing {
-    min-block-size: 34rem;
+    min-block-size: calc(34rem + var(--sms-footer-overlap));
   }
 
   .sms-closing-art .sms-stage {
-    --fx: 0.64;
+    --fx: 0.7;
     --fy: 0.8;
+  }
+
+  .sms-closing-art .sms-smoke {
+    display: none;
   }
 
   .sms-closing-copy {
