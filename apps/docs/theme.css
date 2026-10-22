@@ -119,9 +119,8 @@
   padding-inline: var(--sms-gutter);
 }
 /* Header ------------------------------------------------------------------
-   Over the painting the header sits on a soft sky-tone veil that fades out
-   below it, so links read without a hard bar. On scroll it becomes a solid
-   frosted ground with a hairline. */
+   Over the painting the header is fully transparent: the hero's own scrim
+   and dark veil carry the contrast. On scroll it frosts, with a hairline. */
 
 .sms-nav {
   inset-block-start: 0;
@@ -136,35 +135,21 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   margin-inline: auto;
   max-inline-size: calc(var(--sms-wrap) + 2 * var(--sms-gutter));
-  min-block-size: 4rem;
+  min-block-size: 4.5rem;
   padding-inline: var(--sms-gutter);
 }
 
-.sms-nav::before,
 .sms-nav::after {
+  background-color: oklch(from var(--sms-ground) l c h / 0.78);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border-block-end: 1px solid var(--sms-line);
   content: "";
   inset: 0;
+  opacity: 0;
   pointer-events: none;
   position: absolute;
   transition: opacity 200ms ease-out;
   z-index: -1;
-}
-
-.sms-nav::before {
-  background: linear-gradient(to bottom, var(--sms-veil) 0%, oklch(from var(--sms-veil) l c h / 0) 100%);
-  inset-block-end: -1.5rem;
-}
-
-.sms-nav::after {
-  background-color: oklch(from var(--sms-ground) l c h / 0.86);
-  backdrop-filter: blur(14px) saturate(1.2);
-  border-block-end: 1px solid oklch(from var(--sms-ink) l c h / 0.16);
-  box-shadow: 0 1px 0 oklch(from var(--sms-ground) l c h / 0.6), 0 8px 24px -16px oklch(0.25 0.05 260 / 0.25);
-  opacity: 0;
-}
-
-.sms-nav[data-scrolled]::before {
-  opacity: 0;
 }
 
 .sms-nav[data-scrolled]::after,
@@ -172,22 +157,10 @@
   opacity: 1;
 }
 
-.sms-nav:has(.sms-menu:not([hidden]))::before {
-  opacity: 0;
-}
-
-.sms-landing {
-  --sms-veil: oklch(0.95 0.012 245 / 0.5);
-}
-
-:root[data-theme="dark"] .sms-landing {
-  --sms-veil: oklch(0.16 0.018 258 / 0.7);
-}
-
 .sms-wordmark {
   color: var(--sms-ink);
   font-family: var(--blume-font-display);
-  font-size: 1.3125rem;
+  font-size: 1.375rem;
   font-weight: 600;
   justify-self: start;
   letter-spacing: -0.02em;
@@ -196,8 +169,8 @@
 
 .sms-nav-links {
   display: flex;
-  gap: 0.25rem;
-  margin-inline-start: 1.75rem;
+  gap: 0.75rem;
+  margin-inline-start: 3rem;
 }
 
 .sms-nav-links a,
@@ -327,8 +300,7 @@
     animation: sms-nav-cta-in 200ms ease-out;
   }
 
-  /* Collapsed until the hero CTA scrolls away, so the search icon sits
-     beside the menu button instead of floating mid-bar. */
+  /* Collapsed until the hero CTA scrolls away. */
   .sms-nav:not([data-past-hero-cta]) .sms-nav-cta {
     display: none;
   }
@@ -487,10 +459,38 @@
 }
 
 .sms-art {
+  container-type: size;
   isolation: isolate;
   margin: 0;
   overflow: hidden;
   position: relative;
+}
+
+/* Every plate draws its painting inside a stage: a box the exact size and
+   place of the painting as object-fit: cover would draw it, worked out from
+   the plate's own size (container units), its aspect (--ar) and its focus
+   (--fx, --fy, the object-position). Overlays inside the stage are placed
+   in the painting's own percentages, so a window glow stays on its window
+   at every width. A zoom (--zoom about --zx, --zy, the plate's own
+   percentages) scales the stage, overlays included. */
+.sms-stage {
+  --ar: 1.4906;
+  --fx: 0.5;
+  --fy: 0.5;
+  --zoom: 1;
+  --zx: 0.5;
+  --zy: 0.5;
+  --w: max(100cqw, 100cqh * var(--ar));
+  --h: calc(var(--w) / var(--ar));
+  --l: calc((100cqw - var(--w)) * var(--fx));
+  --t: calc((100cqh - var(--h)) * var(--fy));
+  block-size: var(--h);
+  inline-size: var(--w);
+  inset-block-start: var(--t);
+  inset-inline-start: var(--l);
+  position: absolute;
+  scale: var(--zoom);
+  transform-origin: calc(100cqw * var(--zx) - var(--l)) calc(100cqh * var(--zy) - var(--t));
 }
 
 .sms-art img {
@@ -498,7 +498,10 @@
   display: block;
   filter: var(--sms-art-filter);
   inline-size: 100%;
-  object-fit: cover;
+}
+
+:root[data-theme="dark"] .sms-art:not(.sms-closing-art) .sms-stage {
+  background-color: var(--sms-art-wash);
 }
 
 :root[data-theme="dark"] .sms-art:not(.sms-closing-art)::after {
@@ -514,7 +517,7 @@
 .sms-hero {
   display: grid;
   isolation: isolate;
-  margin-block-start: -4rem;
+  margin-block-start: -4.5rem;
   padding-block: clamp(7rem, 13vh, 8.5rem) clamp(3rem, 6vw, 5rem);
   position: relative;
 }
@@ -526,8 +529,8 @@
   z-index: 0;
 }
 
-.sms-hero-art img {
-  object-position: 50% 100%;
+.sms-hero-art .sms-stage {
+  --fy: 1;
 }
 
 :root:not([data-theme="dark"]) .sms-hero-art img {
@@ -538,9 +541,10 @@
    nearest telegraph pole and its wires stand clear of the code card on the
    left and the lit village sits beside it on the right. */
 @media (min-width: 64rem) {
-  .sms-hero-art img {
-    scale: 1.24;
-    transform-origin: 100% 100%;
+  .sms-hero-art .sms-stage {
+    --zoom: 1.24;
+    --zx: 1;
+    --zy: 1;
   }
 }
 
@@ -553,6 +557,19 @@
   inset: 0;
   position: absolute;
   z-index: 1;
+}
+
+/* Dark: moonlight on the snow. A soft-light layer over the lower half lifts
+   the snow's highlights back toward white without lifting the shadows, so
+   the field reads as snow at night rather than a day painting under a blue
+   filter. */
+:root[data-theme="dark"] .sms-hero-art .sms-stage::after {
+  background: linear-gradient(to bottom, transparent 58%, oklch(0.93 0.03 250 / 0.75) 82%, oklch(0.93 0.03 250 / 0.6) 100%);
+  content: "";
+  inset: 0;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+  position: absolute;
 }
 
 :root[data-theme="dark"] .sms-hero-art.sms-art::after {
@@ -713,8 +730,8 @@
   display: none;
 }
 
-/* A quiet diff: no row fills. A narrow gutter carries a − or +, removed
-   lines fade back, and added lines keep full ink with a faint wash. */
+/* A quiet diff: a narrow gutter carries a − or +, and each side gets a faint
+   wash, warm for removed and green for added. Both keep full ink. */
 .sms-landing .sms-card .line.diff {
   background-color: transparent !important;
   box-shadow: none;
@@ -754,10 +771,7 @@
 }
 
 .sms-landing .sms-card .line.diff.remove {
-  opacity: 0.55;
-  text-decoration: line-through;
-  text-decoration-color: oklch(from currentColor l c h / 0.45);
-  text-decoration-thickness: 1px;
+  background-color: oklch(0.72 0.09 50 / 0.09) !important;
 }
 
 .sms-landing .sms-card .line.diff.add {
@@ -806,56 +820,32 @@
   padding-block-start: clamp(2rem, 4vw, 3rem);
 }
 
+/* The junction is the ground of its section: no frame and no corners. It
+   bleeds off the viewport's left edge and its other three edges dissolve
+   into the page ground, so the diff sits on the same snow. */
 .sms-switch-art {
   aspect-ratio: 4 / 5;
-  border-radius: 1rem;
+  mask-image:
+    linear-gradient(to right, #000 calc(100% - var(--sms-fade-x)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
+  mask-composite: intersect;
 }
 
-.sms-switch-art img {
-  object-position: 66% 50%;
+.sms-art.sms-switch-art,
+.sms-art.sms-outcomes-art {
+  --sms-fade-x: 38%;
+  --sms-fade-y: 18%;
 }
 
-/* The signal lamp is the page's first warm light, a quiet setup for the
-   dusk plate at the end. --sms-lamp-x/y track the lamp through each crop. */
-.sms-switch-art {
-  --sms-lamp-x: 87.2%;
-  --sms-lamp-y: 42.5%;
+.sms-switch-art .sms-stage {
+  --fx: 0.66;
 }
 
-.sms-switch-art::before {
-  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.88 0.13 75 / 0.55) 0, oklch(0.85 0.12 70 / 0.18) 2.2rem, transparent 4.5rem);
-  content: "";
-  inset: 0;
-  mix-blend-mode: screen;
-  pointer-events: none;
-  position: absolute;
-  z-index: 1;
-}
-
-/* Light: the lamp's warmth tints the snow around it, multiplied in so it
-   reads on pale paint, with a brighter core screened over the glass. */
-:root:not([data-theme="dark"]) .sms-switch-art::before {
-  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.96 0.09 85 / 0.85) 0, oklch(0.9 0.11 75 / 0.35) 1.25rem, transparent 3.25rem);
-}
-
-:root:not([data-theme="dark"]) .sms-switch-art::after {
-  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.86 0.09 70 / 0.55) 0, oklch(0.9 0.06 72 / 0.28) 5rem, transparent 11rem);
-  content: "";
-  inset: 0;
-  mix-blend-mode: multiply;
-  pointer-events: none;
-  position: absolute;
-  z-index: 1;
-}
-
-:root[data-theme="dark"] .sms-art.sms-switch-art {
-  background:
-    radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.97 0.06 80) 0, oklch(0.9 0.08 75 / 0.5) 0.6rem, transparent 1.75rem),
-    var(--sms-art-wash);
-}
-
-:root[data-theme="dark"] .sms-switch-art::before {
-  background: radial-gradient(circle at var(--sms-lamp-x) var(--sms-lamp-y), oklch(0.85 0.14 70 / 0.42) 0, oklch(0.75 0.13 65 / 0.12) 1.5rem, transparent 3.5rem);
+/* The ::after vignette is the dark-mode multiply wash's edge; the masks
+   already carry the plates into the ground, so it would only darken the
+   middle of the fade. */
+:root[data-theme="dark"] .sms-art:is(.sms-switch-art, .sms-outcomes-art)::after {
+  content: none;
 }
 
 .sms-switch-body {
@@ -869,7 +859,15 @@
 
 @media (min-width: 64rem) {
   .sms-switch {
-    grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
+  }
+
+  /* From the column's right edge to the viewport's left edge. */
+  .sms-switch-art {
+    margin-inline-start: calc(-1 * max(var(--sms-gutter), (100vw - var(--sms-wrap)) / 2));
+    mask-image:
+      linear-gradient(to right, #000 calc(100% - var(--sms-fade-x)), transparent),
+      linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
   }
 }
 
@@ -1001,17 +999,21 @@
   gap: 1.25rem;
 }
 
+/* The harbour, like the junction, has no frame: it bleeds off the left
+   edge of the viewport and dissolves into the ground on its other sides. */
 .sms-outcomes-art {
   aspect-ratio: 4 / 3;
-  border-radius: 0.875rem;
   margin-block-start: 1rem;
-  max-inline-size: 24rem;
+  mask-image:
+    radial-gradient(ellipse 72% 70% at 62% 58%, #000 45%, transparent 100%);
 }
 
-.sms-outcomes-art img {
-  object-position: 78% 72%;
-  scale: 1.25;
-  transform-origin: 72% 70%;
+.sms-outcomes-art .sms-stage {
+  --fx: 0.78;
+  --fy: 0.72;
+  --zoom: 1.25;
+  --zx: 0.72;
+  --zy: 0.7;
 }
 
 /* Dark: the harbour is mostly pale sky and ice, so it takes a little more
@@ -1034,7 +1036,11 @@
 
   .sms-outcomes-art {
     aspect-ratio: auto;
-    max-inline-size: none;
+    margin-inline-start: calc(-1 * max(var(--sms-gutter), (100vw - var(--sms-wrap)) / 2));
+    mask-image:
+      linear-gradient(to right, #000 calc(100% - var(--sms-fade-x)), transparent),
+      linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
+    mask-composite: intersect;
   }
 }
 
@@ -1112,15 +1118,24 @@
   color: var(--sms-warm);
 }
 
-/* The unknown outcome keeps the rules' width: no fill, only a warm rule
-   down its left edge and the warm label. */
-.sms-ledger li.sms-ledger-hold {
-  border-inline-start: 2px solid var(--sms-warm);
-  padding-inline-start: 1.125rem;
+/* The unknown outcome keeps the rules' width and the shared title edge: its
+   warm rule hangs in the gutter to the left of the text. */
+.sms-ledger li {
+  position: relative;
 }
 
-/* (c) Local testing: no painting and no band. The heading and lede stack
-   above one row: the sample sits flat on the page between hairlines, and the
+.sms-ledger li.sms-ledger-hold::before {
+  background-color: var(--sms-warm);
+  content: "";
+  inline-size: 2px;
+  inset-block: 0;
+  inset-inline-start: -1.125rem;
+  position: absolute;
+}
+
+/* (c) Local testing: no painting and no band. On desktop the heading sits
+   over the sample and the lede over the counter, on the same two columns,
+   so no quadrant is left empty. The sample sits flat on the page, and the
    live counter beside it shares its top and bottom edges. */
 .sms-local {
   padding-block: clamp(2rem, 4vw, 3rem) var(--sms-space-closing);
@@ -1143,10 +1158,32 @@
 }
 
 @media (min-width: 64rem) {
-  .sms-local-grid {
-    align-items: stretch;
+  .sms-local-inner {
     column-gap: clamp(2.5rem, 4.5vw, 4rem);
     grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+  }
+
+  .sms-local-head {
+    align-items: start;
+    column-gap: normal;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    max-inline-size: none;
+  }
+
+  .sms-local-head h2 {
+    grid-row: span 2;
+  }
+
+  .sms-local-head > p {
+    grid-column: 2;
+  }
+
+  .sms-local-grid {
+    align-items: stretch;
+    column-gap: normal;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
   }
 }
 
@@ -1215,26 +1252,37 @@
   color: var(--sms-ink);
 }
 
-/* The message is written straight onto the page, over one hairline. */
+/* The message is a real field: a hairline box on the card surface, a text
+   cursor, a placeholder when empty, and an accent ring on focus. */
 .sms-counter textarea {
-  background: transparent;
-  border: 0;
-  border-block-end: 1px solid var(--sms-line);
-  border-radius: 0;
+  background-color: var(--sms-card);
+  border: 1px solid oklch(from var(--sms-ink) l c h / 0.22);
+  border-radius: 0.5rem;
+  caret-color: var(--sms-accent);
   color: var(--sms-ink);
+  cursor: text;
   field-sizing: content;
   font: inherit;
   font-size: 1.0625rem;
   line-height: 1.55;
-  min-block-size: 5.25rem;
-  padding: 0.25rem 0 0.75rem;
+  min-block-size: 6rem;
+  padding: 0.75rem 0.875rem;
   resize: none;
-  transition: border-color 150ms ease-out;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
-.sms-counter textarea:focus-visible {
-  border-block-end-color: var(--sms-accent);
-  box-shadow: 0 1px 0 var(--sms-accent);
+.sms-counter textarea::placeholder {
+  color: var(--sms-quiet);
+  opacity: 1;
+}
+
+.sms-counter textarea:hover {
+  border-color: oklch(from var(--sms-ink) l c h / 0.36);
+}
+
+.sms-landing .sms-counter textarea:focus-visible {
+  border-color: var(--sms-accent);
+  box-shadow: 0 0 0 3px oklch(from var(--sms-accent) l c h / 0.2);
   outline: none;
 }
 
@@ -1255,14 +1303,14 @@
   background-color: var(--sms-accent);
   block-size: 100%;
   display: block;
-  transition: inline-size 220ms var(--sms-ease-out);
+  transform-origin: 0 50%;
+  transition: transform 250ms var(--sms-ease-out);
 }
 
+/* Three stats on one line, each after the first set off by a hairline. */
 .sms-readout {
   align-items: end;
-  column-gap: clamp(1.5rem, 5vw, 3rem);
   display: grid;
-  gap: 1rem;
   grid-template-columns: repeat(3, auto);
   justify-content: start;
   margin: 0;
@@ -1272,6 +1320,15 @@
   display: flex;
   flex-direction: column-reverse;
   gap: 0.15rem;
+  padding-inline: clamp(1.25rem, 3vw, 2rem);
+}
+
+.sms-readout div:first-child {
+  padding-inline-start: 0;
+}
+
+.sms-readout div + div {
+  border-inline-start: 1px solid var(--sms-line);
 }
 
 .sms-readout dt {
@@ -1298,12 +1355,18 @@
 
 /* Closing -------------------------------------------------------------------
    The page's one warm, deep plate: the post office at dusk. It starts on a
-   clean edge right under the testing band, and its foot settles into the
-   footer's own dusk navy, so the footer reads as the snow in shadow. */
+   clean edge right under the testing band and runs on under the footer, so
+   the scene ends at the bottom of the page. --sms-footer-overlap is how far
+   the footer rides up over the plate's snow. */
+.sms-landing,
+.sms-footer {
+  --sms-footer-overlap: 12rem;
+}
+
 .sms-closing {
   background-color: var(--sms-dusk);
   display: grid;
-  min-block-size: clamp(36rem, 58vw, 50rem);
+  min-block-size: calc(clamp(36rem, 58vw, 50rem) + var(--sms-footer-overlap));
   position: relative;
 }
 
@@ -1312,9 +1375,25 @@
   position: absolute;
 }
 
+.sms-closing-art .sms-stage {
+  --ar: 1.4994;
+  --fx: 0.55;
+  --fy: 0.72;
+}
+
+/* The dusk plate was painted hotter than the rest of the series. A little
+   less saturation, a touch of softness and a fixed canvas grain bring it
+   back to the same oil surface without losing the lamplight. */
 .sms-closing-art img {
-  filter: none;
-  object-position: 55% 72%;
+  filter: saturate(0.8) contrast(0.95) blur(0.4px);
+}
+
+.sms-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  inset: 0;
+  mix-blend-mode: soft-light;
+  opacity: 0.55;
+  position: absolute;
 }
 
 /* Dark: the plate rises out of the page ground instead of starting on a
@@ -1328,10 +1407,8 @@
   z-index: 1;
 }
 
-.sms-closing-art::after {
-  background:
-    radial-gradient(ellipse 60% 40% at 50% 22%, oklch(0.2 0.05 265 / 0.45), transparent 70%),
-    linear-gradient(to bottom, transparent 76%, var(--sms-dusk) 100%);
+.sms-closing-art.sms-art::after {
+  background: radial-gradient(ellipse 60% 40% at 50% 22%, oklch(0.2 0.05 265 / 0.45), transparent 70%);
   content: "";
   inset: 0;
   pointer-events: none;
@@ -1370,9 +1447,18 @@
 
 /* Footer ------------------------------------------------------------------ */
 
+/* The footer sits on the closing plate's snow: transparent at its top edge,
+   deepening to the dusk navy behind the links so they keep their contrast. */
 .sms-footer {
-  background-color: var(--sms-dusk);
-  color: oklch(0.82 0.025 255);
+  background:
+    linear-gradient(to bottom, oklch(from var(--sms-dusk) l c h / 0) 0, oklch(from var(--sms-dusk) l c h / 0.6) calc(var(--sms-footer-overlap) * 0.5), var(--sms-dusk) var(--sms-footer-overlap))
+    top / 100% var(--sms-footer-overlap) no-repeat,
+    linear-gradient(var(--sms-dusk), var(--sms-dusk)) 0 var(--sms-footer-overlap) / 100% 100% no-repeat;
+  color: oklch(0.85 0.022 255);
+  margin-block-start: calc(-1 * var(--sms-footer-overlap));
+  padding-block-start: calc(var(--sms-footer-overlap) * 0.4);
+  position: relative;
+  z-index: 1;
 }
 
 .sms-footer-inner {
@@ -1516,8 +1602,12 @@
 }
 
 /* Motion ------------------------------------------------------------------
-   One-time entrances only: the hero painting settles, the copy and the code
-   arrive. Nothing loops. */
+   One-time entrances (the hero settles, the copy and code arrive) and a
+   quiet layer of light and weather locked to the paintings. Every loop is
+   slow, small, and made of opacity and transforms only; nothing moves on
+   top of text; off-screen plates pause (data-paused, set by an
+   IntersectionObserver); and reduced motion gets a still frame with every
+   light lit. */
 @media (prefers-reduced-motion: no-preference) {
   .sms-hero-art {
     animation: sms-settle 1600ms var(--sms-ease-out) both;
@@ -1546,6 +1636,233 @@
   }
 }
 
+/* A light source painted into a plate: a soft warm disc centred on the
+   painting's own pixel coordinates (--x, --y), --s wide. */
+.sms-glow {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  inline-size: var(--s);
+  inset-block-start: var(--y);
+  inset-inline-start: var(--x);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  position: absolute;
+  translate: -50% -50%;
+}
+
+/* Lit windows: warm light that breathes a little, each on its own slow,
+   uneven clock. */
+.sms-window {
+  background: radial-gradient(closest-side, oklch(0.86 0.14 72 / 0.75), oklch(0.75 0.15 62 / 0.28) 55%, transparent);
+  opacity: 0.95;
+}
+
+.sms-hero-art .sms-window {
+  background: radial-gradient(closest-side, oklch(0.9 0.13 75 / 0.9), oklch(0.8 0.14 65 / 0.35) 50%, transparent);
+}
+
+/* Chimney smoke: three soft puffs that rise, widen and fade. --x, --y is
+   the chimney's top; --t stretches one chimney's clock. */
+.sms-smoke {
+  aspect-ratio: 1 / 4;
+  inline-size: var(--s);
+  inset-block-end: calc(100% - var(--y));
+  inset-inline-start: var(--x);
+  pointer-events: none;
+  position: absolute;
+  translate: -50% 0;
+}
+
+.sms-smoke i {
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, var(--sms-smoke), transparent);
+  border-radius: 50%;
+  inline-size: 100%;
+  inset-block-end: 0;
+  opacity: 0;
+  position: absolute;
+}
+
+.sms-landing {
+  --sms-smoke: oklch(0.93 0.008 250 / 0.85);
+}
+
+.sms-closing-art {
+  --sms-smoke: oklch(0.78 0.03 260 / 0.55);
+}
+
+/* Snow: two tiled layers, near and far, drifting down at different
+   speeds. The layer clears an oval around the copy so no flake crosses
+   the type. */
+.sms-snow {
+  inset: 0;
+  mask-composite: intersect;
+  mask-image:
+    radial-gradient(ellipse 42% 36% at 50% 30%, transparent 70%, #000 100%),
+    linear-gradient(to bottom, transparent 4.5rem, #000 8rem);
+  pointer-events: none;
+  position: absolute;
+}
+
+/* The closing keeps its snow off the copy, the header above it, and the
+   footer that sits over its foot. */
+.sms-closing-art .sms-snow {
+  mask-image:
+    radial-gradient(ellipse 46% 30% at 50% 28%, transparent 70%, #000 100%),
+    linear-gradient(to bottom, transparent 4.5rem, #000 8rem, #000 calc(100% - var(--sms-footer-overlap) - 4rem), transparent calc(100% - var(--sms-footer-overlap)));
+}
+
+/* Phones: the copy spans the width, so the snow keeps to the ground below
+   it, and the hero (all copy) has none. */
+@media (max-width: 40rem) {
+  .sms-hero-art .sms-snow {
+    display: none;
+  }
+
+  .sms-closing-art .sms-snow {
+    mask-image: linear-gradient(to bottom, transparent 42%, #000 55%, #000 calc(100% - var(--sms-footer-overlap) - 4rem), transparent calc(100% - var(--sms-footer-overlap)));
+  }
+}
+
+.sms-snow i {
+  background-image: url("/art/snow-near.svg");
+  background-size: 420px 420px;
+  inset: -420px -24px 0;
+  opacity: 0.75;
+  position: absolute;
+}
+
+.sms-snow i + i {
+  background-image: url("/art/snow-far.svg");
+  background-size: 260px 260px;
+  inset-block-start: -260px;
+  opacity: 0.55;
+}
+
+:root[data-theme="dark"] .sms-snow i {
+  opacity: 0.6;
+}
+
+/* The junction lamp: a warm halo that breathes, a steady core on the glass,
+   and one swell when the diff comes into view. */
+.sms-lamp-core {
+  background: radial-gradient(closest-side, oklch(0.98 0.07 88), oklch(0.9 0.12 78 / 0.45) 45%, transparent);
+}
+
+.sms-lamp-halo {
+  background: radial-gradient(closest-side, oklch(0.88 0.12 72 / 0.55), oklch(0.85 0.1 70 / 0.18) 45%, transparent);
+}
+
+:root:not([data-theme="dark"]) .sms-lamp-halo {
+  background: radial-gradient(closest-side, oklch(0.84 0.1 68 / 0.6), oklch(0.9 0.06 72 / 0.25) 45%, transparent);
+  mix-blend-mode: multiply;
+}
+
+.sms-lamp-swell {
+  background: radial-gradient(closest-side, oklch(0.9 0.13 75 / 0.75), oklch(0.85 0.12 70 / 0.2) 50%, transparent);
+  opacity: 0;
+}
+
+/* The harbour lantern: painted lit, and it warms up when the unknown
+   outcome, the ledger's one warm row, comes into view. */
+.sms-harbour-glow {
+  background: radial-gradient(closest-side, oklch(0.86 0.14 68 / 0.7), oklch(0.78 0.13 60 / 0.22) 50%, transparent);
+}
+
+.sms-harbour-core {
+  background: radial-gradient(closest-side, oklch(0.97 0.08 85 / 0.95), oklch(0.88 0.13 72 / 0.4) 50%, transparent);
+}
+
+:is(.sms-harbour-glow, .sms-harbour-core) {
+  opacity: 0;
+  scale: 0.7;
+  transition: opacity 1800ms ease-out var(--delay, 0ms), scale 1800ms var(--sms-ease-out) var(--delay, 0ms);
+}
+
+[data-lit] :is(.sms-harbour-glow, .sms-harbour-core) {
+  opacity: 1;
+  scale: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sms-window {
+    animation: sms-flicker var(--d) ease-in-out var(--o) infinite;
+  }
+
+  .sms-smoke i {
+    animation: sms-smoke calc(11s * var(--t, 1)) linear infinite;
+  }
+
+  .sms-smoke i:nth-child(2) {
+    animation-delay: calc(-3.7s * var(--t, 1));
+  }
+
+  .sms-smoke i:nth-child(3) {
+    animation-delay: calc(-7.4s * var(--t, 1));
+  }
+
+  .sms-snow i {
+    animation: sms-fall-near 34s linear infinite, sms-sway 9s ease-in-out infinite alternate;
+  }
+
+  .sms-snow i + i {
+    animation: sms-fall-far 44s linear infinite, sms-sway 13s ease-in-out -4s infinite alternate;
+  }
+
+  .sms-lamp-halo {
+    animation: sms-breathe 6s ease-in-out infinite alternate;
+  }
+
+  [data-swell] .sms-lamp-swell {
+    animation: sms-swell 2600ms ease-in-out both;
+  }
+
+  [data-paused] :is(.sms-window, .sms-smoke i, .sms-snow i, .sms-lamp-halo) {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes sms-flicker {
+  0%, 100% { opacity: 0.97; }
+  13% { opacity: 0.9; }
+  21% { opacity: 1; }
+  38% { opacity: 0.86; }
+  52% { opacity: 0.96; }
+  67% { opacity: 0.89; }
+  81% { opacity: 1; }
+}
+
+@keyframes sms-smoke {
+  0% { opacity: 0; transform: translateY(0) scale(0.6); }
+  15% { opacity: 0.55; }
+  60% { opacity: 0.3; }
+  100% { opacity: 0; transform: translate(35%, -300%) scale(2.2); }
+}
+
+@keyframes sms-fall-near {
+  to { transform: translateY(420px); }
+}
+
+@keyframes sms-fall-far {
+  to { transform: translateY(260px); }
+}
+
+@keyframes sms-sway {
+  from { translate: -10px 0; }
+  to { translate: 10px 0; }
+}
+
+@keyframes sms-breathe {
+  from { opacity: 0.72; scale: 0.94; }
+  to { opacity: 1; scale: 1.04; }
+}
+
+@keyframes sms-swell {
+  0% { opacity: 0; scale: 0.8; }
+  40% { opacity: 1; scale: 1.15; }
+  100% { opacity: 0; scale: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sms-landing *,
   .sms-landing *::before,
@@ -1555,6 +1872,16 @@
 
   .sms-btn:active {
     scale: none;
+  }
+
+  .sms-snow,
+  .sms-smoke {
+    display: none;
+  }
+
+  .sms-landing :is(.sms-harbour-glow, .sms-harbour-core) {
+    opacity: 1;
+    scale: 1;
   }
 }
 
@@ -1599,8 +1926,8 @@
     inset-block-end: auto;
   }
 
-  .sms-hero-art img {
-    object-position: 30% 100%;
+  .sms-hero-art .sms-stage {
+    --fx: 0.3;
   }
 
   .sms-hero h1 {
@@ -1640,12 +1967,16 @@
     aspect-ratio: 4 / 3;
   }
 
-  .sms-switch-art {
-    --sms-lamp-x: 79.2%;
+  .sms-switch-art .sms-stage {
+    --fx: 0.62;
+    --fy: 0.7;
   }
 
-  .sms-switch-art img {
-    object-position: 62% 70%;
+  /* Phones: the junction runs edge to edge and only dissolves at its top
+     and foot. */
+  .sms-switch-art {
+    margin-inline: calc(-1 * var(--sms-gutter));
+    mask-image: linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
   }
 
   .sms-matrix th,
@@ -1696,16 +2027,17 @@
   }
 
 
-  .sms-ledger li.sms-ledger-hold {
-    padding-inline-start: 0.875rem;
+  .sms-ledger li.sms-ledger-hold::before {
+    inset-inline-start: -0.75rem;
   }
 
   .sms-closing {
     min-block-size: 34rem;
   }
 
-  .sms-closing-art img {
-    object-position: 64% 80%;
+  .sms-closing-art .sms-stage {
+    --fx: 0.64;
+    --fy: 0.8;
   }
 
   .sms-closing-copy {

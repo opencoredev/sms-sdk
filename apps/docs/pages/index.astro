@@ -274,13 +274,6 @@ const art = (name: string) => ({
           {navLinks.map((link) => <a href={link.href}>{link.label}</a>)}
         </nav>
         <div class="sms-nav-actions">
-          {
-            config.search.enabled && (
-              <button type="button" class="sms-icon-btn" data-sms-search aria-label="Search the docs" title="Search (Ctrl K)">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-              </button>
-            )
-          }
           <a class="sms-icon-btn sms-hide-sm" href={repoUrl} aria-label="SMS SDK on GitHub">
             <svg viewBox="0 0 16 16" class="sms-mark" aria-hidden="true" set:html={githubMark} />
           </a>
@@ -314,8 +307,15 @@ const art = (name: string) => ({
     </header>
 
     <section class="sms-hero" aria-labelledby="hero-title">
-      <div class="sms-hero-art sms-art" aria-hidden="true">
-        <img {...art("winter-valley")} sizes="100vw" width="1264" height="848" alt="" fetchpriority="high" />
+      <div class="sms-hero-art sms-art" aria-hidden="true" data-sms-motion>
+        <div class="sms-stage">
+          <img {...art("winter-valley")} sizes="100vw" width="1264" height="848" alt="" fetchpriority="high" />
+          <span class="sms-glow sms-window" style="--x: 86.05%; --y: 78.9%; --s: 1.5%; --d: 7.3s; --o: -2.1s"></span>
+          <span class="sms-glow sms-window" style="--x: 81.65%; --y: 78.85%; --s: 1.2%; --d: 9.7s; --o: -5.4s"></span>
+          <span class="sms-smoke" style="--x: 86.4%; --y: 76.7%; --s: 0.55%"><i></i><i></i><i></i></span>
+          <span class="sms-smoke" style="--x: 82.5%; --y: 76.7%; --s: 0.45%; --t: 1.15"><i></i><i></i><i></i></span>
+        </div>
+        <div class="sms-snow"><i></i><i></i></div>
       </div>
       <div class="sms-hero-copy">
         <h1 id="hero-title">One send call across SMS&nbsp;providers</h1>
@@ -338,7 +338,8 @@ const art = (name: string) => ({
     </section>
 
     <section class="sms-wrap sms-promise sms-switch" aria-labelledby="switch-title">
-      <figure class="sms-switch-art sms-art">
+      <figure class="sms-switch-art sms-art" data-sms-motion>
+        <div class="sms-stage">
         <img
           {...art("winter-junction")}
           sizes="(min-width: 64rem) 32rem, 100vw"
@@ -347,8 +348,12 @@ const art = (name: string) => ({
           alt="An oil painting of a snowy railway junction at first light: a switch lever beside the rails, a lamp on a post, and a signal cabin."
           loading="lazy"
         />
+        <span class="sms-glow sms-lamp-halo" style="--x: 77.4%; --y: 43.1%; --s: 15%"></span>
+        <span class="sms-glow sms-lamp-core" style="--x: 77.4%; --y: 43.1%; --s: 4.5%"></span>
+        <span class="sms-glow sms-lamp-swell" style="--x: 77.4%; --y: 43.1%; --s: 12%"></span>
+        </div>
       </figure>
-      <div class="sms-switch-body">
+      <div class="sms-switch-body" data-sms-swell-trigger>
         <h2 id="switch-title">Change providers without touching your&nbsp;app</h2>
         <p class="sms-section-lede">
           Swap the adapter and every <code>sms.send()</code> call stays the same. Your number, its
@@ -422,7 +427,8 @@ const art = (name: string) => ({
           known rejection. When the SDK can't tell whether a message went out, it stops and tells you.
         </p>
         <p class="sms-more"><a class="sms-link" href="/sending/retries-and-fallback">Retries and fallback</a></p>
-        <figure class="sms-outcomes-art sms-art">
+        <figure class="sms-outcomes-art sms-art" data-sms-motion data-sms-lamp>
+          <div class="sms-stage">
           <img
             {...art("winter-harbour")}
             sizes="(min-width: 64rem) 24rem, 100vw"
@@ -431,12 +437,16 @@ const art = (name: string) => ({
             alt="An oil painting of a stone signal house with a lit lantern beside a snowy pier on a frozen harbour."
             loading="lazy"
           />
+          <span class="sms-glow sms-harbour-glow" style="--x: 70.85%; --y: 68.9%; --s: 9%"></span>
+          <span class="sms-glow sms-harbour-core" style="--x: 70.85%; --y: 68.9%; --s: 2.6%"></span>
+          <span class="sms-glow sms-harbour-glow" style="--x: 67%; --y: 70.7%; --s: 3.5%; --delay: 500ms"></span>
+          </div>
         </figure>
       </div>
       <ol class="sms-ledger" aria-label="What happens after a send">
         {
           outcomes.map((outcome) => (
-            <li class:list={[{ "sms-ledger-hold": outcome.tone === "hold" }]}>
+            <li class:list={[{ "sms-ledger-hold": outcome.tone === "hold" }]} data-sms-lamp-trigger={outcome.tone === "hold" ? "" : undefined}>
               <p class="sms-ledger-meta">
                 <span class="sms-outcome">
                   <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -483,12 +493,12 @@ const art = (name: string) => ({
                 }
               </div>
             </div>
-            <textarea id="sms-counter-body" rows="3" maxlength="640" spellcheck="false" data-sms-input>{initialBody}</textarea>
+            <textarea id="sms-counter-body" rows="3" maxlength="640" spellcheck="false" placeholder="Type a message" data-sms-input>{initialBody}</textarea>
             <div class="sms-track" aria-hidden="true" data-sms-track>
               {
                 initialCells.map((fill) => (
                   <span class="sms-track-cell">
-                    <span class="sms-track-fill" style={`inline-size: ${(fill * 100).toFixed(1)}%`} />
+                    <span class="sms-track-fill" style={`transform: scaleX(${fill.toFixed(3)})`} />
                   </span>
                 ))
               }
@@ -520,8 +530,18 @@ const art = (name: string) => ({
     </section>
 
     <section class="sms-closing" aria-labelledby="closing-title">
-      <div class="sms-closing-art sms-art" aria-hidden="true">
-        <img {...art("winter-post-office-dusk")} sizes="100vw" width="1264" height="843" alt="" loading="lazy" />
+      <div class="sms-closing-art sms-art" aria-hidden="true" data-sms-motion>
+        <div class="sms-stage">
+          <img {...art("winter-post-office-dusk")} sizes="100vw" width="1264" height="843" alt="" loading="lazy" />
+          <span class="sms-grain"></span>
+          <span class="sms-glow sms-window" style="--x: 53.8%; --y: 56%; --s: 4.6%; --d: 6.1s; --o: -1.3s"></span>
+          <span class="sms-glow sms-window" style="--x: 64.3%; --y: 55.3%; --s: 3.4%; --d: 5.2s; --o: -3.7s"></span>
+          <span class="sms-glow sms-window" style="--x: 70.1%; --y: 56.7%; --s: 4.6%; --d: 8.9s; --o: -6.2s"></span>
+          <span class="sms-glow sms-window" style="--x: 74.3%; --y: 56.6%; --s: 4.6%; --d: 10.7s; --o: -2.8s"></span>
+          <span class="sms-smoke" style="--x: 72.5%; --y: 37.8%; --s: 1.7%"><i></i><i></i><i></i></span>
+          <span class="sms-smoke" style="--x: 31.2%; --y: 51.8%; --s: 1%; --t: 1.2"><i></i><i></i><i></i></span>
+        </div>
+        <div class="sms-snow"><i></i><i></i></div>
       </div>
       <div class="sms-closing-copy">
         <h2 id="closing-title">Send your first message</h2>
@@ -603,13 +623,6 @@ const art = (name: string) => ({
       return;
     }
 
-    // The custom header opens Blume's own search dialog, which lives in the
-    // hidden stock header so ⌘K and the index keep working.
-    if (target?.closest("[data-sms-search]")) {
-      document.querySelector<HTMLButtonElement>("[data-blume-header] [data-blume-search-open]")?.click();
-      return;
-    }
-
     const menuButton = target?.closest<HTMLButtonElement>("[data-sms-menu]");
     if (menuButton) {
       const menu = document.getElementById("sms-menu");
@@ -637,7 +650,7 @@ const art = (name: string) => ({
         const fill = document.createElement("span");
         fill.className = "sms-track-fill";
         const used = (estimate.units - index * estimate.unitsPerSegment) / estimate.unitsPerSegment;
-        fill.style.inlineSize = `${(Math.min(1, Math.max(0, used)) * 100).toFixed(1)}%`;
+        fill.style.transform = `scaleX(${Math.min(1, Math.max(0, used)).toFixed(3)})`;
         cell.append(fill);
         return cell;
       }),
@@ -689,10 +702,41 @@ const art = (name: string) => ({
     heroCtaObserver.observe(heroCta);
   };
 
+  // The painted motion layer: plates pause their loops while off screen, the
+  // junction lamp swells once when the diff arrives, and the harbour lantern
+  // lights when the unknown outcome comes into view.
+  let motionObservers: IntersectionObserver[] = [];
+  const watchMotion = () => {
+    for (const observer of motionObservers) observer.disconnect();
+    const pause = new IntersectionObserver((entries) => {
+      for (const entry of entries) entry.target.toggleAttribute("data-paused", !entry.isIntersecting);
+    });
+    document.querySelectorAll("[data-sms-motion]").forEach((plate) => pause.observe(plate));
+    const once = (trigger: string, plate: string, attribute: string, threshold: number) => {
+      const target = document.querySelector(plate);
+      const source = document.querySelector(trigger);
+      if (!target || !source) return undefined;
+      const observer = new IntersectionObserver(([entry]) => {
+        if (!entry?.isIntersecting) return;
+        target.setAttribute(attribute, "");
+        observer.disconnect();
+      }, { threshold });
+      observer.observe(source);
+      return observer;
+    };
+    motionObservers = [
+      pause,
+      once("[data-sms-swell-trigger]", ".sms-switch-art", "data-swell", 0.35),
+      once("[data-sms-lamp-trigger]", "[data-sms-lamp]", "data-lit", 0.6),
+    ].filter((observer) => observer !== undefined);
+  };
+
   document.addEventListener("astro:page-load", () => {
     syncNav();
     watchHeroCta();
+    watchMotion();
   });
   syncNav();
   watchHeroCta();
+  watchMotion();
 </script>
