@@ -559,17 +559,24 @@
   z-index: 1;
 }
 
-/* Dark: moonlight on the snow. A soft-light layer over the lower half lifts
-   the snow's highlights back toward white without lifting the shadows, so
-   the field reads as snow at night rather than a day painting under a blue
-   filter. */
-:root[data-theme="dark"] .sms-hero-art .sms-stage::after {
-  background: linear-gradient(to bottom, transparent 58%, oklch(0.93 0.03 250 / 0.75) 82%, oklch(0.93 0.03 250 / 0.6) 100%);
-  content: "";
-  inset: 0;
-  mix-blend-mode: soft-light;
-  pointer-events: none;
-  position: absolute;
+/* Dark: the same valley painted at night (same composition, so the window
+   and smoke overlays still sit on their houses) in place of the day plate
+   under the shared night wash. The night plate is lazy, so light-theme
+   visitors never fetch it while it is display: none. */
+.sms-hero-art .sms-night,
+:root[data-theme="dark"] .sms-hero-art .sms-day {
+  display: none;
+}
+
+:root[data-theme="dark"] .sms-hero-art.sms-art img.sms-night {
+  display: block;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="dark"] .sms-hero-art.sms-art,
+:root[data-theme="dark"] .sms-hero-art.sms-art .sms-stage {
+  background-color: transparent;
 }
 
 :root[data-theme="dark"] .sms-hero-art.sms-art::after {
@@ -825,20 +832,52 @@
    into the page ground, so the diff sits on the same snow. */
 .sms-switch-art {
   aspect-ratio: 4 / 5;
-  mask-image:
-    linear-gradient(to right, #000 calc(100% - var(--sms-fade-x)), transparent),
-    linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
   mask-composite: intersect;
+  mask-image: var(--sms-fade-right), var(--sms-fade-ends);
 }
 
+/* The dissolves ease out (smoothstep stops) rather than fade linearly, so
+   no band or corner reads where the paint meets the ground. */
 .sms-art.sms-switch-art,
 .sms-art.sms-outcomes-art {
-  --sms-fade-x: 38%;
-  --sms-fade-y: 18%;
+  --sms-fade-x: 30%;
+  --sms-fade-y: 16%;
+  --sms-fade-right: linear-gradient(
+    to right,
+    #000 calc(100% - var(--sms-fade-x)),
+    rgb(0 0 0 / 0.94) calc(100% - var(--sms-fade-x) * 0.85),
+    rgb(0 0 0 / 0.78) calc(100% - var(--sms-fade-x) * 0.7),
+    rgb(0 0 0 / 0.57) calc(100% - var(--sms-fade-x) * 0.55),
+    rgb(0 0 0 / 0.35) calc(100% - var(--sms-fade-x) * 0.4),
+    rgb(0 0 0 / 0.16) calc(100% - var(--sms-fade-x) * 0.25),
+    rgb(0 0 0 / 0.03) calc(100% - var(--sms-fade-x) * 0.1),
+    transparent
+  );
+  --sms-fade-ends: linear-gradient(
+    to bottom,
+    transparent,
+    rgb(0 0 0 / 0.03) calc(var(--sms-fade-y) * 0.1),
+    rgb(0 0 0 / 0.16) calc(var(--sms-fade-y) * 0.25),
+    rgb(0 0 0 / 0.35) calc(var(--sms-fade-y) * 0.4),
+    rgb(0 0 0 / 0.57) calc(var(--sms-fade-y) * 0.55),
+    rgb(0 0 0 / 0.78) calc(var(--sms-fade-y) * 0.7),
+    rgb(0 0 0 / 0.94) calc(var(--sms-fade-y) * 0.85),
+    #000 var(--sms-fade-y),
+    #000 calc(100% - var(--sms-fade-y)),
+    rgb(0 0 0 / 0.94) calc(100% - var(--sms-fade-y) * 0.85),
+    rgb(0 0 0 / 0.78) calc(100% - var(--sms-fade-y) * 0.7),
+    rgb(0 0 0 / 0.57) calc(100% - var(--sms-fade-y) * 0.55),
+    rgb(0 0 0 / 0.35) calc(100% - var(--sms-fade-y) * 0.4),
+    rgb(0 0 0 / 0.16) calc(100% - var(--sms-fade-y) * 0.25),
+    rgb(0 0 0 / 0.03) calc(100% - var(--sms-fade-y) * 0.1),
+    transparent
+  );
 }
 
+/* The lever on the left edge, the lamp a quarter in from the right, clear
+   of the dissolve. */
 .sms-switch-art .sms-stage {
-  --fx: 0.66;
+  --fx: 0.79;
 }
 
 /* The ::after vignette is the dark-mode multiply wash's edge; the masks
@@ -865,9 +904,6 @@
   /* From the column's right edge to the viewport's left edge. */
   .sms-switch-art {
     margin-inline-start: calc(-1 * max(var(--sms-gutter), (100vw - var(--sms-wrap)) / 2));
-    mask-image:
-      linear-gradient(to right, #000 calc(100% - var(--sms-fade-x)), transparent),
-      linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
   }
 }
 
@@ -1035,12 +1071,11 @@
   }
 
   .sms-outcomes-art {
+    --sms-fade-y: 24%;
     aspect-ratio: auto;
     margin-inline-start: calc(-1 * max(var(--sms-gutter), (100vw - var(--sms-wrap)) / 2));
-    mask-image:
-      linear-gradient(to right, #000 calc(100% - var(--sms-fade-x)), transparent),
-      linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
     mask-composite: intersect;
+    mask-image: var(--sms-fade-right), var(--sms-fade-ends);
   }
 }
 
@@ -1171,12 +1206,16 @@
     max-inline-size: none;
   }
 
-  .sms-local-head h2 {
-    grid-row: span 2;
+  /* The link sits under the heading, so the heading side is as tall as
+     the lede and no empty quadrant opens above the sample. */
+  .sms-local-head > .sms-section-lede {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 
-  .sms-local-head > p {
-    grid-column: 2;
+  .sms-local-head > .sms-more {
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .sms-local-grid {
@@ -1976,7 +2015,7 @@
      and foot. */
   .sms-switch-art {
     margin-inline: calc(-1 * var(--sms-gutter));
-    mask-image: linear-gradient(to bottom, transparent, #000 var(--sms-fade-y), #000 calc(100% - var(--sms-fade-y)), transparent);
+    mask-image: var(--sms-fade-ends);
   }
 
   .sms-matrix th,

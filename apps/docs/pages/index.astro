@@ -309,7 +309,8 @@ const art = (name: string) => ({
     <section class="sms-hero" aria-labelledby="hero-title">
       <div class="sms-hero-art sms-art" aria-hidden="true" data-sms-motion>
         <div class="sms-stage">
-          <img {...art("winter-valley")} sizes="100vw" width="1264" height="848" alt="" fetchpriority="high" />
+          <img class="sms-day" {...art("winter-valley")} sizes="100vw" width="1264" height="848" alt="" fetchpriority="high" />
+          <img class="sms-night" {...art("winter-valley-night")} sizes="100vw" width="1264" height="848" alt="" loading="lazy" />
           <span class="sms-glow sms-window" style="--x: 86.05%; --y: 78.9%; --s: 1.5%; --d: 7.3s; --o: -2.1s"></span>
           <span class="sms-glow sms-window" style="--x: 81.65%; --y: 78.85%; --s: 1.2%; --d: 9.7s; --o: -5.4s"></span>
           <span class="sms-smoke" style="--x: 86.4%; --y: 76.7%; --s: 0.55%"><i></i><i></i><i></i></span>

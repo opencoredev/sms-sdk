@@ -35,7 +35,7 @@ export const landingCodeThemes: CodeThemes = {
     ink: "#1d2738",
     string: "#36578a",
     keyword: "#94512e",
-    muted: "#6a7385",
+    muted: "#606979",
     comment: "#6d7686",
   }),
   dark: theme("sms-landing-dark", "dark", {
