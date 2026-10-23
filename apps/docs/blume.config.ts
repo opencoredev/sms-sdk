@@ -1,6 +1,8 @@
 import { defineConfig } from "blume";
 import { vercel } from "blume/deploy";
 
+import { ogVideo } from "./og-video";
+
 // Code colors from the landing page's highlighter (pages/index.astro), with a
 // light counterpart. Every token color meets 4.5:1 on its code background.
 import smsDark from "./themes/sms-dark";
@@ -156,4 +158,7 @@ export default defineConfig({
 
   // No analytics adapter is configured, so a rating would go nowhere.
   feedback: false,
+
+  // Adds og:video to the homepage's link preview (see og-video.ts).
+  integrations: [ogVideo()],
 });
