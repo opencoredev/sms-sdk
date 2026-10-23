@@ -1,4 +1,4 @@
-import type { MiddlewareHandler } from "astro";
+import type { APIContext, MiddlewareHandler, MiddlewareNext } from "astro";
 
 // The approved loop lives at public/og/og-video.mp4, rendered at twice the
 // 1200×630 card size.
@@ -18,12 +18,20 @@ export const ogVideoTags = (videoUrl: string): string =>
     .map(([property, content]) => `<meta content="${content}" property="${property}">`)
     .join("");
 
+/** `html` with the `og:video` tags for the video on `site` closing its head. */
+export const injectOgVideoTags = ({ html, site }: { html: string; site: URL }): string =>
+  html.replace("</head>", `${ogVideoTags(new URL(VIDEO_PATH, site).href)}</head>`);
+
 /**
  * Adds the `og:video` tags to the homepage's HTML. The URL is built from the
  * configured site, so it follows the production domain. Every other route,
- * and any non-HTML answer for `/` (such as its Markdown twin), passes through.
+ * any non-HTML answer for `/` (such as its Markdown twin), and every answer
+ * when no site is configured pass through.
  */
-export const onRequest: MiddlewareHandler = async (context, next) => {
+export const onRequest = (async (
+  context: Pick<APIContext, "site" | "url">,
+  next: MiddlewareNext,
+) => {
   const response = await next();
   const isHomeHtml =
     context.url.pathname === "/" &&
@@ -32,10 +40,9 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     return response;
   }
   const html = await response.text();
-  const tags = ogVideoTags(new URL(VIDEO_PATH, context.site).href);
-  return new Response(html.replace("</head>", `${tags}</head>`), {
+  return new Response(injectOgVideoTags({ html, site: context.site }), {
     headers: response.headers,
     status: response.status,
     statusText: response.statusText,
   });
-};
+}) satisfies MiddlewareHandler;

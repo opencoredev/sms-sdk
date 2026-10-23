@@ -9,6 +9,7 @@
     "preview": "blume preview",
     "check": "blume check",
     "doctor": "blume doctor",
+    "test": "bun test",
     "check:snippets": "bun scripts/check-snippets.ts"
   },
   "dependencies": {
