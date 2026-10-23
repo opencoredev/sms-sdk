@@ -7,6 +7,8 @@
 import PageLayout from "blume/components/layout/PageLayout.astro";
 import data from "blume:data";
 
+import { otherOpenCoreSites } from "../opencore-sites";
+
 const { config } = data;
 const repoUrl = "https://github.com/opencoredev/sms-sdk";
 const npmUrl = "https://www.npmjs.com/package/@opencoredev/sms-sdk";
@@ -120,6 +122,9 @@ const features = [
   { href: "/sending/idempotency", title: "Idempotency", body: "Pass an idempotencyKey and a store, and a retried job returns the first result instead of texting twice." },
   { href: "/reference/testing", title: "Testing", body: "An in-memory adapter, so tests never send a real text." },
 ];
+
+// Plain followed links on purpose: they share authority between our sites.
+const openCoreSites = otherOpenCoreSites("https://www.sms-sdk.com");
 
 const footerColumns = [
   {
@@ -304,6 +309,16 @@ const footerColumns = [
           </div>
         ))}
       </div>
+      <nav class="footer-family" aria-labelledby="footer-family-title">
+        <b id="footer-family-title">More from OpenCore</b>
+        <ul>
+          {openCoreSites.map((site) => (
+            <li>
+              <a href={site.url}><span>{site.name}</span> {site.description}</a>
+            </li>
+          ))}
+        </ul>
+      </nav>
       <div class="footer-bottom">
         <span>© 2026 OpenCore</span>
         <span>Built by <a class="u" href="https://leodev.cv">Leo</a></span>
@@ -976,6 +991,35 @@ const footerColumns = [
   .footer-col a:hover {
     color: var(--text) !important;
   }
+  .footer-family {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 0 56px;
+    font-size: 14px;
+  }
+  .footer-family b {
+    font-weight: 400;
+    color: var(--dim);
+  }
+  .footer-family ul {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .footer-family a {
+    color: var(--muted) !important;
+    transition: color 0.15s;
+  }
+  .footer-family a span {
+    color: var(--text);
+  }
+  .footer-family a:hover {
+    color: var(--text) !important;
+  }
   .footer-bottom {
     display: flex;
     justify-content: space-between;
@@ -1067,6 +1111,18 @@ const footerColumns = [
     }
     .footer-brand {
       grid-column: 1 / -1;
+    }
+    .footer-family {
+      padding-bottom: 48px;
+    }
+    .footer-family ul {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 20px;
+    }
+  }
+  @media (max-width: 640px) {
+    .footer-family ul {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   @media (prefers-reduced-motion: reduce) {
