@@ -341,7 +341,7 @@ Set `PLIVO_CALLBACK_URL` to this route's public URL, exactly as Plivo will call 
 These tests send nothing and need no Plivo account. They replace `fetch` with canned Plivo responses and sign callback fixtures with a test Auth Token, so the real V2 check runs:
 
 ```ts plivo-sms.test.ts
-import { expect, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { createSmsClient, ProviderRejectedError } from "@opencoredev/sms-sdk";
 import { plivo } from "@opencoredev/sms-sdk/plivo";
 import { memory, mockFetch, signedPlivoRequest } from "@opencoredev/sms-sdk/testing";
@@ -355,6 +355,8 @@ Object.assign(process.env, {
   PLIVO_FROM: "+15550100001",
   PLIVO_CALLBACK_URL: url,
 });
+// `server-only` throws outside a Next.js server build, so stub it before loading the module.
+mock.module("server-only", () => ({}));
 const { handlePlivoWebhook, sendSms } = await import("./plivo-sms");
 
 function fakeFetch(...replies: Response[]) {

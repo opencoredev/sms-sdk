@@ -331,7 +331,7 @@ Set this route's public HTTPS URL as the webhook URL on your messaging profile, 
 These tests send nothing and need no Telnyx account. They replace `fetch` with canned Telnyx and Twilio responses, in order, and sign webhook fixtures with a key pair made for the test, so the real Ed25519 check runs:
 
 ```ts telnyx-sms.test.ts
-import { expect, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { generateTelnyxKeyPair, signedTelnyxRequest } from "@opencoredev/sms-sdk/testing";
 import { db } from "./db";
 
@@ -344,6 +344,8 @@ Object.assign(process.env, {
   TWILIO_AUTH_TOKEN: "test",
   TWILIO_FROM: "+15550100002",
 });
+// `server-only` throws outside a Next.js server build, so stub it before loading the module.
+mock.module("server-only", () => ({}));
 const { handleTelnyxWebhook, sendSms } = await import("./telnyx-sms");
 
 function fakeFetch(...replies: Response[]) {
