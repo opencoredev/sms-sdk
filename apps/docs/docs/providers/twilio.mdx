@@ -74,11 +74,14 @@ const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accou
   }),
 });
 
-const body: unknown = await response.json();
-console.log(response.status, JSON.stringify(body, null, 2));
+const message: unknown = await response.json();
+const field = (name: string): unknown =>
+  typeof message === "object" && message !== null && name in message ? Reflect.get(message, name) : undefined;
+// Log IDs and status only: the resource also holds the message text and phone numbers.
+console.log(response.status, field("sid"), field("status"), field("code"));
 ```
 
-With an API key, the Basic auth user is the key SID and the password is its secret. With the Auth Token, they are the Account SID and the token. A successful send prints `201` and the new Message resource. This copy is shortened, with example SIDs:
+With an API key, the Basic auth user is the key SID and the password is its secret. With the Auth Token, they are the Account SID and the token. A successful send prints `201`, the message SID, and its status, such as `201 SM0123… accepted undefined`. The response body is the new Message resource. This copy is shortened, with example SIDs:
 
 ```json
 {
@@ -349,8 +352,6 @@ export async function handleTwilioWebhook(request: Request): Promise<Response> {
         await tx.suppressions.add(event.from);
         break;
       case "recipient.opted_in":
-        await tx.suppressions.remove(event.from);
-        break;
       case "recipient.help":
       case "message.received":
         await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
@@ -379,6 +380,8 @@ A retry with the same idempotency key returns the stored result of an accepted s
 By Twilio's [connection override defaults](https://www.twilio.com/docs/usage/webhooks/webhooks-connection-overrides), a webhook is retried once, and only when Twilio can't connect; a 500 from your handler isn't retried. To get retries after a failed write, add overrides such as `#rc=3&rp=5xx` to the URL you configure in Twilio, and keep `TWILIO_WEBHOOK_URL` without the fragment. Otherwise, reconcile missed statuses by fetching the message.
 
 Opt-outs arrive as `recipient.opted_out` with `source: "provider"` when Advanced Opt-Out is on for the Messaging Service, and Twilio's `OptOutType` then also reports START and HELP. Without it, SMS SDK matches STOP and HELP keywords in the text (`source: "keyword"`), and a START reply arrives as an ordinary `message.received`. The `switch` handles every event type, so TypeScript flags any new one.
+
+A START reply goes to the inbox and doesn't clear the suppression on its own. Inbound webhooks carry no timestamp, and two replies sent close together can be handled in either order, so a late START could undo a newer STOP. Clear the suppression from your own code once you've confirmed that START is the number's latest reply, for example by checking its most recent inbound message in Twilio.
 
 The routes below import this module as `@/twilio-sms`, so save it, `db.ts`, and `auth.ts` at your project root, which is where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the secrets can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`. If you configure Telnyx, its webhooks need their own route; see [Telnyx](/providers/telnyx#3-receive-webhooks-in-nextjs).
 
