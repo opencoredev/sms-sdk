@@ -3,7 +3,7 @@
 // way TanStack checks its doc snippets.
 //
 // Each ```ts or ```typescript block becomes its own module in a temp folder
-// next to the stub modules in scripts/snippet-stubs (`./db`, `./sms`), and the
+// next to the stub modules in scripts/snippet-stubs (`./db` or `@/db`, `./sms`), and the
 // whole folder is checked with `tsc`. `@opencoredev/sms-sdk` and its subpaths
 // resolve to ../../packages/sms-sdk/src through `paths`.
 //
@@ -141,9 +141,11 @@ async function main(): Promise<void> {
       noEmit: true,
       skipLibCheck: true,
       baseUrl: work,
-      paths: Object.fromEntries(
-        Object.entries(SUBPATHS).map(([specifier, target]) => [specifier, [join(sdkSource, target)]]),
-      ),
+      paths: {
+        ...Object.fromEntries(Object.entries(SUBPATHS).map(([specifier, target]) => [specifier, [join(sdkSource, target)]])),
+        // The Next.js default alias, so snippets can import "@/db" like an app would.
+        "@/*": [join(work, "*")],
+      },
     };
 
     const program = ts.createProgram(roots, options);
