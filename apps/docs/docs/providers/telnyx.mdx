@@ -132,7 +132,7 @@ The function rejects requests without both headers, requests older than five min
 | What you see | Cause | Fix |
 | --- | --- | --- |
 | 401, error 10009 | Missing or wrong API key, or an API v1 profile secret | Send an API v2 key as `Authorization: Bearer <key>`. |
-| 400, error 40305 | The `from` number is not messaging-enabled | Assign the number to a messaging profile. |
+| 400, error 40305 | Telnyx can't use the `from` address: an invalid number or sender ID, or one not set up for messaging | Check that `from` is a number or sender ID on your account, enabled for messaging and assigned to a messaging profile. |
 | 400, error 40310 | The `to` number is not valid | Send E.164, such as `+14155550123`. |
 | 400, error 40300 | The recipient replied STOP | Don't send to them until they reply START. |
 | `200`, but the text never arrives | Acceptance is not delivery | Read `message.finalized` and its `errors`. Check 10DLC or toll-free registration. |
@@ -249,6 +249,8 @@ export async function handleTelnyxWebhook(request: Request): Promise<Response> {
         break;
       case "message.received":
         await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
+        // A START reply arrives as message.received, not recipient.opted_in, so lift the suppression here.
+        if (event.body.trim().toUpperCase() === "START") await tx.suppressions.remove(event.from);
         break;
     }
   });
@@ -256,9 +258,9 @@ export async function handleTelnyxWebhook(request: Request): Promise<Response> {
 }
 ```
 
-`sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, either because the recipient opted out (checked by `beforeSend` before any request) or because the providers refused it. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key replays the stored outcome instead of sending again, but `memoryIdempotencyStore()` forgets outcomes when the process restarts. Before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Telnyx rejection that belongs to your Telnyx account, such as bad credentials or an unusable sender; see [Fallback and retries](/sending/fallback-and-retries).
+`sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, either because the recipient opted out (checked by `beforeSend` before any request) or because the providers refused it. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key returns the stored result when the first send was accepted, and throws `HandoffUnknownError` again when its outcome was unknown, so neither case texts twice. After a rejection, the same key and payload may send again. `memoryIdempotencyStore()` forgets all of this when the process restarts. Before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Telnyx rejection that belongs to your Telnyx account, such as bad credentials or an unusable sender; see [Fallback and retries](/sending/fallback-and-retries).
 
-`handleTelnyxWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, and records status, opt-out, and inbound events. `dedupeKey` is the Telnyx event ID, so insert it with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes it guards. If a write fails, the key rolls back with it, the handler answers 500, and Telnyx's retry gets processed. Events can arrive out of order, and a status event can arrive before `saveSent` runs. So `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
+`handleTelnyxWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, records status, opt-out, and inbound events, and lifts the suppression when someone who opted out replies START. `dedupeKey` is the Telnyx event ID, so insert it with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes it guards. If a write fails, the key rolls back with it, the handler answers 500, and Telnyx's retry gets processed. Events can arrive out of order, and a status event can arrive before `saveSent` runs. So `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
 
 The routes below import this module as `@/telnyx-sms`, so save it, `db.ts`, and `auth.ts` at your project root, which is where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the API key can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`. If you configure Twilio, its status callbacks need their own route; see [Twilio](/providers/twilio#webhooks).
 
