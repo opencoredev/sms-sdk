@@ -1,33 +1,442 @@
 ---
-title: "Plivo"
-description: "Send and receive SMS and MMS through the Plivo Message API with the SMS SDK plivo() adapter: setup, senders, webhooks, errors, and partial-support limits."
+title: "Plivo SMS API with TypeScript: first send and verified delivery callbacks"
+description: "Send SMS through the Plivo Message API from TypeScript, verify V2-signed delivery callbacks against the exact public URL, and test offline, using fetch or SMS SDK."
+sidebar:
+  label: "Plivo"
+search:
+  keywords: ["plivo sms api", "plivo message api", "plivo signature v2", "plivo callback", "plivo typescript", "plivo next.js"]
 ---
 
-The `plivo()` adapter sends SMS and MMS through the Plivo Message API and verifies Plivo's V2-signed message callbacks. To compare providers, see [Choose a provider](/providers/overview).
+This guide takes a TypeScript server from a Plivo Auth ID and Auth Token to a verified delivery callback. You send one SMS with the raw Plivo Message API, verify a signed callback by hand, then build the same thing with the SMS SDK `plivo()` adapter: a protected send route, an opt-out check, a Next.js callback route that drops duplicates and replays, and tests that run offline. The second half of the page is the adapter reference. To compare providers first, see [Choose a provider](/providers/overview).
 
 ## Support status
 
-**Partial.** The adapter works and passes the shared contract tests. Gaps in Plivo's documentation limit it, and one feature is missing:
+**Partial.** The adapter works and passes the shared contract tests, but Plivo documents less than the other providers, so SMS SDK knows less about why a send failed:
 
-- Plivo does not document its API error body. SMS SDK can only recognize a 401 (`auth`) and a 429 that carries Plivo's `api_id` (`rate_limited`). Every other 4xx is a `request` rejection that never falls back, even when the real cause is a sender or account problem another provider could avoid.
-- Plivo's message callback signature covers the URL and a nonce, but neither the body nor a timestamp. A captured callback can be replayed, or its body changed, and still pass verification. Plivo's V3 scheme, which signs parameters, is documented for Voice only.
-- No scheduling.
+- **Unknown and unmapped failures never fall back.** Plivo does not document its API error body. SMS SDK recognizes a 401 (`auth`) and a 429 that carries Plivo's `api_id` (`rate_limited`), and only those move on to a fallback provider. Every other 4xx is a `request` rejection that stops the send, even when the real cause is a sender or account problem another provider could avoid. A 5xx, timeout, or network error is an unknown outcome and is never resent or passed to another provider.
+- **No scheduling.** `sendAt` throws `UnsupportedFieldError` before any request. Use Telnyx, or Twilio with a Messaging Service.
+- **Callbacks are signed weakly.** Plivo's V2 signature covers the URL and a nonce, but neither the body nor a timestamp. A captured callback can be replayed, or its body changed, and still pass verification. Plivo's V3 scheme, which signs parameters, is documented for Voice only, so SMS SDK verifies V2.
 
-The same notes are in `adapter.support.notes` at runtime.
+The same notes are in `adapter.support.notes` at runtime. The guide below works within these limits: it checks opt-outs before sending, treats unknown outcomes as "reconcile, don't resend", and blocks replayed callbacks.
 
-## Setup
+## Before you start
 
-```package-install
-npm install @opencoredev/sms-sdk
-```
+You need three things from Plivo, and one from your recipients:
+
+1. **Auth ID and Auth Token.** Copy them from the Plivo console. The Auth ID is the Basic auth username and part of every API path; the Auth Token is the password and also the key that signs callbacks. A subaccount has its own pair.
+2. **A sender.** Buy a Plivo number with SMS, or use a short code, an alphanumeric sender ID where the destination country allows it, or a Powerpack (a number pool). In the US, long codes need 10DLC registration and toll-free numbers need verification before they can text mobile numbers. Short codes need carrier approval, which takes 8 to 12 weeks.
+3. **A public HTTPS URL** for callbacks. Plivo signs the exact URL it calls, so you will configure that URL in your app too. To reach your laptop, use a tunnel; see [Test without a provider](/testing/local-testing).
+4. **Consent.** Text only people who agreed to receive your messages, and stop when they reply STOP. Registration does not replace consent. See [Registration and consent](/providers/registration-and-consent).
+
+The examples read these variables:
 
 | Variable | Required | Used for |
 | --- | --- | --- |
 | `PLIVO_AUTH_ID` | Yes | Basic auth username, and part of the request URL. |
 | `PLIVO_AUTH_TOKEN` | Yes | Basic auth password, and callback verification. |
-| `PLIVO_FROM` or `PLIVO_POWERPACK_UUID` | One of them | Default sender: a Plivo number, short code, or alphanumeric sender ID, or a Powerpack. |
+| `PLIVO_FROM` or `PLIVO_POWERPACK_UUID` | One of them | Default sender: a Plivo number, short code, or alphanumeric sender ID, or a Powerpack. The guide uses a number in E.164. |
+| `PLIVO_CALLBACK_URL` | For callbacks | The exact public URL of your callback route, such as `https://example.com/api/webhooks/plivo`. |
 
 The adapter reads no environment variables itself; the examples and the [doctor CLI](/reference/doctor-cli) use these names. Keep the token on the server.
+
+## Send an SMS with the raw Message API
+
+One `POST /v1/Account/{auth_id}/Message/` request sends a message. It takes a JSON body and HTTP Basic auth, and needs only `fetch`, which Node.js 18 and later have built in:
+
+```ts
+const authId = process.env.PLIVO_AUTH_ID;
+const authToken = process.env.PLIVO_AUTH_TOKEN;
+if (authId === undefined || authId === "" || authToken === undefined || authToken === "") {
+  throw new Error("Set PLIVO_AUTH_ID and PLIVO_AUTH_TOKEN.");
+}
+
+const response = await fetch(`https://api.plivo.com/v1/Account/${encodeURIComponent(authId)}/Message/`, {
+  method: "POST",
+  headers: {
+    Authorization: `Basic ${btoa(`${authId}:${authToken}`)}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  },
+  body: JSON.stringify({
+    src: "+15550100001",
+    dst: "+14155550123",
+    text: "Your order has shipped.",
+    url: "https://example.com/api/webhooks/plivo",
+    method: "POST",
+  }),
+});
+
+const body: unknown = await response.json();
+console.log(response.status, JSON.stringify(body, null, 2));
+```
+
+`src` is your sender (or pass `powerpack_uuid` instead), `dst` the recipient in E.164, and `url` with `method` tells Plivo where to post status callbacks for this message. A successful send prints a 2xx status and a body like this one, from Plivo's reference:
+
+```json
+{
+  "api_id": "db342550-7f1d-11e1-8ea7-1231380bc196",
+  "message": "message(s) queued",
+  "message_uuid": ["db3ce55a-7f1d-11e1-8ea7-1231380bc196"]
+}
+```
+
+Save `message_uuid[0]`. It is an array because `dst` can list several recipients separated by `<`, and Plivo creates one message per recipient; send to one number per request and there is one UUID. Every callback about the message carries it as `MessageUUID`. `api_id` identifies the API request, not the message; quote it to Plivo support.
+
+A 401 means the Auth ID or Auth Token is wrong. A 400 means Plivo refused the request, and the `error` text says why, but Plivo doesn't document error codes your code can branch on. A 429 means you hit the rate limit; back off and retry. A 5xx, a timeout, or a dropped connection means you don't know whether Plivo took the message. The Message API has no idempotency key, so sending again can text the person twice. Look the message up first, in the console or with `GET /v1/Account/{auth_id}/Message/`, or wait for a callback.
+
+### Accepted is not delivered
+
+The 2xx means Plivo accepted and queued the message. Delivery to the phone is reported later, by callback:
+
+| Stage | Raw API | SMS SDK |
+| --- | --- | --- |
+| Accepted | 2xx with `message_uuid` | `send()` resolves with `handoff: "accepted"` and `delivery: "queued"` |
+| Refused | 401, a 429 with `api_id`, or another 4xx with an `error` text | `ProviderRejectedError` with category `auth`, `rate_limited`, or `request` |
+| Outcome unknown | 5xx, timeout, network error, or a 2xx without `message_uuid` | `HandoffUnknownError`. Never resent automatically. |
+| Handed to the carrier | Callback with `Status=sent` | `message.sent` event |
+| Delivered or failed | Callback with `Status=delivered`, `undelivered`, or `failed`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
+
+## Verify a callback with the raw API
+
+Plivo posts callbacks as form fields (`MessageUUID`, `Status`, `ErrorCode`, `From`, `To`, and more) to the `url` on the message. Inbound messages go to the message URL of the Plivo application your number is linked to. Every request carries three headers:
+
+- `X-Plivo-Signature-V2-Nonce`, a random value per request.
+- `X-Plivo-Signature-V2`, signed with the Auth Token of the account or subaccount that owns the message.
+- `X-Plivo-Signature-Ma-V2`, signed with the main account's Auth Token.
+
+The signature is Base64(HMAC-SHA256(Auth Token, URL + nonce)), where URL is the callback URL without its query string. It is the URL Plivo called, which is not always the URL your server sees: behind a load balancer or reverse proxy, `request.url` can be `http://10.0.0.5:3000/...` while Plivo called `https://example.com/...`. So check the signature against the public URL you configured, not the incoming one:
+
+```ts
+export async function verifyPlivoCallback(request: Request, publicUrl: string, authToken: string): Promise<URLSearchParams> {
+  const nonce = request.headers.get("x-plivo-signature-v2-nonce");
+  const signatures = [request.headers.get("x-plivo-signature-v2"), request.headers.get("x-plivo-signature-ma-v2")].filter(
+    (value): value is string => value !== null && value !== "",
+  );
+  if (nonce === null || nonce === "" || signatures.length === 0) throw new Error("Missing Plivo signature headers.");
+
+  const url = new URL(publicUrl);
+  const signed = new TextEncoder().encode(`${url.origin}${url.pathname}${nonce}`);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(authToken), { name: "HMAC", hash: "SHA-256" }, false, [
+    "verify",
+  ]);
+  for (const signature of signatures) {
+    const bytes = Uint8Array.from(atob(signature), (char) => char.charCodeAt(0));
+    if (await crypto.subtle.verify("HMAC", key, bytes, signed)) return new URLSearchParams(await request.text());
+  }
+  throw new Error("Invalid Plivo signature.");
+}
+```
+
+`crypto.subtle.verify` compares in constant time, so the check doesn't leak how much of a guessed signature was right. The function throws when the headers are missing or no signature matches, and returns the form fields only after a match.
+
+Notice what it does not check. The body is not part of the signature, and there is no timestamp. Anyone who captures one signed request can send it again, or send the same URL, nonce, and signature with a different body, and it still verifies. Two habits close most of that gap: serve the callback over HTTPS, and record each nonce you accept so a second request with the same nonce is ignored. The SMS SDK version below does both. For status that moves money, confirm it with `GET /v1/Account/{auth_id}/Message/{message_uuid}/` before acting on it.
+
+## Common setup errors
+
+| What you see | Cause | Fix |
+| --- | --- | --- |
+| 401 on send | Wrong Auth ID or Auth Token, or a subaccount's ID with the main account's token | Use one pair from the same account. |
+| 404 on send | The Auth ID in the path is wrong, or the URL has a typo | Build the path from the Auth ID you authenticate with, with the trailing `/Message/`. |
+| 400 on send | Missing `src` or `dst`, a number that isn't E.164, or a sender your account can't use | Read Plivo's `error` text. Send E.164, such as `+14155550123`, from a number on your account. |
+| 2xx, but the text never arrives | Acceptance is not delivery | Read the callback's `Status` and `ErrorCode`. Check 10DLC or toll-free verification for US traffic. |
+| No status callbacks | No `url` on the message | Pass `url` and `method: "POST"`, or `webhookUrl` with SMS SDK. |
+| No inbound callbacks | The number isn't linked to a Plivo application, or the application has no message URL | Link the number and set the message URL. |
+| `invalid_signature` | The URL you verify against differs from the one Plivo called: `http` instead of `https`, another host, a missing trailing slash. Or the wrong account's token. | Pass the exact URL as `publicUrl`. Use the token of the account that sent the message. |
+| `missing_signature` | The request didn't come from Plivo, or a proxy dropped the headers | Forward `X-Plivo-Signature-*` headers unchanged. |
+
+The full error mapping is in [Error codes](#error-codes).
+
+## Build it with SMS SDK
+
+The SMS SDK version is one module plus two small Next.js routes. It sends with `plivo()`, refuses to text anyone who opted out, stops on an unknown outcome, and verifies every callback before it reads it.
+
+```package-install
+npm install @opencoredev/sms-sdk
+```
+
+### 1. Create the client and handlers
+
+```ts plivo-sms.ts
+import {
+  createSmsClient,
+  HandoffUnknownError,
+  isE164,
+  memoryIdempotencyStore,
+  PolicyRejectedError,
+  ProviderRejectedError,
+  type E164,
+} from "@opencoredev/sms-sdk";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+import { parseSmsWebhook, WebhookSignatureError, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "@/db";
+
+function env(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === "") throw new Error(`Set ${name}.`);
+  return value;
+}
+
+function sender(name: string): E164 {
+  const value = env(name);
+  if (!isE164(value)) throw new Error(`${name} must be an E.164 number.`);
+  return value;
+}
+
+export const sms = createSmsClient({
+  adapters: [plivo({ authId: env("PLIVO_AUTH_ID"), authToken: env("PLIVO_AUTH_TOKEN"), from: sender("PLIVO_FROM") })],
+  // Checked before any provider request. Plivo refuses opted-out numbers with an unmapped 4xx, so check here.
+  beforeSend: async ({ message }) =>
+    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "opted_out" } : { kind: "allow" },
+  // Lost on restart and not shared between instances. Use a durable store in production.
+  idempotency: { store: memoryIdempotencyStore() },
+});
+
+export type SendOutcome =
+  | { readonly kind: "accepted"; readonly providerId: string }
+  | { readonly kind: "rejected"; readonly reason: string }
+  | { readonly kind: "unknown" };
+
+export async function sendSms(input: { to: E164; body: string; idempotencyKey: string }): Promise<SendOutcome> {
+  try {
+    const result = await sms.send({ ...input, webhookUrl: env("PLIVO_CALLBACK_URL") });
+    // Upsert: a replayed send returns the original result, and a callback may have created the row first.
+    await db.messages.saveSent({ id: result.id, provider: result.provider, providerId: result.providerId, to: input.to, status: result.delivery });
+    return { kind: "accepted", providerId: result.providerId };
+  } catch (error) {
+    if (error instanceof HandoffUnknownError) {
+      // Plivo may have the message. Never resend; reconcile it first.
+      await db.messages.markNeedsReview(input.idempotencyKey, error.reason);
+      return { kind: "unknown" };
+    }
+    if (error instanceof PolicyRejectedError) return { kind: "rejected", reason: error.reason };
+    if (error instanceof ProviderRejectedError) return { kind: "rejected", reason: error.category };
+    throw error;
+  }
+}
+
+export async function handlePlivoWebhook(request: Request): Promise<Response> {
+  let event: SmsEvent;
+  try {
+    event = await parseSmsWebhook({
+      provider: "plivo",
+      request,
+      publicUrl: env("PLIVO_CALLBACK_URL"),
+      credentials: { authToken: env("PLIVO_AUTH_TOKEN") },
+    });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+  // Present, because verification passed.
+  const nonce = request.headers.get("x-plivo-signature-v2-nonce") ?? "";
+
+  // Record the nonce, the event key, and their effects together, so a failed write rolls all of them back and Plivo's retry is handled.
+  await db.transaction(async (tx) => {
+    if (!(await tx.webhookEvents.insertIfNew(`plivo-nonce:${nonce}`))) return;
+    if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+    switch (event.type) {
+      case "message.queued":
+      case "message.sent":
+      case "message.delivered":
+      case "message.undelivered":
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+        break;
+      case "recipient.opted_out":
+        await tx.suppressions.add(event.from);
+        break;
+      case "message.received":
+        await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
+        break;
+    }
+  });
+  return new Response(null, { status: 200 });
+}
+```
+
+`sendSms()` returns one of three outcomes. `accepted` carries the Plivo message UUID. `rejected` means Plivo didn't take the message, either because the recipient opted out (checked by `beforeSend` before any request) or because Plivo refused it; the reason is `auth`, `rate_limited`, or, for everything Plivo doesn't let SMS SDK tell apart, `request`. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent. A retry with the same idempotency key replays the stored outcome instead of sending again, which matters more on Plivo than elsewhere because Plivo has no idempotency key of its own. `memoryIdempotencyStore()` forgets outcomes when the process restarts, so before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store).
+
+`handlePlivoWebhook()` answers 401 to requests that fail verification and 200 to a repeat without handling it twice. It records two keys before doing anything. The nonce key blocks a captured callback sent again, with its body changed or not, because the signature is only valid with that nonce. `dedupeKey` (`plivo:{MessageUUID}:{Status}`) catches the same status arriving twice under different nonces. Insert both with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes they guard. If a write fails, the keys roll back with it, the handler answers 500, and Plivo's retry gets processed. Callbacks can arrive out of order, and one can arrive before `saveSent` runs. So `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
+
+Plivo sends no opt-out flag, so `recipient.opted_out` comes from STOP keywords in inbound text, and only arrives if your number is linked to an application whose message URL is this route. Keyword detection has no opt-in: a START reply arrives as an ordinary `message.received`, so decide in your own code how someone opts back in.
+
+The routes below import this module as `@/plivo-sms`, so save it, `db.ts`, and `auth.ts` at your project root, which is where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the Auth Token can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`.
+
+### 2. Protect the send route
+
+A route that texts any number its caller names is an open SMS relay: anyone who finds it can spend your balance and get your number flagged. Require a signed-in user, and take the recipient and text from your own data, never from the request:
+
+```ts app/api/orders/notify/route.ts
+import { isE164 } from "@opencoredev/sms-sdk";
+import { getSession } from "@/auth";
+import { db } from "@/db";
+import { sendSms } from "@/plivo-sms";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request): Promise<Response> {
+  const session = await getSession(request);
+  if (session === null) return new Response("Unauthorized", { status: 401 });
+
+  const input: unknown = await request.json().catch(() => null);
+  const orderId = typeof input === "object" && input !== null && "orderId" in input ? input.orderId : undefined;
+  if (typeof orderId !== "string") return new Response("orderId is required", { status: 400 });
+
+  const order = await db.orders.findForUser(orderId, session.userId);
+  if (order === null || !isE164(order.phone)) return new Response("Order not found", { status: 404 });
+  if (order.status !== "shipped") return new Response("Order has not shipped", { status: 409 });
+
+  const outcome = await sendSms({
+    to: order.phone,
+    body: `Order ${order.id} has shipped.`,
+    idempotencyKey: `order:${order.id}:shipped`,
+  });
+  switch (outcome.kind) {
+    case "accepted":
+      return Response.json(outcome, { status: 200 });
+    case "rejected":
+      return Response.json(outcome, { status: 422 });
+    case "unknown":
+      return Response.json(outcome, { status: 202 });
+    default: {
+      const _exhaustive: never = outcome;
+      return _exhaustive;
+    }
+  }
+}
+```
+
+`getSession` stands for your auth library, and `db.orders.findForUser` returns an order only to its owner. The idempotency key ties the text to the order, so a double click or a retried request sends one message while the key is stored, which is 24 hours by default (`idempotency.ttlSec`). To send one shipping text per order ever, also record on the order that it went out. Add a per-user rate limit as well. In most apps the shipping text is sent by the code that marks the order shipped; the route shows how to guard one a user can trigger.
+
+### 3. Receive callbacks in Next.js
+
+```ts app/api/webhooks/plivo/route.ts
+import { handlePlivoWebhook } from "@/plivo-sms";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request): Promise<Response> {
+  return handlePlivoWebhook(request);
+}
+```
+
+The route hands the untouched `Request` to the handler. Don't read the body first, because it can be read only once. Next.js does not cache `POST` handlers. SMS SDK is tested on Node.js and Bun, which is why the route sets `runtime = "nodejs"`.
+
+Set `PLIVO_CALLBACK_URL` to this route's public URL, exactly as Plivo will call it: scheme, host, port, and path, including whether it ends in a slash. `sendSms()` passes it to Plivo as the message's `url`, and the handler verifies against the same value, so the two can't drift apart. For inbound messages and STOP replies, link your number to a Plivo application and set the application's message URL to the same address. Answer quickly: store the event and return, and do slow work later.
+
+### 4. Test it offline
+
+These tests send nothing and need no Plivo account. They replace `fetch` with canned Plivo responses and sign callback fixtures with a test Auth Token, so the real V2 check runs:
+
+```ts plivo-sms.test.ts
+import { expect, spyOn, test } from "bun:test";
+import { createSmsClient, ProviderRejectedError } from "@opencoredev/sms-sdk";
+import { plivo } from "@opencoredev/sms-sdk/plivo";
+import { memory, mockFetch, signedPlivoRequest } from "@opencoredev/sms-sdk/testing";
+import { db } from "./db";
+
+const url = "https://example.com/api/webhooks/plivo";
+const authToken = "test-auth-token";
+Object.assign(process.env, {
+  PLIVO_AUTH_ID: "MA_TEST_AUTH_ID",
+  PLIVO_AUTH_TOKEN: authToken,
+  PLIVO_FROM: "+15550100001",
+  PLIVO_CALLBACK_URL: url,
+});
+const { handlePlivoWebhook, sendSms } = await import("./plivo-sms");
+
+function fakeFetch(...replies: Response[]) {
+  const fetch = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected network call"));
+  for (const reply of replies) fetch.mockResolvedValueOnce(reply);
+  return fetch;
+}
+
+test("Plivo accepts the message and gets the callback URL", async () => {
+  const fetch = fakeFetch(Response.json({ api_id: "api_1", message: "message(s) queued", message_uuid: ["uuid_1"] }, { status: 202 }));
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 1 has shipped.", idempotencyKey: "order:1:shipped" });
+  expect(outcome).toEqual({ kind: "accepted", providerId: "uuid_1" });
+  const [endpoint, init] = fetch.mock.calls[0] ?? [];
+  expect(endpoint).toBe("https://api.plivo.com/v1/Account/MA_TEST_AUTH_ID/Message/");
+  expect(JSON.parse(String(init?.body))).toMatchObject({ src: "+15550100001", dst: "+14155550123", url, method: "POST" });
+  fetch.mockRestore();
+});
+
+test("an unknown outcome is flagged, not resent", async () => {
+  const fetch = fakeFetch(new Response("Service Unavailable", { status: 503 }));
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 2 has shipped.", idempotencyKey: "order:2:shipped" });
+  expect(outcome).toEqual({ kind: "unknown" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockRestore();
+});
+
+test("an unmapped Plivo 400 never falls back", async () => {
+  const backup = memory({ name: "backup" });
+  const rejecting = mockFetch({ status: 400, body: { api_id: "api_2", error: "invalid src" } });
+  const client = createSmsClient({
+    adapters: [plivo({ authId: "MA_TEST_AUTH_ID", authToken, from: "+15550100001", fetch: rejecting.fetch }), backup],
+    fallback: "on-known-rejection",
+  });
+  const error = await client.send({ to: "+14155550123", body: "Hi" }).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(ProviderRejectedError);
+  expect(error instanceof ProviderRejectedError && error.category).toBe("request");
+  expect(backup.sent).toHaveLength(0);
+});
+
+const delivered = { MessageUUID: "uuid_1", Status: "delivered", ErrorCode: "000", From: "+15550100001", To: "+14155550123" };
+
+test("a signed delivery callback is recorded once", async () => {
+  const updateStatus = spyOn(db.messages, "updateStatus");
+  const first = await handlePlivoWebhook(await signedPlivoRequest({ authToken, url, params: delivered }));
+  const repeat = await handlePlivoWebhook(await signedPlivoRequest({ authToken, url, params: delivered }));
+  expect([first.status, repeat.status]).toEqual([200, 200]);
+  expect(updateStatus).toHaveBeenCalledTimes(1);
+  expect(updateStatus).toHaveBeenCalledWith("uuid_1", "message.delivered", undefined);
+  updateStatus.mockRestore();
+});
+
+test("a replayed nonce with a changed body is ignored", async () => {
+  const updateStatus = spyOn(db.messages, "updateStatus");
+  const nonce = crypto.randomUUID();
+  const original = await signedPlivoRequest({ authToken, url, nonce, params: { ...delivered, MessageUUID: "uuid_3", Status: "sent" } });
+  const replay = await signedPlivoRequest({ authToken, url, nonce, params: { ...delivered, MessageUUID: "uuid_3", Status: "undelivered" } });
+  expect((await handlePlivoWebhook(original)).status).toBe(200);
+  expect((await handlePlivoWebhook(replay)).status).toBe(200);
+  expect(updateStatus).toHaveBeenCalledTimes(1);
+  expect(updateStatus).toHaveBeenCalledWith("uuid_3", "message.sent", undefined);
+  updateStatus.mockRestore();
+});
+
+test("a callback signed for another URL or token is refused", async () => {
+  const wrongUrl = await signedPlivoRequest({ authToken, url: "http://10.0.0.5:3000/api/webhooks/plivo", params: delivered });
+  const wrongToken = await signedPlivoRequest({ authToken: "another-token", url, params: delivered });
+  expect((await handlePlivoWebhook(wrongUrl)).status).toBe(401);
+  expect((await handlePlivoWebhook(wrongToken)).status).toBe(401);
+});
+```
+
+Run `bun test` with `db` pointing at a test database. If your `db.transaction` hands the callback a separate client, spy on that client's `updateStatus` instead. The third test builds its own client with a backup adapter to show the partial-support rule: a Plivo 400 is a `request` rejection, so the backup is never tried. The output looks like this:
+
+```txt
+plivo-sms.test.ts:
+(pass) Plivo accepts the message and gets the callback URL [3.20ms]
+(pass) an unknown outcome is flagged, not resent [0.88ms]
+(pass) an unmapped Plivo 400 never falls back [0.40ms]
+(pass) a signed delivery callback is recorded once [1.77ms]
+(pass) a replayed nonce with a changed body is ignored [1.13ms]
+(pass) a callback signed for another URL or token is refused [0.86ms]
+
+ 6 pass
+ 0 fail
+ 17 expect() calls
+Ran 6 tests across 1 file. [16.00ms]
+```
+
+Before the first live send, `npx @opencoredev/sms-sdk doctor --adapter plivo` checks your variables and sender without sending anything. See [Doctor CLI](/reference/doctor-cli).
+
+### Adding a fallback provider
+
+Fallback helps less with Plivo than with a fully supported provider. With `fallback: "on-known-rejection"`, a Plivo send moves to the next adapter only after a 401 or, once retries run out, a 429 that carries Plivo's `api_id`. A sender, account, or content problem is a `request` rejection and stops the send, and an unknown outcome never moves on. If you need fallback for sender problems, put a fully supported adapter first. A per-message `webhookUrl` goes to whichever provider sends, so give each provider its own callback route. See [Fallback and retries](/sending/fallback-and-retries).
+
+## Adapter options
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -97,6 +506,8 @@ Unknown keys and wrong types throw before any request, and the options go out on
 
 ## Webhooks
 
+The handler in [Build it with SMS SDK](#1-create-the-client-and-handlers) is the full example. A shorter one:
+
 ```ts
 import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
 import { db } from "./db";
@@ -110,7 +521,7 @@ export async function POST(request: Request): Promise<Response> {
       credentials: { authToken: process.env.PLIVO_AUTH_TOKEN ?? "" },
     });
     if (!(await db.webhookEvents.insertIfNew(event.dedupeKey))) {
-      return new Response(null, { status: 200 }); // also blocks replays
+      return new Response(null, { status: 200 }); // the same status, seen before
     }
     if (event.type === "message.delivered" || event.type === "message.undelivered") {
       await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
@@ -126,14 +537,14 @@ export async function POST(request: Request): Promise<Response> {
 ```
 
 :::warning[Callbacks can be replayed]
-Plivo signs neither the callback body nor a timestamp. Serve the endpoint over HTTPS and deduplicate on `dedupeKey`, as above, so a replayed callback has no effect.
+Plivo signs neither the callback body nor a timestamp. Serve the endpoint over HTTPS and deduplicate on `dedupeKey`, as above, so an unchanged replay has no effect. `dedupeKey` comes from the body, so a replay with a changed `Status` gets a new one; also record each accepted `X-Plivo-Signature-V2-Nonce`, as the full handler does.
 :::
 
 - **Credential:** the Auth Token. Callbacks signed with `X-Plivo-Signature-V2` use the account's or subaccount's token; callbacks signed with `X-Plivo-Signature-Ma-V2` use the main account's token.
 - **Point Plivo at it:** for status, pass `webhookUrl` per message. For inbound, link the number to a Plivo application and set the application's message URL.
 - **`publicUrl`:** pass the exact URL Plivo calls, or verification fails behind a proxy. See [Webhook security](/receiving/webhook-security).
 - **Signing:** an HMAC-SHA256 over the callback URL without its query string, followed by `X-Plivo-Signature-V2-Nonce`.
-- **Replay window:** none. Deduplication is your only replay protection.
+- **Replay window:** none. Recording nonces and deduplicating are your only replay protection.
 
 | Plivo status | Event |
 | --- | --- |
