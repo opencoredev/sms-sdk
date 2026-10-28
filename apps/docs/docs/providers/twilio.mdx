@@ -166,7 +166,7 @@ You still have to map statuses, drop repeated callbacks, and record opt-outs, wh
 
 ## Test with Twilio's test credentials
 
-Twilio has its own way to exercise the API without sending: [test credentials](https://www.twilio.com/docs/iam/test-credentials). They are a separate Account SID and Auth Token, found under API keys & tokens in the Console. Requests made with them are validated like live ones, but Twilio sends nothing, doesn't charge the account, and doesn't change account state. Magic numbers make the response predictable:
+Twilio has its own way to exercise the API without sending: [test credentials](https://www.twilio.com/docs/iam/test-credentials), a separate Account SID and Auth Token. They belong to Twilio's legacy console: test credentials created there before the console migration keep working, but Twilio points new accounts to a [trial account](https://www.twilio.com/docs/usage/trials) instead (checked 2026-10-28). Without them, use the [offline tests](#4-test-it-offline) below. Requests made with them are validated like live ones, but Twilio sends nothing, doesn't charge the account, and doesn't change account state. Magic numbers make the response predictable:
 
 | Parameter | Magic number | Result |
 | --- | --- | --- |
@@ -205,7 +205,7 @@ for (const to of ["+15005550004", "+15005550009"] as const) {
 // +15005550009 recipient 21614
 ```
 
-Test credentials have limits. They don't support `MessagingServiceSid`, they never trigger status callbacks, and every run still needs the network and Twilio. So they cover the request, not the parts that usually break: your fallback rules, your opt-out list, your send route's auth, and your webhook handler. The [offline tests](#4-test-it-offline) below cover those with `memory()` adapters and signed webhook fixtures, and need no account.
+Test credentials have limits. They don't support `MessagingServiceSid`, they never trigger status callbacks, and every run still needs the network and Twilio. So they cover the request, not the parts that usually break: your fallback rules, your opt-out list, and your webhook handler. The [offline tests](#4-test-it-offline) below cover those with `memory()` adapters and signed webhook fixtures, and need no account.
 
 ## Common setup errors
 
@@ -373,7 +373,7 @@ export async function handleTwilioWebhook(request: Request): Promise<Response> {
 
 The fallback runs only after a Twilio rejection that belongs to your Twilio setup, such as bad credentials (20003) or an unusable sender (21606), because those say nothing about the recipient. A bad number (21211) or an opt-out (21610) stops there, because Telnyx would fail the same way or shouldn't send at all. Registration blocks like 30034 arrive after acceptance, so they never trigger a fallback; handle them from status callbacks. See [Fallback and retries](/sending/fallback-and-retries).
 
-A retry with the same idempotency key returns the stored result of an accepted send, and stays unknown after an unknown one, instead of sending again. A known rejection frees the key, so a retry after you fix the cause does send. That matters more on Twilio than elsewhere, because Twilio has no idempotency key of its own. `memoryIdempotencyStore()` forgets outcomes when the process restarts, so before production swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store).
+A retry with the same idempotency key returns the stored result of an accepted send, and stays unknown after an unknown one, instead of sending again. After a known rejection, the same key can send again, but only with the same message: a retry after you fix the cause on the account side (credentials, sender, registration) does send. Changing the recipient or the text under that key throws `IdempotencyConflictError`, so use a new key for a corrected message. That matters more on Twilio than elsewhere, because Twilio has no idempotency key of its own. `memoryIdempotencyStore()` forgets outcomes when the process restarts, so before production swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store).
 
 `handleTwilioWebhook()` answers 401 to forged requests and 200 to a repeat without handling it twice. `dedupeKey` is `twilio:{MessageSid}:{MessageStatus}` for status callbacks and `twilio:{MessageSid}:received` for inbound messages. Because Twilio signs every parameter, a replayed request can't change the status, so that key is enough. Insert it with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes it guards: if a write fails, the key rolls back with it and the handler answers 500. Twilio [doesn't guarantee callback order](https://www.twilio.com/docs/messaging/guides/track-outbound-message-status), and a callback can arrive before `saveSent` runs. So `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
 
