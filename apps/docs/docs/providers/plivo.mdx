@@ -239,25 +239,36 @@ export async function handlePlivoWebhook(request: Request): Promise<Response> {
       case "message.sent":
       case "message.delivered":
       case "message.undelivered":
+      case "message.filtered":
         await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
         break;
       case "recipient.opted_out":
         await tx.suppressions.add(event.from);
         break;
+      case "recipient.opted_in":
+        await tx.suppressions.remove(event.from);
+        break;
+      case "recipient.help":
       case "message.received":
         await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
         break;
+      case "unrecognized":
+        break;
+      default: {
+        const _exhaustive: never = event;
+        return _exhaustive;
+      }
     }
   });
   return new Response(null, { status: 200 });
 }
 ```
 
-`sendSms()` returns one of three outcomes. `accepted` carries the Plivo message UUID. `rejected` means Plivo didn't take the message, either because the recipient opted out (checked by `beforeSend` before any request) or because Plivo refused it; the reason is `auth`, `rate_limited`, or, for everything Plivo doesn't let SMS SDK tell apart, `request`. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent. A retry with the same idempotency key replays the stored outcome instead of sending again, which matters more on Plivo than elsewhere because Plivo has no idempotency key of its own. `memoryIdempotencyStore()` forgets outcomes when the process restarts, so before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store).
+`sendSms()` returns one of three outcomes. `accepted` carries the Plivo message UUID. `rejected` means Plivo didn't take the message, either because the recipient opted out (checked by `beforeSend` before any request) or because Plivo refused it; the reason is `auth`, `rate_limited`, or, for everything Plivo doesn't let SMS SDK tell apart, `request`. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent. A retry with the same idempotency key replays a stored `accepted` or `unknown` outcome instead of sending again, which matters more on Plivo than elsewhere because Plivo has no idempotency key of its own. A known rejection is not final, so retrying it makes a new request. `memoryIdempotencyStore()` forgets outcomes when the process restarts, so before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store).
 
 `handlePlivoWebhook()` answers 401 to requests that fail verification and 200 to a repeat without handling it twice. It records two keys before doing anything. The nonce key blocks a captured callback sent again, with its body changed or not, because the signature is only valid with that nonce. `dedupeKey` (`plivo:{MessageUUID}:{Status}`) catches the same status arriving twice under different nonces. Insert both with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes they guard. If a write fails, the keys roll back with it, the handler answers 500, and Plivo's retry gets processed. Callbacks can arrive out of order, and one can arrive before `saveSent` runs. So `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
 
-Plivo sends no opt-out flag, so `recipient.opted_out` comes from STOP keywords in inbound text, and only arrives if your number is linked to an application whose message URL is this route. Keyword detection has no opt-in: a START reply arrives as an ordinary `message.received`, so decide in your own code how someone opts back in.
+Plivo sends no opt-out flag, so `recipient.opted_out` comes from STOP keywords in inbound text, and only arrives if your number is linked to an application whose message URL is this route. Keyword detection has no opt-in: a START reply arrives as an ordinary `message.received`, so decide in your own code how someone opts back in. HELP and INFO replies arrive as `recipient.help` and go to the inbox with other replies, so someone can answer them. The `switch` handles every event type, so TypeScript flags any new one.
 
 The routes below import this module as `@/plivo-sms`, so save it, `db.ts`, and `auth.ts` at your project root, which is where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the Auth Token can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`.
 
