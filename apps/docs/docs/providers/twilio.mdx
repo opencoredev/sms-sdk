@@ -452,14 +452,16 @@ In the Twilio Console, open your Messaging Service and set both its status callb
 These tests send nothing and need no Twilio account or network. App logic runs against `memory()` adapters, the Twilio error mapping runs through the real `twilio()` adapter with a fake `fetch`, and webhook fixtures are signed with a test Auth Token, so the real signature check runs:
 
 ```ts twilio-sms.test.ts
-import { expect, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { memory, mockFetch, rejectedOutcome, signedTwilioRequest, type MockReply } from "@opencoredev/sms-sdk/testing";
 import { twilio } from "@opencoredev/sms-sdk/twilio";
 import { db } from "./db";
-import { createSms, handleTwilioWebhook, sendSms } from "./twilio-sms";
 
 const publicUrl = "https://example.com/api/webhooks/twilio";
 Object.assign(process.env, { TWILIO_AUTH_TOKEN: "test-auth-token", TWILIO_WEBHOOK_URL: publicUrl });
+// `server-only` throws outside a Next.js server build, so stub it before loading the module.
+mock.module("server-only", () => ({}));
+const { createSms, handleTwilioWebhook, sendSms } = await import("./twilio-sms");
 
 function fakeTwilio(reply: MockReply) {
   const api = mockFetch(reply);
