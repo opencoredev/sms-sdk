@@ -8,8 +8,8 @@ const tables = {
   messages: table({
     /** Saves the result of a send so status webhooks can find it by providerId. */
     async create(_row: { id: string; provider: string; providerId: string; to: string; status: string }): Promise<void> {},
-    /** Like create, but does nothing when a row with this id exists (`ON CONFLICT (id) DO NOTHING`). */
-    async createIfMissing(_row: { id: string; provider: string; providerId: string; to: string; status: string }): Promise<void> {},
+    /** Upserts by providerId: fills in the send details, keeping any status a webhook already wrote. */
+    async saveSent(_row: { id: string; provider: string; providerId: string; to: string; status: string }): Promise<void> {},
     async updateStatus(_providerId: string, _status: string, _errorCode?: string): Promise<void> {},
     async markNeedsReview(_idempotencyKey: string, _reason: string): Promise<void> {},
   }),
@@ -25,7 +25,7 @@ const tables = {
   }),
   orders: table({
     /** Returns the order only when it belongs to the user. */
-    async findForUser(_orderId: string, _userId: string): Promise<{ id: string; phone: string } | null> {
+    async findForUser(_orderId: string, _userId: string): Promise<{ id: string; phone: string; status: string } | null> {
       return null;
     },
   }),

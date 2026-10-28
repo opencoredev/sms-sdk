@@ -87,7 +87,7 @@ A successful send prints `200` and the new message. This copy is shortened, with
 
 Save `data.id`. Every later webhook about this message carries it as `data.payload.id`.
 
-A 4xx with `errors[0].code` means Telnyx refused the message, and the code says why. A 5xx, a timeout, or a dropped connection means you don't know whether Telnyx took it, so don't send again blindly. Telnyx accepts an optional `Idempotency-Key` header for safe retries: reuse the same key only when you retry the same send. With that header, a 409 means a request with the key is still in progress and a 422 means the key was used for a different request. Neither says the first send failed, so retry with the same key rather than a new one.
+A 4xx with `errors[0].code` means Telnyx refused the message, and the code says why. A 5xx, a timeout, or a dropped connection means you don't know whether Telnyx took it, so don't send again blindly. Telnyx accepts an optional `Idempotency-Key` header for safe retries: reuse the same key only when you retry the same send. With that header, a 409 means a request with the key is still in progress: retry the same request with the same key. A 422 means the key was already used with a different body: resend the original body with that key. Neither says the first send failed, so never switch to a new key for the same message.
 
 ### Accepted is not delivered
 
@@ -160,6 +160,7 @@ import {
   HandoffUnknownError,
   isE164,
   memoryIdempotencyStore,
+  PolicyRejectedError,
   ProviderRejectedError,
   type E164,
   type SmsAdapter,
@@ -190,6 +191,9 @@ function twilioFallback(): SmsAdapter[] {
 export const sms = createSmsClient({
   adapters: [telnyx({ apiKey: env("TELNYX_API_KEY"), from: sender("TELNYX_FROM") }), ...twilioFallback()],
   fallback: "on-known-rejection",
+  // Checked before any provider request, so fallback can't text someone who replied STOP.
+  beforeSend: async ({ message }) =>
+    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "opted_out" } : { kind: "allow" },
   // Lost on restart and not shared between instances. Use a durable store in production.
   idempotency: { store: memoryIdempotencyStore() },
 });
@@ -202,8 +206,8 @@ export type SendOutcome =
 export async function sendSms(input: { to: E164; body: string; idempotencyKey: string }): Promise<SendOutcome> {
   try {
     const result = await sms.send(input);
-    // A replayed send returns the original result, so this insert must ignore an existing row.
-    await db.messages.createIfMissing({ id: result.id, provider: result.provider, providerId: result.providerId, to: input.to, status: result.delivery });
+    // Upsert: a replayed send returns the original result, and a status webhook may have created the row first.
+    await db.messages.saveSent({ id: result.id, provider: result.provider, providerId: result.providerId, to: input.to, status: result.delivery });
     return { kind: "accepted", provider: result.provider, providerId: result.providerId };
   } catch (error) {
     if (error instanceof HandoffUnknownError) {
@@ -211,6 +215,7 @@ export async function sendSms(input: { to: E164; body: string; idempotencyKey: s
       await db.messages.markNeedsReview(input.idempotencyKey, error.reason);
       return { kind: "unknown" };
     }
+    if (error instanceof PolicyRejectedError) return { kind: "rejected", reason: error.reason };
     if (error instanceof ProviderRejectedError) return { kind: "rejected", reason: error.category };
     if (error instanceof AllProvidersRejectedError) {
       return { kind: "rejected", reason: error.errors.map((rejection) => `${rejection.providerName}: ${rejection.category}`).join(", ") };
@@ -251,9 +256,9 @@ export async function handleTelnyxWebhook(request: Request): Promise<Response> {
 }
 ```
 
-`sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, so sending again later is safe. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key replays the stored outcome instead of sending again, but `memoryIdempotencyStore()` forgets outcomes when the process restarts. Before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Telnyx rejection that belongs to your Telnyx account, such as bad credentials or an unusable sender; see [Fallback and retries](/sending/fallback-and-retries).
+`sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, either because the recipient opted out (checked by `beforeSend` before any request) or because the providers refused it. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key replays the stored outcome instead of sending again, but `memoryIdempotencyStore()` forgets outcomes when the process restarts. Before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Telnyx rejection that belongs to your Telnyx account, such as bad credentials or an unusable sender; see [Fallback and retries](/sending/fallback-and-retries).
 
-`handleTelnyxWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, and records status, opt-out, and inbound events. `dedupeKey` is the Telnyx event ID, so insert it with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes it guards. If a write fails, the key rolls back with it, the handler answers 500, and Telnyx's retry gets processed. Events can arrive out of order, so keep the furthest status in `updateStatus`: `delivered` must not go back to `sent`.
+`handleTelnyxWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, and records status, opt-out, and inbound events. `dedupeKey` is the Telnyx event ID, so insert it with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes it guards. If a write fails, the key rolls back with it, the handler answers 500, and Telnyx's retry gets processed. Events can arrive out of order, and a status event can arrive before `saveSent` runs. So `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
 
 The routes below import this module as `@/telnyx-sms`, so save it, `db.ts`, and `auth.ts` at your project root, which is where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the API key can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`. If you configure Twilio, its status callbacks need their own route; see [Twilio](/providers/twilio#webhooks).
 
@@ -279,6 +284,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const order = await db.orders.findForUser(orderId, session.userId);
   if (order === null || !isE164(order.phone)) return new Response("Order not found", { status: 404 });
+  if (order.status !== "shipped") return new Response("Order has not shipped", { status: 409 });
 
   const outcome = await sendSms({
     to: order.phone,
@@ -300,7 +306,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-`getSession` stands for your auth library, and `db.orders.findForUser` returns an order only to its owner. The idempotency key ties the text to the order, so a double click or a retried request sends one message. Add a per-user rate limit as well.
+`getSession` stands for your auth library, and `db.orders.findForUser` returns an order only to its owner. The idempotency key ties the text to the order, so a double click or a retried request sends one message while the key is stored, which is 24 hours by default (`idempotency.ttlSec`). To send one shipping text per order ever, also record on the order that it went out. Add a per-user rate limit as well. In most apps the shipping text is sent by the code that marks the order shipped; the route shows how to guard one a user can trigger.
 
 ### 3. Receive webhooks in Next.js
 
@@ -373,7 +379,7 @@ test("an unknown outcome stops without trying Twilio", async () => {
 
 const delivered = {
   data: {
-    id: "evt_1",
+    id: `evt_${crypto.randomUUID()}`,
     event_type: "message.finalized",
     payload: { id: "msg_1", to: [{ phone_number: "+14155550123", status: "delivered" }] },
   },
