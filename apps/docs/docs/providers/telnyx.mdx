@@ -1,9 +1,15 @@
 ---
-title: "Telnyx"
-description: "Send and receive SMS and MMS through the Telnyx Messaging API v2 with the SMS SDK telnyx() adapter: setup, senders, webhooks, errors, and limits."
+title: "Telnyx SMS API with TypeScript: send, verify, and test"
+description: "Send SMS through the Telnyx API v2 from TypeScript, verify Ed25519 webhooks in Next.js, and test offline with signed fixtures, using fetch or SMS SDK."
+sidebar:
+  label: "Telnyx"
+search:
+  keywords: ["telnyx sms api", "telnyx api v2", "telnyx webhook signature", "telnyx ed25519", "telnyx next.js"]
 ---
 
-The `telnyx()` adapter sends SMS and MMS through the Telnyx Messaging API v2 and verifies Telnyx's Ed25519-signed messaging webhooks. To compare providers, see [Choose a provider](/providers/overview).
+This guide takes a TypeScript server from a Telnyx API key to a verified delivery event. You send one SMS with the raw Telnyx API v2, verify a signed webhook by hand, then build the same thing with the SMS SDK `telnyx()` adapter: a protected send route, a Next.js webhook route that drops duplicates, and tests that run offline. The second half of the page is the adapter reference. To compare providers first, see [Choose a provider](/providers/overview).
+
+Everything here uses Telnyx API v2: `https://api.telnyx.com/v2` with a Bearer API key. Older tutorials post to `sms.telnyx.com` with an `x-profile-secret` header; that is API v1 and does not apply.
 
 ## Support status
 
@@ -14,20 +20,401 @@ The `telnyx()` adapter sends SMS and MMS through the Telnyx Messaging API v2 and
 - Webhooks are verified with a public key, not the API key. The URL is not signed.
 - Webhook timestamps must be within 300 seconds of now by default.
 
-## Setup
+## Before you start
+
+You need four things from the Telnyx portal (Mission Control):
+
+1. **A number with SMS.** Buy a number with the SMS feature, or use a short code or alphanumeric sender.
+2. **A messaging profile.** Create one under Messaging, then assign your number to it. A number that is not on a profile cannot send.
+3. **An API v2 key.** Create it under API Keys. It goes in an `Authorization: Bearer` header.
+4. **Your public key.** Copy it from Keys & Credentials, Public Key. It verifies webhook signatures and is not secret, but it is not the API key either.
+
+US traffic to mobile numbers also needs 10DLC registration for long codes, or verification for toll-free numbers. To try sending before registration, Telnyx suggests buying two Telnyx numbers and texting from one to the other. See [Registration and consent](/providers/registration-and-consent).
+
+The examples read these variables:
+
+| Variable | Required | Used for |
+| --- | --- | --- |
+| `TELNYX_API_KEY` | Yes | API v2 key, sent as a Bearer token. |
+| `TELNYX_FROM` | Unless you send from a profile | Default sender in E.164, such as `+15550100001`. |
+| `TELNYX_MESSAGING_PROFILE_ID` | For alphanumeric senders | Messaging profile ID sent with every message. |
+| `TELNYX_PUBLIC_KEY` | For webhooks | Base64 Ed25519 public key. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Only for the optional fallback | A second provider for known rejections. |
+
+The adapter reads no environment variables itself; the examples and the [doctor CLI](/reference/doctor-cli) use these names. Keep the API key on the server.
+
+## Send an SMS with the raw API v2
+
+One `POST /v2/messages` request sends a message. It needs only `fetch`, which Node.js 18 and later have built in:
+
+```ts
+const apiKey = process.env.TELNYX_API_KEY;
+if (apiKey === undefined || apiKey === "") throw new Error("Set TELNYX_API_KEY.");
+
+const response = await fetch("https://api.telnyx.com/v2/messages", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  },
+  body: JSON.stringify({
+    from: "+15550100001",
+    to: "+14155550123",
+    text: "Your order has shipped.",
+  }),
+});
+
+const body: unknown = await response.json();
+console.log(response.status, JSON.stringify(body, null, 2));
+```
+
+A successful send prints `200` and the new message. This copy is shortened, with example IDs:
+
+```json
+{
+  "data": {
+    "record_type": "message",
+    "id": "40385f64-5717-4562-b3fc-2c963f66afa6",
+    "type": "SMS",
+    "from": { "phone_number": "+15550100001" },
+    "to": [{ "phone_number": "+14155550123", "status": "queued" }],
+    "text": "Your order has shipped.",
+    "parts": 1
+  }
+}
+```
+
+Save `data.id`. Every later webhook about this message carries it as `data.payload.id`.
+
+A 4xx with `errors[0].code` means Telnyx refused the message, and the code says why. A 5xx, a timeout, or a dropped connection means you don't know whether Telnyx took it, so don't send again blindly. Telnyx accepts an optional `Idempotency-Key` header for safe retries: reuse the same key only when you retry the same send. With that header, a 409 means a request with the key is still in progress and a 422 means the key was used for a different request. Neither says the first send failed, so retry with the same key rather than a new one.
+
+### Accepted is not delivered
+
+The `200` means Telnyx accepted and queued the message. Delivery to the phone is reported later, by webhook:
+
+| Stage | Raw API | SMS SDK |
+| --- | --- | --- |
+| Accepted | `200` with `data.id`, recipient status `queued` | `send()` resolves with `handoff: "accepted"` and `delivery: "queued"` |
+| Refused | 4xx with `errors[0].code` | `ProviderRejectedError` with a `category` |
+| Outcome unknown | 5xx, timeout, network error | `HandoffUnknownError`. Never resent automatically. |
+| Handed to the carrier | `message.sent` webhook, status `sent` | `message.sent` event |
+| Delivered or failed | `message.finalized` webhook, status `delivered`, `delivery_failed`, `sending_failed`, or `expired` | `message.delivered`, `message.undelivered`, or `message.filtered` event |
+
+## Verify a webhook with the raw API
+
+Telnyx sends webhooks to the URL on the message (`webhook_url`) or, if there is none, the URL on the messaging profile. Each request has two headers: `telnyx-signature-ed25519`, a base64 Ed25519 signature, and `telnyx-timestamp`, Unix seconds. The signature covers `${timestamp}|${rawBody}`, so you must check it against the exact bytes Telnyx sent, before you parse them:
+
+```ts
+export async function verifyTelnyxWebhook(request: Request, publicKey: string): Promise<unknown> {
+  const rawBody = await request.text();
+  const signature = request.headers.get("telnyx-signature-ed25519");
+  const timestamp = request.headers.get("telnyx-timestamp");
+  if (signature === null || timestamp === null) throw new Error("Missing Telnyx signature headers.");
+
+  const ageSec = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!(ageSec <= 300)) throw new Error("Telnyx timestamp is missing or too old.");
+
+  const fromBase64 = (value: string) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+  const key = await crypto.subtle.importKey("raw", fromBase64(publicKey), { name: "Ed25519" }, false, ["verify"]);
+  const signed = new TextEncoder().encode(`${timestamp}|${rawBody}`);
+  if (!(await crypto.subtle.verify("Ed25519", key, fromBase64(signature), signed))) {
+    throw new Error("Invalid Telnyx signature.");
+  }
+  return JSON.parse(rawBody);
+}
+```
+
+The function rejects requests without both headers, requests older than five minutes, and bodies that don't match the signature. It returns the parsed JSON only after the check passes. You still have to map Telnyx's statuses, drop duplicate deliveries, and detect STOP replies yourself, which is what the SMS SDK version below does.
+
+## Common setup errors
+
+| What you see | Cause | Fix |
+| --- | --- | --- |
+| 401, error 10009 | Missing or wrong API key, or an API v1 profile secret | Send an API v2 key as `Authorization: Bearer <key>`. |
+| 400, error 40305 | The `from` number is not messaging-enabled | Assign the number to a messaging profile. |
+| 400, error 40310 | The `to` number is not valid | Send E.164, such as `+14155550123`. |
+| 400, error 40300 | The recipient replied STOP | Don't send to them until they reply START. |
+| `200`, but the text never arrives | Acceptance is not delivery | Read `message.finalized` and its `errors`. Check 10DLC or toll-free registration. |
+| No webhooks arrive | No URL on the message or the messaging profile | Set the profile's webhook URL, or pass `webhookUrl` per message. |
+| `invalid_signature` | The body was read or parsed before verification, or the key is wrong | Pass the untouched request; use the public key from Keys & Credentials. |
+| `invalid_credentials` | The key is not 32 bytes of base64, often the API key by mistake | Use the Ed25519 public key. |
+| `stale_timestamp` | Server clock drift, or a replayed request | Sync the clock; the window is 300 seconds. |
+
+The full error mapping is in [Error codes](#error-codes).
+
+## Build it with SMS SDK
+
+The SMS SDK version is one module plus two small Next.js routes. It sends with `telnyx()`, optionally falls back to Twilio when Telnyx proves it refused the message, stops on an unknown outcome, and verifies every webhook before it reads it.
 
 ```package-install
 npm install @opencoredev/sms-sdk
 ```
 
-| Variable | Required | Used for |
-| --- | --- | --- |
-| `TELNYX_API_KEY` | Yes | API v2 key, sent as a Bearer token. Create it in Mission Control under API Keys. |
-| `TELNYX_FROM` | Unless you send from a profile | Default sender: a Telnyx number, short code, or alphanumeric sender ID. |
-| `TELNYX_MESSAGING_PROFILE_ID` | For alphanumeric senders | Messaging profile ID sent with every message. |
-| `TELNYX_PUBLIC_KEY` | For webhooks | Base64 Ed25519 public key from Mission Control, Keys & Credentials, Public Key. |
+### 1. Create the client and handlers
 
-The adapter reads no environment variables itself; the examples and the [doctor CLI](/reference/doctor-cli) use these names. Keep the API key on the server.
+```ts telnyx-sms.ts
+import {
+  AllProvidersRejectedError,
+  createSmsClient,
+  HandoffUnknownError,
+  isE164,
+  memoryIdempotencyStore,
+  ProviderRejectedError,
+  type E164,
+  type SmsAdapter,
+} from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { parseSmsWebhook, WebhookSignatureError, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "@/db";
+
+function env(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === "") throw new Error(`Set ${name}.`);
+  return value;
+}
+
+function sender(name: string): E164 {
+  const value = env(name);
+  if (!isE164(value)) throw new Error(`${name} must be an E.164 number.`);
+  return value;
+}
+
+function twilioFallback(): SmsAdapter[] {
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
+  if (TWILIO_ACCOUNT_SID === undefined || TWILIO_AUTH_TOKEN === undefined) return [];
+  return [twilio({ accountSid: TWILIO_ACCOUNT_SID, authToken: TWILIO_AUTH_TOKEN, from: sender("TWILIO_FROM") })];
+}
+
+export const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: env("TELNYX_API_KEY"), from: sender("TELNYX_FROM") }), ...twilioFallback()],
+  fallback: "on-known-rejection",
+  // Lost on restart and not shared between instances. Use a durable store in production.
+  idempotency: { store: memoryIdempotencyStore() },
+});
+
+export type SendOutcome =
+  | { readonly kind: "accepted"; readonly provider: string; readonly providerId: string }
+  | { readonly kind: "rejected"; readonly reason: string }
+  | { readonly kind: "unknown" };
+
+export async function sendSms(input: { to: E164; body: string; idempotencyKey: string }): Promise<SendOutcome> {
+  try {
+    const result = await sms.send(input);
+    // A replayed send returns the original result, so this insert must ignore an existing row.
+    await db.messages.createIfMissing({ id: result.id, provider: result.provider, providerId: result.providerId, to: input.to, status: result.delivery });
+    return { kind: "accepted", provider: result.provider, providerId: result.providerId };
+  } catch (error) {
+    if (error instanceof HandoffUnknownError) {
+      // The provider may have the message. Never resend; reconcile it first.
+      await db.messages.markNeedsReview(input.idempotencyKey, error.reason);
+      return { kind: "unknown" };
+    }
+    if (error instanceof ProviderRejectedError) return { kind: "rejected", reason: error.category };
+    if (error instanceof AllProvidersRejectedError) {
+      return { kind: "rejected", reason: error.errors.map((rejection) => `${rejection.providerName}: ${rejection.category}`).join(", ") };
+    }
+    throw error;
+  }
+}
+
+export async function handleTelnyxWebhook(request: Request): Promise<Response> {
+  let event: SmsEvent;
+  try {
+    event = await parseSmsWebhook({ provider: "telnyx", request, credentials: { publicKey: env("TELNYX_PUBLIC_KEY") } });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+
+  // Record the event ID and its effects together, so a failed write rolls both back and Telnyx's retry is handled.
+  await db.transaction(async (tx) => {
+    if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+    switch (event.type) {
+      case "message.queued":
+      case "message.sent":
+      case "message.delivered":
+      case "message.undelivered":
+      case "message.filtered":
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+        break;
+      case "recipient.opted_out":
+        await tx.suppressions.add(event.from);
+        break;
+      case "message.received":
+        await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
+        break;
+    }
+  });
+  return new Response(null, { status: 200 });
+}
+```
+
+`sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, so sending again later is safe. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key replays the stored outcome instead of sending again, but `memoryIdempotencyStore()` forgets outcomes when the process restarts. Before production, swap it for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Telnyx rejection that belongs to your Telnyx account, such as bad credentials or an unusable sender; see [Fallback and retries](/sending/fallback-and-retries).
+
+`handleTelnyxWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, and records status, opt-out, and inbound events. `dedupeKey` is the Telnyx event ID, so insert it with a unique constraint (`INSERT ... ON CONFLICT DO NOTHING`) in the same transaction as the writes it guards. If a write fails, the key rolls back with it, the handler answers 500, and Telnyx's retry gets processed. Events can arrive out of order, so keep the furthest status in `updateStatus`: `delivered` must not go back to `sent`.
+
+The routes below import this module as `@/telnyx-sms`, so save it, `db.ts`, and `auth.ts` at your project root, which is where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the API key can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`. If you configure Twilio, its status callbacks need their own route; see [Twilio](/providers/twilio#webhooks).
+
+### 2. Protect the send route
+
+A route that texts any number its caller names is an open SMS relay: anyone who finds it can spend your balance and get your number flagged. Require a signed-in user, and take the recipient and text from your own data, never from the request:
+
+```ts app/api/orders/notify/route.ts
+import { isE164 } from "@opencoredev/sms-sdk";
+import { getSession } from "@/auth";
+import { db } from "@/db";
+import { sendSms } from "@/telnyx-sms";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request): Promise<Response> {
+  const session = await getSession(request);
+  if (session === null) return new Response("Unauthorized", { status: 401 });
+
+  const input: unknown = await request.json().catch(() => null);
+  const orderId = typeof input === "object" && input !== null && "orderId" in input ? input.orderId : undefined;
+  if (typeof orderId !== "string") return new Response("orderId is required", { status: 400 });
+
+  const order = await db.orders.findForUser(orderId, session.userId);
+  if (order === null || !isE164(order.phone)) return new Response("Order not found", { status: 404 });
+
+  const outcome = await sendSms({
+    to: order.phone,
+    body: `Order ${order.id} has shipped.`,
+    idempotencyKey: `order:${order.id}:shipped`,
+  });
+  switch (outcome.kind) {
+    case "accepted":
+      return Response.json(outcome, { status: 200 });
+    case "rejected":
+      return Response.json(outcome, { status: 422 });
+    case "unknown":
+      return Response.json(outcome, { status: 202 });
+    default: {
+      const _exhaustive: never = outcome;
+      return _exhaustive;
+    }
+  }
+}
+```
+
+`getSession` stands for your auth library, and `db.orders.findForUser` returns an order only to its owner. The idempotency key ties the text to the order, so a double click or a retried request sends one message. Add a per-user rate limit as well.
+
+### 3. Receive webhooks in Next.js
+
+```ts app/api/webhooks/telnyx/route.ts
+import { handleTelnyxWebhook } from "@/telnyx-sms";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request): Promise<Response> {
+  return handleTelnyxWebhook(request);
+}
+```
+
+The route hands the untouched `Request` to the handler. Don't call `request.json()` or `request.text()` first, and keep middleware from reading the body, because the signature covers the exact bytes and a body can be read only once. Next.js does not cache `POST` handlers. SMS SDK is tested on Node.js and Bun, which is why the route sets `runtime = "nodejs"`.
+
+Set this route's public HTTPS URL as the webhook URL on your messaging profile, or pass it per message as `webhookUrl`. Telnyx expects a 2xx within 2 seconds and retries otherwise, so store the event and return; do slow work later. To reach your laptop, expose the port with a tunnel; see [Test without a provider](/testing/local-testing).
+
+### 4. Test it offline
+
+These tests send nothing and need no Telnyx account. They replace `fetch` with canned Telnyx and Twilio responses, in order, and sign webhook fixtures with a key pair made for the test, so the real Ed25519 check runs:
+
+```ts telnyx-sms.test.ts
+import { expect, spyOn, test } from "bun:test";
+import { generateTelnyxKeyPair, signedTelnyxRequest } from "@opencoredev/sms-sdk/testing";
+import { db } from "./db";
+
+const { privateKey, publicKey } = await generateTelnyxKeyPair();
+Object.assign(process.env, {
+  TELNYX_API_KEY: "KEY_test",
+  TELNYX_FROM: "+15550100001",
+  TELNYX_PUBLIC_KEY: publicKey,
+  TWILIO_ACCOUNT_SID: "AC0123456789abcdef0123456789abcdef",
+  TWILIO_AUTH_TOKEN: "test",
+  TWILIO_FROM: "+15550100002",
+});
+const { handleTelnyxWebhook, sendSms } = await import("./telnyx-sms");
+
+function fakeFetch(...replies: Response[]) {
+  const fetch = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected network call"));
+  for (const reply of replies) fetch.mockResolvedValueOnce(reply);
+  return fetch;
+}
+
+test("Telnyx accepts the message", async () => {
+  const fetch = fakeFetch(Response.json({ data: { id: "msg_1", to: [{ phone_number: "+14155550123", status: "queued" }] } }));
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 1 has shipped.", idempotencyKey: "order:1:shipped" });
+  expect(outcome).toEqual({ kind: "accepted", provider: "telnyx", providerId: "msg_1" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockRestore();
+});
+
+test("a Telnyx sender rejection falls back to Twilio", async () => {
+  const fetch = fakeFetch(
+    Response.json({ errors: [{ code: "40305", title: "Invalid 'from' address" }] }, { status: 400 }),
+    Response.json({ sid: "SM0123456789abcdef0123456789abcdef", status: "queued" }, { status: 201 }),
+  );
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 2 has shipped.", idempotencyKey: "order:2:shipped" });
+  expect(outcome).toEqual({ kind: "accepted", provider: "twilio", providerId: "SM0123456789abcdef0123456789abcdef" });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockRestore();
+});
+
+test("an unknown outcome stops without trying Twilio", async () => {
+  const fetch = fakeFetch(new Response("Service Unavailable", { status: 503 }));
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 3 has shipped.", idempotencyKey: "order:3:shipped" });
+  expect(outcome).toEqual({ kind: "unknown" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockRestore();
+});
+
+const delivered = {
+  data: {
+    id: "evt_1",
+    event_type: "message.finalized",
+    payload: { id: "msg_1", to: [{ phone_number: "+14155550123", status: "delivered" }] },
+  },
+};
+const url = "https://example.com/api/webhooks/telnyx";
+
+test("a signed delivery event is recorded once", async () => {
+  const updateStatus = spyOn(db.messages, "updateStatus");
+  const first = await handleTelnyxWebhook(await signedTelnyxRequest({ privateKey, url, body: delivered }));
+  const repeat = await handleTelnyxWebhook(await signedTelnyxRequest({ privateKey, url, body: delivered }));
+  expect([first.status, repeat.status]).toEqual([200, 200]);
+  expect(updateStatus).toHaveBeenCalledTimes(1);
+  expect(updateStatus).toHaveBeenCalledWith("msg_1", "message.delivered", undefined);
+});
+
+test("a forged event is refused", async () => {
+  const other = await generateTelnyxKeyPair();
+  const forged = await signedTelnyxRequest({ privateKey: other.privateKey, url, body: delivered });
+  expect((await handleTelnyxWebhook(forged)).status).toBe(401);
+});
+```
+
+Run `bun test` with `db` pointing at a test database. If your `db.transaction` hands the callback a separate client, spy on that client's `updateStatus` instead. The output looks like this:
+
+```txt
+telnyx-sms.test.ts:
+(pass) Telnyx accepts the message [5.58ms]
+(pass) a Telnyx sender rejection falls back to Twilio [1.13ms]
+(pass) an unknown outcome stops without trying Twilio [0.46ms]
+(pass) a signed delivery event is recorded once [1.76ms]
+(pass) a forged event is refused [0.52ms]
+
+ 5 pass
+ 0 fail
+ 10 expect() calls
+Ran 5 tests across 1 file. [23.00ms]
+```
+
+Before the first live send, `npx @opencoredev/sms-sdk doctor --adapter telnyx` checks your variables and sender without sending anything. See [Doctor CLI](/reference/doctor-cli).
+
+## Adapter options
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
@@ -48,7 +435,7 @@ const result = await sms.send({ to: "+14155550123", body: "Your order has shippe
 console.log(result.providerId); // the Telnyx message ID (data.id)
 ```
 
-`telnyx()` throws `ConfigurationError` at startup when `apiKey` is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.telnyx.com`) and `fetch`. To test without a Telnyx account, see [Test without a provider](/testing/local-testing).
+`telnyx()` throws `ConfigurationError` at startup when `apiKey` is empty. Two more options exist for tests and proxies: `baseUrl` (default `https://api.telnyx.com`) and `fetch`.
 
 The adapter calls `POST /v2/messages` with a JSON body. Delivery comes from `data.to[0].status`, usually `queued`. A 2xx without `data.id` is an unknown outcome.
 
@@ -104,29 +491,7 @@ Unknown keys and wrong types throw before any request, and the options go out on
 
 ## Webhooks
 
-```ts
-import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
-import { db } from "./db";
-
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const event = await parseSmsWebhook({
-      provider: "telnyx",
-      request,
-      credentials: { publicKey: process.env.TELNYX_PUBLIC_KEY ?? "" },
-    });
-    if (event.type === "message.delivered" || event.type === "message.undelivered") {
-      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
-    } else if (event.type === "recipient.opted_out") {
-      await db.suppressions.add(event.from);
-    }
-    return new Response(null, { status: 200 });
-  } catch (error) {
-    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
-    throw error;
-  }
-}
-```
+The handler in [Build it with SMS SDK](#1-create-the-client-and-handlers) is the full example. What it relies on:
 
 - **Credential:** your account's Ed25519 public key. A key that is not 32 bytes of base64 fails with `invalid_credentials`.
 - **Point Telnyx at it:** for status, pass `webhookUrl` per message or set the webhook URL on the messaging profile. For inbound, set the inbound webhook URL on the profile the number belongs to.
