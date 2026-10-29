@@ -1,0 +1,696 @@
+---
+// SMS segment calculator. Every number on the page comes from the SDK's own
+// estimateSegments() (through _tools/segments.ts), run in the browser.
+//
+// Direction: the landing page's system, narrowed to one tool.
+// - Reference: the landing page (warm dark ground, DM Sans, JetBrains Mono) and
+//   a carrier's message log, where each part of a long text is its own row.
+// - Palette: the landing tokens; amber (--wait) marks 2-septet characters and
+//   the rust edge (--line-on-edge) marks characters that force UCS-2.
+// - Type: DM Sans for prose, JetBrains Mono for the message and the counts.
+// - Layout: one column. The answer first, then the input, then the readout.
+// - Signature: the message drawn as the segments a phone receives, with every
+//   character that costs extra marked where it sits.
+// - Avoiding: card grids, pill badges, gradient blobs, a hero illustration.
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+
+import { breakDown } from "../_tools/segments";
+
+const { config } = data;
+const pageTitle = "SMS character counter and segment calculator";
+const pageDescription =
+  "Count the characters and segments in a text message. See whether it sends as GSM-7 (160 characters) or UCS-2 (70), and which characters force the switch.";
+
+const initialBody = "Hi Sam, your table for 4 at Rosa's is confirmed for Friday at 7:30 PM. Reply C to cancel.";
+const initial = breakDown(initialBody);
+
+// The examples set the textarea to a known message so the switch is easy to see.
+const examples: { label: string; body: string }[] = [
+  { label: "Plain text", body: initialBody },
+  { label: "Add an emoji", body: `${initialBody} 🍝` },
+  { label: "Curly quotes", body: "Hi Sam, your table at Rosa’s is confirmed for Friday at 7:30 PM. Reply C to cancel." },
+  { label: "161 characters", body: "a".repeat(161) },
+  { label: "Euro signs", body: "Your refund of €25 is on its way. Prices: {€10} [€15] | €0 fees ^_^" },
+];
+
+// segments.test.ts type-checks and runs this sample against the SDK source, so
+// it can't drift from the real API or from the outputs written in it.
+const serverExample = `import { estimateSegments } from "@opencoredev/sms-sdk/encoding";
+
+const body = "Hi Sam, your table for 4 at Rosa's is confirmed for Friday at 7:30 PM. Reply C to cancel.";
+
+const plain = estimateSegments(body);
+console.log(plain.encoding, plain.segments, plain.units); // gsm7 1 89
+
+const withEmoji = estimateSegments(\`\${body} 🍝\`);
+console.log(withEmoji.encoding, withEmoji.segments, withEmoji.units); // ucs2 2 92
+console.log(withEmoji.nonGsmCharacters); // ["🍝"]`;
+
+const extensionCharacters = ["^", "{", "}", "\\", "[", "~", "]", "|", "€"];
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  fontCssVars={data.fontCssVars}
+  themeMode="dark"
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  page={{ title: pageTitle, description: pageDescription, route: "/tools/sms-segment-calculator" }}
+  lastModified="2026-10-29"
+>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=JetBrains+Mono:wght@400&display=swap"
+  />
+
+  <main class="tool">
+    <div class="wrap">
+      <header class="intro">
+        <p class="kicker mono">Free tool · runs in your browser</p>
+        <h1>SMS character counter and segment calculator</h1>
+        <p class="lede">
+          One SMS holds 160 characters when every character is in the GSM-7 alphabet, or 70 when even one character is not,
+          such as an emoji. A few characters count double: <code>€</code> and brackets take 2 of the 160, and most emoji take 2
+          of the 70. Longer messages are split into segments of 153 or 67, and providers bill each segment.
+        </p>
+      </header>
+
+      <section class="calc" aria-labelledby="calc-title">
+        <h2 id="calc-title" class="sr-only">Calculator</h2>
+        <label class="field-label" for="sms-body">Your message</label>
+        <textarea id="sms-body" class="body mono" rows="5" spellcheck="false" data-body>{initialBody}</textarea>
+        <div class="examples" role="group" aria-label="Example messages">
+          <span class="examples-label">Try</span>
+          {examples.map((example) => (
+            <button type="button" class="example" data-example={example.body}>
+              {example.label}
+            </button>
+          ))}
+        </div>
+
+        <dl class="readout" aria-live="polite">
+          <div class="stat stat-main">
+            <dt>Segments</dt>
+            <dd class="mono" data-out="segments">{initial.preview.segments}</dd>
+          </div>
+          <div class="stat">
+            <dt>Encoding</dt>
+            <dd class="mono" data-out="encoding">{initial.preview.encoding === "gsm7" ? "GSM-7" : "UCS-2"}</dd>
+          </div>
+          <div class="stat">
+            <dt>Characters</dt>
+            <dd class="mono" data-out="characters">{initial.characterCount}</dd>
+          </div>
+          <div class="stat">
+            <dt data-out="units-label">{initial.preview.encoding === "gsm7" ? "Septets" : "Code units"}</dt>
+            <dd class="mono" data-out="units">{initial.preview.units}</dd>
+          </div>
+          <div class="stat">
+            <dt>Left in this segment</dt>
+            <dd class="mono" data-out="remaining">{initial.preview.remainingInSegment}</dd>
+          </div>
+        </dl>
+
+        <p class="why" data-out="why">
+          {
+            initial.preview.encoding === "gsm7"
+              ? `Every character is GSM-7, so each segment holds ${initial.preview.unitsPerSegment} septets.`
+              : `UCS-2 because of: ${initial.preview.nonGsmCharacters.join(" ")}`
+          }
+        </p>
+
+        <ol class="parts" data-out="parts" aria-label="How the message splits into segments">
+          {initial.segments.map((segment, index) => (
+            <li class="part">
+              <span class="part-head mono">
+                <span>Segment {index + 1}</span>
+                <span>
+                  {segment.units}/{initial.preview.unitsPerSegment}
+                </span>
+              </span>
+              <span class="part-text mono">
+                {segment.characters.map((character) =>
+                  character.kind === "basic" ? character.text : <mark class={character.kind}>{character.text}</mark>,
+                )}
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <p class="legend">
+          <span><mark class="extension">€</mark> counts 2 septets</span>
+          <span><mark class="unicode">’</mark> forces UCS-2 for the whole message</span>
+        </p>
+        <p class="note">
+          Counted with <code>estimateSegments()</code> from <a class="u" href="/reference/validate">SMS SDK</a>, in this tab.
+          Your text never leaves the page.
+        </p>
+      </section>
+
+      <article class="prose">
+        <h2>How SMS length is counted</h2>
+        <p>
+          A message uses GSM-7 when every character is in the GSM 03.38 alphabet or its extension table. If any character is
+          outside it, the whole message switches to UCS-2, which fits fewer characters in each segment.
+        </p>
+        <div class="table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Encoding</th>
+                <th scope="col">Counts</th>
+                <th scope="col">One SMS holds</th>
+                <th scope="col">Each part of a longer message holds</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>GSM-7</td>
+                <td>Septets</td>
+                <td class="mono">160</td>
+                <td class="mono">153</td>
+              </tr>
+              <tr>
+                <td>UCS-2</td>
+                <td>UTF-16 code units</td>
+                <td class="mono">70</td>
+                <td class="mono">67</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          A longer message loses a few units in each part to the header that tells the phone how to join the parts. That is
+          why 161 GSM-7 characters cost 2 segments, and 307 cost 3.
+        </p>
+
+        <h2>Characters that count double</h2>
+        <p>
+          The GSM-7 extension table holds characters that cost 2 septets each, because each is sent as an escape plus the
+          character: {extensionCharacters.map((character) => <code>{character}</code>)} and the form feed. Eighty euro signs fill
+          one 160-septet SMS. The two septets never split across segments.
+        </p>
+
+        <h2>Why one emoji makes a message cost more</h2>
+        <p>
+          One character outside GSM-7 switches the whole message to UCS-2, so the limit drops from 160 to 70. An 89-character
+          message that fit in one segment needs two once you add an emoji. Most emoji count 2 UTF-16 code units, and they are
+          never split across segments.
+        </p>
+        <p>
+          Emoji aren't the only cause. Curly quotes (<code>’</code> <code>“ ”</code>), long dashes, and many accented letters do the
+          same, and they often arrive by copying text from a document. The calculator above marks each one.
+        </p>
+
+        <h2>Count segments in your code</h2>
+        <p>
+          The calculator runs <code>estimateSegments()</code> from <code>@opencoredev/sms-sdk</code>, a TypeScript library for
+          sending SMS through your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. You can run the same check on
+          your server before you send:
+        </p>
+        <pre class="code"><code>{serverExample}</code></pre>
+        <p>
+          Install it with <code>npm install @opencoredev/sms-sdk</code>. <code>sms.validate()</code> returns the same estimate along
+          with checks for the recipient and your provider, and every send result reports <code>encoding</code> and
+          <code>segments</code>. See <a class="u" href="/sending/length-and-cost">Message length and cost</a> to block messages
+          that grow past a limit.
+        </p>
+
+        <h2>The count is an estimate, not a price</h2>
+        <p>
+          The count is how a standard handset splits the message. Your provider's count can differ, for example when it
+          replaces curly quotes before sending or the route has its own length limit. For money, use your provider's pricing
+          page and invoices. <a class="u" href="/sending/length-and-cost">Message length and cost</a> covers provider limits
+          and how to refuse messages that grow too long.
+        </p>
+
+        <nav class="next" aria-label="Related pages">
+          <a class="u" href="/sending/length-and-cost">Message length and cost</a>
+          <a class="u" href="/reference/validate">validate() and estimateSegments() reference</a>
+          <a class="u" href="/getting-started/quick-start">SMS SDK quick start</a>
+        </nav>
+      </article>
+    </div>
+  </main>
+</PageLayout>
+
+<style>
+  .tool {
+    --bg: #121110;
+    --surface: #181715;
+    --line: #262420;
+    --line-2: #34312c;
+    --text: #e9e6df;
+    --muted: #8f8c84;
+    --rule: #4a4741;
+    --ext: #d8c79b;
+    --ext-bg: rgba(216, 199, 155, 0.14);
+    --uni: #e8957a;
+    --uni-bg: rgba(217, 119, 87, 0.18);
+    --focus: #e9e6df;
+    --sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 16px/1.6 var(--sans);
+    min-height: 100vh;
+  }
+  /* Light mode: the landing page's paper palette. Text colors meet 4.5:1 on --bg and --surface. */
+  :global(:root[data-theme="light"]) .tool {
+    --bg: #f7f5f0;
+    --surface: #f1eee7;
+    --line: #e3dfd6;
+    --line-2: #d4cfc4;
+    --text: #1c1a17;
+    --muted: #6b6760;
+    --rule: #b9b3a8;
+    --ext: #7a4f12;
+    --ext-bg: rgba(138, 90, 31, 0.14);
+    --uni: #a8473b;
+    --uni-bg: rgba(196, 97, 63, 0.16);
+    --focus: #1c1a17;
+  }
+  .tool :is(h1, h2, p, button, label, dt, td, th, a) {
+    font-family: var(--sans);
+  }
+  .tool :is(code, pre, .mono, textarea) {
+    font-family: var(--mono);
+  }
+  .tool a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+  .u {
+    text-decoration: underline !important;
+    text-decoration-color: var(--rule) !important;
+    text-underline-offset: 4px;
+    transition: text-decoration-color 0.15s;
+  }
+  .u:hover {
+    text-decoration-color: var(--text) !important;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .intro {
+    padding: 88px 0 32px;
+  }
+  .kicker {
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  h1 {
+    font-weight: 500;
+    font-size: 44px;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  .calc {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 24px;
+  }
+  .field-label {
+    display: block;
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .body {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 132px;
+    resize: vertical;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line-2);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .body:focus-visible,
+  .example:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .examples-label {
+    font-size: 14px;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .example {
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition:
+      border-color 0.15s,
+      background-color 0.15s;
+  }
+  .example:hover {
+    border-color: var(--rule);
+    background: var(--bg);
+  }
+  .example:active {
+    transform: scale(0.97);
+  }
+
+  .readout {
+    display: grid;
+    grid-template-columns: 1.3fr repeat(4, 1fr);
+    margin: 24px 0 0;
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    gap: 16px;
+  }
+  .stat {
+    margin: 0;
+  }
+  .stat dt {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .stat dd {
+    margin: 0;
+    font-size: 24px;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-main dd {
+    font-size: 40px;
+    line-height: 1.05;
+  }
+  .why {
+    margin: 16px 0 0;
+    font-size: 14px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  .parts {
+    list-style: none;
+    margin: 20px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .parts :global(.part) {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    padding: 10px 14px 12px;
+  }
+  .parts :global(.part-head) {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .parts :global(.part-text) {
+    display: block;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .parts :global(.part-empty) {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .tool :global(mark) {
+    border-radius: 3px;
+    padding: 0 1px;
+  }
+  .tool :global(mark.extension) {
+    background: var(--ext-bg);
+    color: var(--ext);
+    box-shadow: inset 0 -2px 0 var(--ext);
+  }
+  .tool :global(mark.unicode) {
+    background: var(--uni-bg);
+    color: var(--uni);
+    box-shadow: inset 0 -2px 0 var(--uni);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin: 14px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .legend mark {
+    font-family: var(--mono);
+    margin-right: 4px;
+  }
+  .note {
+    margin: 10px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .note code {
+    font-size: 12px;
+  }
+
+  .prose {
+    padding-top: 24px;
+  }
+  .prose h2 {
+    font-weight: 500;
+    font-size: 26px;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    margin: 48px 0 12px;
+  }
+  .prose p {
+    margin: 0 0 16px;
+    color: var(--text);
+    text-wrap: pretty;
+  }
+  .prose code {
+    font-size: 0.88em;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+  .prose p code + code {
+    margin-left: 4px;
+  }
+  .table {
+    overflow-x: auto;
+    margin: 0 0 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  th {
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .code {
+    margin: 0 0 16px;
+    padding: 16px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+  .prose .code code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: inherit;
+  }
+  .next {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 15px;
+  }
+
+  @media (max-width: 720px) {
+    .intro {
+      padding: 56px 0 24px;
+    }
+    h1 {
+      font-size: 32px;
+    }
+    .lede {
+      font-size: 16px;
+    }
+    .calc {
+      padding: 16px;
+    }
+    .readout {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .stat-main {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .example,
+    .u {
+      transition: none;
+    }
+    .example:active {
+      transform: none;
+    }
+  }
+</style>
+
+<script>
+  import { breakDown, type SegmentBreakdown } from "../_tools/segments";
+
+  const render = (root: HTMLElement, result: SegmentBreakdown) => {
+    const { preview } = result;
+    const set = (name: string, value: string) => {
+      const target = root.querySelector<HTMLElement>(`[data-out="${name}"]`);
+      if (target) target.textContent = value;
+    };
+    set("segments", String(preview.segments));
+    set("encoding", preview.encoding === "gsm7" ? "GSM-7" : "UCS-2");
+    set("characters", String(result.characterCount));
+    set("units-label", preview.encoding === "gsm7" ? "Septets" : "Code units");
+    set("units", String(preview.units));
+    set("remaining", String(preview.remainingInSegment));
+    set(
+      "why",
+      preview.units === 0
+        ? "An empty message is 0 segments."
+        : preview.encoding === "gsm7"
+          ? `Every character is GSM-7, so each segment holds ${preview.unitsPerSegment} septets.`
+          : `UCS-2 because of: ${preview.nonGsmCharacters.join(" ")}`,
+    );
+
+    const list = root.querySelector<HTMLOListElement>('[data-out="parts"]');
+    if (!list) return;
+    if (result.segments.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "part part-empty";
+      empty.textContent = "Type a message above to see how it splits.";
+      list.replaceChildren(empty);
+      return;
+    }
+    list.replaceChildren(
+      ...result.segments.map((segment, index) => {
+        const item = document.createElement("li");
+        item.className = "part";
+        const head = document.createElement("span");
+        head.className = "part-head mono";
+        const name = document.createElement("span");
+        name.textContent = `Segment ${index + 1}`;
+        const fill = document.createElement("span");
+        fill.textContent = `${segment.units}/${preview.unitsPerSegment}`;
+        head.append(name, fill);
+        const text = document.createElement("span");
+        text.className = "part-text mono";
+        // Runs of plain characters go in as one text node, so a long paste stays cheap to redraw.
+        let run = "";
+        for (const character of segment.characters) {
+          if (character.kind === "basic") {
+            run += character.text;
+            continue;
+          }
+          if (run) text.append(run);
+          run = "";
+          const mark = document.createElement("mark");
+          mark.className = character.kind;
+          mark.textContent = character.text;
+          text.append(mark);
+        }
+        if (run) text.append(run);
+        item.append(head, text);
+        return item;
+      }),
+    );
+  };
+
+  const setupCalculator = () => {
+    const root = document.querySelector<HTMLElement>(".calc");
+    const input = root?.querySelector<HTMLTextAreaElement>("[data-body]");
+    if (!root || !input) return;
+    const update = () => render(root, breakDown(input.value));
+    input.addEventListener("input", update);
+    root.querySelectorAll<HTMLButtonElement>("[data-example]").forEach((button) => {
+      button.addEventListener("click", () => {
+        input.value = button.dataset.example ?? "";
+        update();
+        input.focus();
+      });
+    });
+    update();
+  };
+
+  // ClientRouter swaps pages without a full load, so run setup on every page view.
+  document.addEventListener("astro:page-load", setupCalculator);
+</script>

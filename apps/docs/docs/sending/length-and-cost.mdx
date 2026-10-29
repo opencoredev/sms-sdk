@@ -77,6 +77,8 @@ console.log(estimateSegments(`${body} 🎉`).segments); // 2 (ucs2, 90 code unit
 
 Curly quotes (`“ ”`), long dashes, and many accented letters do the same. The SDK never rewrites your text to stay in GSM-7. `nonGsmCharacters` lists what forced UCS-2, so you can change the text yourself.
 
+To check a message by hand, paste it into the [SMS segment calculator](/tools/sms-segment-calculator). It runs `estimateSegments()` in your browser and marks every character that costs extra.
+
 `estimateSegments(body)` is also exported from `@opencoredev/sms-sdk/encoding`, and every `SmsSendResult` includes `encoding` and `segments`.
 
 ## The estimate is not a price
@@ -118,3 +120,4 @@ A refused message throws `PolicyRejectedError` before any request, so nothing is
 
 - [validate() reference](/reference/validate)
 - [Block and log sends](/advanced/policy-and-hooks)
+- [SMS segment calculator](/tools/sms-segment-calculator)

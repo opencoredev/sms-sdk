@@ -73,6 +73,8 @@ export default defineConfig({
         "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` verifies the request before reading it and returns one event shape for every provider.",
         "- `memory()` from `@opencoredev/sms-sdk/testing` sends nothing, for tests.",
         "",
+        "- The SMS segment calculator at https://www.sms-sdk.com/tools/sms-segment-calculator counts a message's characters, GSM-7 or UCS-2 encoding, and segments with `estimateSegments()`.",
+        "",
         "Every page below is also available as Markdown: append `.md` to its URL.",
       ].join("\n"),
     },
