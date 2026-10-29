@@ -138,6 +138,6 @@ Usually, by porting them to the new provider. A port moves the number off your T
 
 Plan for it. A2P 10DLC brands and campaigns, toll-free verifications, and short codes are set up in one provider account and don't move with your code or automatically with your numbers. Some providers can migrate an existing 10DLC campaign from another provider, so ask the new one before registering from scratch. See [Registration and consent](/providers/registration-and-consent).
 
-### Can I test against a provider without sending real messages?
+### Can I test my SMS code without sending real messages?
 
-Yes. `memory()` from `@opencoredev/sms-sdk/testing` sends nothing and records each message, and the doctor CLI checks an adapter's configuration without sending. See [Local testing](/testing/local-testing) and the [doctor CLI](/reference/doctor-cli).
+Yes. `memory()` from `@opencoredev/sms-sdk/testing` records simulated sends, and the doctor CLI checks an adapter's configuration locally without sending. Neither verifies your provider credentials, sender registration, or webhook setup. See [Local testing](/testing/local-testing) and the [doctor CLI](/reference/doctor-cli).
