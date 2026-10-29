@@ -46,10 +46,12 @@ export default defineConfig({
   navigation: {
     sidebar: { display: "flat" },
     // The blog gets its own tab, so docs/blog stays out of the docs sidebar
-    // and /blog/* shows only posts.
-    tabs: [{ label: "Blog", path: "/blog" }],
+    // and /blog/* shows only posts. Every other route belongs to Docs.
+    tabs: [
+      { label: "Docs", path: "/", href: "/getting-started/overview" },
+      { label: "Blog", path: "/blog" },
+    ],
     actions: [
-      { label: "Docs", href: "/getting-started/overview" },
       { label: "Providers", href: "/providers/overview" },
       { label: "GitHub", href: "https://github.com/opencoredev/sms-sdk" },
     ],
