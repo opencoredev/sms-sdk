@@ -105,7 +105,7 @@ console.log(preview.encoding, preview.units, preview.segments); // "gsm7" 20 1
 | `containsUnicode` | `boolean` | At least one character forced UCS-2. |
 | `nonGsmCharacters` | `readonly string[]` | Distinct characters that forced UCS-2, in order of first appearance. |
 
-Extension characters and surrogate pairs never split across segments, and nothing is transliterated. The result is an estimate, not a price. See [Message length and cost](/sending/length-and-cost).
+Extension characters and surrogate pairs never split across segments, and nothing is transliterated. The result is an estimate, not a price. See [Message length and cost](/sending/length-and-cost). To try it on a message without writing code, use the [SMS segment calculator](/tools/sms-segment-calculator), which runs this function in the browser.
 
 ### `isGsm7(text)`
 
