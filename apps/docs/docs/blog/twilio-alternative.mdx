@@ -23,22 +23,22 @@ When you switch providers, some things move with you and some don't:
 | --- | --- |
 | Your sending code | Only if it isn't written against the old provider's SDK |
 | Phone numbers | Only by porting them, which takes them off the old account |
-| A2P 10DLC brands and campaigns, toll-free verifications | No. Register again on the new provider. |
+| A2P 10DLC brands and campaigns, toll-free verifications | Not automatically. Some providers can migrate an existing 10DLC campaign; otherwise you register again. Ask the new provider. |
 | Webhook URLs and their verification | No. New URLs, new credentials, and often a new signature scheme. |
 | Opt-outs the old provider tracked for you | No. Export them into your own suppression list. |
 | Message history and IDs | No. Old IDs stay with the old provider. |
 
 ## How the alternatives differ for a developer
 
-Prices change and depend on country, number type, and volume, so this post doesn't list them. Check each provider's own pricing page. What follows is what changes in your code.
+Prices change and depend on country, number type, and volume, so this post doesn't list them. Check each provider's own pricing page. What follows is what changes in your code. The limits column describes what SMS SDK's adapter sends today; some providers offer more through their own API, such as MMS on Bandwidth.
 
-| Provider | API | Webhook verification | Worth knowing | SMS SDK adapter |
+| Provider | API | Webhook verification | Limits through SMS SDK | SMS SDK adapter |
 | --- | --- | --- | --- | --- |
 | Twilio | Programmable Messaging | HMAC-SHA1 with your Auth Token | Scheduling needs a Messaging Service sender | [Supported](/providers/twilio) |
 | Telnyx | Messaging API v2 | Ed25519 signature with a timestamp, checked against your public key | No validity period. Alphanumeric senders need a messaging profile. | [Supported](/providers/telnyx) |
-| Plivo | Message API v1 | HMAC-SHA256 (V2) with your Auth Token. The body isn't signed and there's no timestamp. | No scheduled sends. Error bodies aren't documented. | [Partial](/providers/plivo) |
+| Plivo | Message API v1 | HMAC-SHA256 (V2) with your Auth Token. The body isn't signed and there's no timestamp. | No scheduled sends. Plivo doesn't document its error bodies, so fewer rejections are recognized. | [Partial](/providers/plivo) |
 | Vonage | Messages API v1 | JWT (HS256) signed with your signature secret | No MMS or short codes. Basic auth gets no webhooks, so use JWT. | [Partial](/providers/vonage) |
-| Bandwidth | Messaging API v2 | Not signed. Checked with Basic credentials you set on the application. | SMS only. No per-message webhook URL. | [Partial](/providers/bandwidth) |
+| Bandwidth | Messaging API v2 | Not signed. Checked with Basic credentials you set on the application. | Text only, no MMS. No per-message webhook URL. | [Partial](/providers/bandwidth) |
 | Sinch | SMS API (`/xms/v1`) | Basic credentials, or HMAC configured through your account manager | No MMS. Ask for delivery reports per message to get status webhooks. | [Partial](/providers/sinch) |
 
 "Partial" means SMS SDK's adapter passes the same contract tests as the others, but some of the provider's behavior couldn't be confirmed from its official documentation. In practice, fewer rejections are recognized, so automatic fallback triggers less often. Each provider page lists the gaps, and [Choose a provider](/providers/overview) has the full capability and sender tables.
@@ -116,9 +116,9 @@ Each adapter sends from its own number, so recipients can see two different send
 
 ## When to stay on Twilio
 
-Switching isn't free. You register senders again, move webhooks, and carry over opt-outs. Stay put if your numbers and registrations work and you have no concrete problem to solve.
+Switching isn't free. You usually register senders again, move webhooks, and carry over opt-outs. Stay put if your numbers and registrations work and you have no concrete problem to solve.
 
-SMS SDK also covers SMS only. If you rely on Twilio Verify, Conversations, WhatsApp, voice, TwiML replies, or Content Templates, keep the Twilio SDK for those. The two libraries can run side by side.
+SMS SDK covers sending and receiving text messages, plus MMS on Twilio, Telnyx, and Plivo. If you rely on Twilio Verify, Conversations, WhatsApp, voice, TwiML replies, or Content Templates, keep the Twilio SDK for those. The two libraries can run side by side.
 
 ## When a notification platform fits better
 
@@ -136,7 +136,7 @@ Usually, by porting them to the new provider. A port moves the number off your T
 
 ### Do I have to register 10DLC again?
 
-Yes. A2P 10DLC brands and campaigns, toll-free verifications, and short codes belong to one provider account and don't transfer. See [Registration and consent](/providers/registration-and-consent).
+Plan for it. A2P 10DLC brands and campaigns, toll-free verifications, and short codes are set up in one provider account and don't move with your code or automatically with your numbers. Some providers can migrate an existing 10DLC campaign from another provider, so ask the new one before registering from scratch. See [Registration and consent](/providers/registration-and-consent).
 
 ### Can I test against a provider without sending real messages?
 
