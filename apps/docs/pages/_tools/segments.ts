@@ -18,7 +18,11 @@ import {
 const BASIC = new Set(GSM7_BASIC_CHARACTERS);
 const EXTENSION = new Set(GSM7_EXTENSION_CHARACTERS);
 
-/** How one character is encoded: plain GSM-7, a 2-septet extension character, or a character that forces UCS-2. */
+/**
+ * What one character costs: a plain unit, a 2-septet GSM-7 extension character,
+ * or a character that forces UCS-2. In a UCS-2 message, extension characters
+ * are plain: they cost one code unit like any other.
+ */
 export type CharacterKind = "basic" | "extension" | "unicode";
 
 export type CountedCharacter = {
@@ -40,9 +44,9 @@ export type SegmentBreakdown = {
   readonly segments: readonly Segment[];
 };
 
-function kindOf(character: string): CharacterKind {
+function kindOf(character: string, encoding: SegmentPreview["encoding"]): CharacterKind {
   if (BASIC.has(character)) return "basic";
-  if (EXTENSION.has(character)) return "extension";
+  if (EXTENSION.has(character)) return encoding === "gsm7" ? "extension" : "basic";
   return "unicode";
 }
 
@@ -50,7 +54,7 @@ function kindOf(character: string): CharacterKind {
 export function breakDown(body: string): SegmentBreakdown {
   const preview = estimateSegments(body);
   const characters = Array.from(body, (text): CountedCharacter => {
-    const kind = kindOf(text);
+    const kind = kindOf(text, preview.encoding);
     const units = preview.encoding === "ucs2" ? text.length : kind === "extension" ? 2 : 1;
     return { text, kind, units };
   });

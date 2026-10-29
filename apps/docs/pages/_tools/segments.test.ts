@@ -45,8 +45,18 @@ describe("breakDown", () => {
   });
 
   test("marks extension and UCS-2 characters", () => {
-    const kinds = breakDown("a€ê").segments.flatMap((segment) => segment.characters.map((character) => character.kind));
-    expect(kinds).toEqual(["basic", "extension", "unicode"]);
+    const kinds = (body: string) =>
+      breakDown(body).segments.flatMap((segment) => segment.characters.map((character) => character.kind));
+    expect(kinds("a€")).toEqual(["basic", "extension"]);
+    expect(kinds("aê")).toEqual(["basic", "unicode"]);
+  });
+
+  test("does not mark extension characters as double in a UCS-2 message", () => {
+    const characters = breakDown("€🍝").segments.flatMap((segment) => segment.characters);
+    expect(characters.map((character) => [character.kind, character.units])).toEqual([
+      ["basic", 1],
+      ["unicode", 2],
+    ]);
   });
 });
 

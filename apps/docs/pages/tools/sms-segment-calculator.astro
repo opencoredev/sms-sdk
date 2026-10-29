@@ -654,16 +654,21 @@ const extensionCharacters = ["^", "{", "}", "\\", "[", "~", "]", "|", "€"];
         head.append(name, fill);
         const text = document.createElement("span");
         text.className = "part-text mono";
+        // Runs of plain characters go in as one text node, so a long paste stays cheap to redraw.
+        let run = "";
         for (const character of segment.characters) {
           if (character.kind === "basic") {
-            text.append(character.text);
-          } else {
-            const mark = document.createElement("mark");
-            mark.className = character.kind;
-            mark.textContent = character.text;
-            text.append(mark);
+            run += character.text;
+            continue;
           }
+          if (run) text.append(run);
+          run = "";
+          const mark = document.createElement("mark");
+          mark.className = character.kind;
+          mark.textContent = character.text;
+          text.append(mark);
         }
+        if (run) text.append(run);
         item.append(head, text);
         return item;
       }),
