@@ -20,5 +20,5 @@
     "version-packages": "changeset version && bun install --lockfile-only",
     "release": "changeset publish"
   },
-  "packageManager": "bun@1.3.14"
+  "packageManager": "bun@1.4.2"
 }
