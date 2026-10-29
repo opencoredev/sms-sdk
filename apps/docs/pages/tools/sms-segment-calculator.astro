@@ -80,7 +80,8 @@ const extensionCharacters = ["^", "{", "}", "\\", "[", "~", "]", "|", "€"];
         <h1>SMS character counter and segment calculator</h1>
         <p class="lede">
           One SMS holds 160 characters when every character is in the GSM-7 alphabet, or 70 when even one character is not,
-          such as an emoji. Longer messages are split into segments of 153 or 67, and providers bill each segment.
+          such as an emoji. A few characters count double: <code>€</code> and brackets take 2 of the 160, and most emoji take 2
+          of the 70. Longer messages are split into segments of 153 or 67, and providers bill each segment.
         </p>
       </header>
 
@@ -227,10 +228,10 @@ const extensionCharacters = ["^", "{", "}", "\\", "[", "~", "]", "|", "€"];
 
         <h2>The count is an estimate, not a price</h2>
         <p>
-          The count is how a standard handset splits the message. Your provider's count can differ: some can replace curly
-          quotes before sending (Twilio calls this smart encoding), and some toll-free and international routes split messages
-          differently or cap their length. Twilio accepts at most 1600 characters and Bandwidth 2048. For money, use your
-          provider's pricing page and invoices.
+          The count is how a standard handset splits the message. Your provider's count can differ, for example when it
+          replaces curly quotes before sending or the route has its own length limit. For money, use your provider's pricing
+          page and invoices. <a class="u" href="/sending/length-and-cost">Message length and cost</a> covers provider limits
+          and how to refuse messages that grow too long.
         </p>
 
         <nav class="next" aria-label="Related pages">
@@ -460,8 +461,8 @@ const extensionCharacters = ["^", "{", "}", "\\", "[", "~", "]", "|", "€"];
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  .parts :global(.part-text:empty)::before {
-    content: "Type a message above.";
+  .parts :global(.part-empty) {
+    font-size: 14px;
     color: var(--muted);
   }
   .tool :global(mark) {
@@ -633,9 +634,15 @@ const extensionCharacters = ["^", "{", "}", "\\", "[", "~", "]", "|", "€"];
 
     const list = root.querySelector<HTMLOListElement>('[data-out="parts"]');
     if (!list) return;
-    const parts = result.segments.length === 0 ? [{ characters: [], units: 0 }] : result.segments;
+    if (result.segments.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "part part-empty";
+      empty.textContent = "Type a message above to see how it splits.";
+      list.replaceChildren(empty);
+      return;
+    }
     list.replaceChildren(
-      ...parts.map((segment, index) => {
+      ...result.segments.map((segment, index) => {
         const item = document.createElement("li");
         item.className = "part";
         const head = document.createElement("span");

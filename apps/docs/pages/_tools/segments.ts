@@ -35,7 +35,7 @@ export type Segment = {
 
 export type SegmentBreakdown = {
   readonly preview: SegmentPreview;
-  /** Characters as the user sees them (code points), not UTF-16 code units. */
+  /** Unicode code points, not UTF-16 code units. A joined emoji such as a family counts several. */
   readonly characterCount: number;
   readonly segments: readonly Segment[];
 };
