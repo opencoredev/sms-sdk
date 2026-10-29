@@ -1,0 +1,143 @@
+---
+title: "Twilio alternatives for developers: switch SMS providers without a rewrite"
+type: blog
+date: 2026-10-29
+description: "Looking for a Twilio alternative for transactional SMS? How Telnyx, Plivo, Vonage, Bandwidth, and Sinch differ for developers, what a switch changes, and how to keep it to one adapter change in TypeScript."
+---
+
+Most lists of Twilio alternatives compare vendors on price, support plans, and dashboards. If you send SMS from your own backend, there's a second question they skip: how much code and account work it takes to leave, and how to avoid paying that cost again next time.
+
+This post covers that. It names the providers developers usually move to, shows what changes in your code and your account when you switch, and shows how to make the code part a one-line change.
+
+SMS SDK, which this site documents, is an open-source TypeScript library that calls your own provider account. It is not a carrier and doesn't send messages itself. You still pick a provider; the library keeps your code the same whichever one you pick.
+
+## The short answer
+
+For transactional SMS through an API (one-time codes, notifications, alerts), the usual alternatives to Twilio are **Telnyx**, **Plivo**, **Vonage**, **Bandwidth**, and **Sinch**. Each sells phone numbers, handles carrier registration, and has a REST API for sending.
+
+Hosted notification platforms such as Courier and Novu are a different kind of product. They add templates, user preferences, and routing across email, push, and SMS, and they still send SMS through a provider account like the ones above.
+
+When you switch providers, some things move with you and some don't:
+
+| What | Moves to the new provider? |
+| --- | --- |
+| Your sending code | Only if it isn't written against the old provider's SDK |
+| Phone numbers | Only by porting them, which takes them off the old account |
+| A2P 10DLC brands and campaigns, toll-free verifications | No. Register again on the new provider. |
+| Webhook URLs and their verification | No. New URLs, new credentials, and often a new signature scheme. |
+| Opt-outs the old provider tracked for you | No. Export them into your own suppression list. |
+| Message history and IDs | No. Old IDs stay with the old provider. |
+
+## How the alternatives differ for a developer
+
+Prices change and depend on country, number type, and volume, so this post doesn't list them. Check each provider's own pricing page. What follows is what changes in your code.
+
+| Provider | API | Webhook verification | Worth knowing | SMS SDK adapter |
+| --- | --- | --- | --- | --- |
+| Twilio | Programmable Messaging | HMAC-SHA1 with your Auth Token | Scheduling needs a Messaging Service sender | [Supported](/providers/twilio) |
+| Telnyx | Messaging API v2 | Ed25519 signature with a timestamp, checked against your public key | No validity period. Alphanumeric senders need a messaging profile. | [Supported](/providers/telnyx) |
+| Plivo | Message API v1 | HMAC-SHA256 (V2) with your Auth Token. The body isn't signed and there's no timestamp. | No scheduled sends. Error bodies aren't documented. | [Partial](/providers/plivo) |
+| Vonage | Messages API v1 | JWT (HS256) signed with your signature secret | No MMS or short codes. Basic auth gets no webhooks, so use JWT. | [Partial](/providers/vonage) |
+| Bandwidth | Messaging API v2 | Not signed. Checked with Basic credentials you set on the application. | SMS only. No per-message webhook URL. | [Partial](/providers/bandwidth) |
+| Sinch | SMS API (`/xms/v1`) | Basic credentials, or HMAC configured through your account manager | No MMS. Ask for delivery reports per message to get status webhooks. | [Partial](/providers/sinch) |
+
+"Partial" means SMS SDK's adapter passes the same contract tests as the others, but some of the provider's behavior couldn't be confirmed from its official documentation. In practice, fewer rejections are recognized, so automatic fallback triggers less often. Each provider page lists the gaps, and [Choose a provider](/providers/overview) has the full capability and sender tables.
+
+If you want the closest match to Twilio's documented behavior, Telnyx is the one whose error codes and webhooks SMS SDK covers as fully as Twilio's. It also supports MMS, short codes, and scheduled sends from any sender.
+
+## Why switching usually means a rewrite
+
+If your code calls the `twilio` package directly, every SMS path depends on Twilio's shapes: `client.messages.create()` and its field names, Twilio error codes such as 21610 for an unsubscribed recipient, `twilio.validateRequest()` for webhooks, and Twilio's status values in callbacks. Each alternative has its own client, field names, error codes, signature scheme, and statuses. Switching means rewriting the send path, the error handling, and the webhook routes, then testing all of it again.
+
+## Write it once
+
+With SMS SDK, the provider is a configuration choice. Here's a client that sends through Telnyx:
+
+```ts sms.ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+
+export const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" })],
+});
+```
+
+The code that sends doesn't name the provider:
+
+```ts
+import { HandoffUnknownError, ProviderRejectedError } from "@opencoredev/sms-sdk";
+import { sms } from "./sms";
+
+try {
+  const result = await sms.send({ to: "+14155550123", body: "Your order has shipped." });
+  console.log(result.provider, result.providerId);
+} catch (error) {
+  if (error instanceof ProviderRejectedError) {
+    console.log(error.category); // "recipient", "compliance", "sender", ... the same on every provider
+  } else if (error instanceof HandoffUnknownError) {
+    // The provider may have the message. Don't resend it blindly.
+  } else {
+    throw error;
+  }
+}
+```
+
+Moving from Twilio to Telnyx, or from Telnyx to Plivo, changes the adapter import and its credentials. The `send()` calls, the error categories, and the webhook events stay the same. `parseSmsWebhook()` verifies each provider's signature scheme and returns one event shape, so a single handler covers delivery updates, inbound messages, and STOP replies from any of them. A field the new provider can't send, such as a validity period on Telnyx, throws `UnsupportedFieldError` before any request, so it can't be dropped silently.
+
+Coming from the `twilio` package? [Migrate from the Twilio SDK](/migration/migrate-from-twilio) moves your code first while you stay on Twilio. [Switch providers](/migration/switch-providers) then covers the account side, webhooks, opt-outs, and a rollback path.
+
+## Try an alternative without leaving Twilio
+
+You don't have to move everything at once. List both providers and turn on fallback:
+
+```ts sms.ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+export const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
+  ],
+  fallback: "on-known-rejection",
+});
+```
+
+Twilio sends first. Telnyx sends only when Twilio refuses the message for a reason tied to that account: bad credentials, a rate limit, a sender problem, or an account problem. A bad recipient number, an opt-out, or a malformed request never falls back, because the second provider would refuse it too, or because sending it would get around an opt-out.
+
+If Twilio times out or returns a 5xx, it may have sent the message. SMS SDK throws `HandoffUnknownError` and sends nothing else, so nobody gets the same text twice. [Fallback and retries](/sending/fallback-and-retries) has the details.
+
+Each adapter sends from its own number, so recipients can see two different senders while both are in use. Once the second provider handles your traffic well, swap the order or drop the first adapter.
+
+## When to stay on Twilio
+
+Switching isn't free. You register senders again, move webhooks, and carry over opt-outs. Stay put if your numbers and registrations work and you have no concrete problem to solve.
+
+SMS SDK also covers SMS only. If you rely on Twilio Verify, Conversations, WhatsApp, voice, TwiML replies, or Content Templates, keep the Twilio SDK for those. The two libraries can run side by side.
+
+## When a notification platform fits better
+
+If you want templates your team edits in a dashboard, per-user notification preferences, and one API for email, push, and SMS, look at a hosted platform such as Courier or Novu. You still bring an SMS provider. A library fits better when SMS is a handful of code paths in your backend and you don't want another hosted service in the path of every message.
+
+## FAQ
+
+### Is SMS SDK a Twilio alternative?
+
+Not by itself. It's a library, not a provider. It lets you use Twilio or any of its alternatives through one API, so switching later is an adapter change instead of a rewrite.
+
+### Can I keep my phone numbers when I leave Twilio?
+
+Usually, by porting them to the new provider. A port moves the number off your Twilio account, so plan the cutover around it. Until the port completes, you can send from a new number on the new provider.
+
+### Do I have to register 10DLC again?
+
+Yes. A2P 10DLC brands and campaigns, toll-free verifications, and short codes belong to one provider account and don't transfer. See [Registration and consent](/providers/registration-and-consent).
+
+### Can I test against a provider without sending real messages?
+
+Yes. `memory()` from `@opencoredev/sms-sdk/testing` sends nothing and records each message, and the doctor CLI checks an adapter's configuration without sending. See [Local testing](/testing/local-testing) and the [doctor CLI](/reference/doctor-cli).

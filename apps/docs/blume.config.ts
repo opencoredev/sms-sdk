@@ -45,6 +45,9 @@ export default defineConfig({
 
   navigation: {
     sidebar: { display: "flat" },
+    // The blog gets its own tab, so docs/blog stays out of the docs sidebar
+    // and /blog/* shows only posts.
+    tabs: [{ label: "Blog", path: "/blog" }],
     actions: [
       { label: "Docs", href: "/getting-started/overview" },
       { label: "Providers", href: "/providers/overview" },
@@ -73,6 +76,7 @@ export default defineConfig({
         "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` verifies the request before reading it and returns one event shape for every provider.",
         "- `memory()` from `@opencoredev/sms-sdk/testing` sends nothing, for tests.",
         "",
+        "- The blog at https://www.sms-sdk.com/blog has longer guides, such as choosing a Twilio alternative and switching providers. RSS: https://www.sms-sdk.com/blog/rss.xml",
         "- The SMS segment calculator at https://www.sms-sdk.com/tools/sms-segment-calculator counts a message's characters, GSM-7 or UCS-2 encoding, and segments with `estimateSegments()`.",
         "",
         "Every page below is also available as Markdown: append `.md` to its URL.",

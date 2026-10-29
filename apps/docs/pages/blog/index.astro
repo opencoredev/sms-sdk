@@ -1,0 +1,194 @@
+---
+// Blog index. Posts are the `type: blog` pages in docs/blog; Blume renders
+// each one, adds BlogPosting JSON-LD, and builds /blog/rss.xml. This page
+// lists them newest first, in the tool page's palette (pages/tools).
+import { getCollection } from "astro:content";
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+import { getBlumeCollection } from "blume/runtime";
+
+const { config } = data;
+const pageTitle = "SMS SDK blog";
+const pageDescription =
+  "Guides for developers sending SMS from TypeScript: choosing and switching providers, webhooks, testing, and sending without double-texting.";
+
+// getBlumeCollection drops drafts and hidden pages, so a post is listed only
+// when Blume also publishes it.
+const routeByEntry = new Map(
+  getBlumeCollection(data, { locale: config.i18n?.defaultLocale }).map((route) => [route.entryId, route.path]),
+);
+
+const posts = (await getCollection("docs"))
+  .filter((entry) => entry.data.type === "blog")
+  .flatMap((entry) => {
+    const href = routeByEntry.get(entry.id);
+    if (href === undefined) return [];
+    const { date, description, title } = entry.data;
+    // A post without these would have no feed date and no summary.
+    if (date === undefined || description === undefined) {
+      throw new Error(`[blog] ${entry.id} needs a date and a description in its frontmatter.`);
+    }
+    return [{ date: new Date(date), description, href, title }];
+  })
+  .toSorted((a, b) => b.date.getTime() - a.date.getTime());
+
+const formatDate = (date: Date): string =>
+  date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  fontCssVars={data.fontCssVars}
+  themeMode="dark"
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  page={{ title: pageTitle, description: pageDescription, route: "/blog" }}
+  lastModified="2026-10-29"
+>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=JetBrains+Mono:wght@400&display=swap"
+  />
+
+  <main class="blog">
+    <div class="wrap">
+      <header class="intro">
+        <h1>Blog</h1>
+        <p class="lede">
+          Notes for developers sending SMS from TypeScript: picking and switching providers, webhooks, tests, and sending
+          without double-texting. For the API itself, read the <a href="/getting-started/overview">docs</a>.
+        </p>
+        <p class="feed"><a href="/blog/rss.xml">RSS feed</a></p>
+      </header>
+
+      <ol class="posts">
+        {
+          posts.map((post) => (
+            <li class="post">
+              <time class="date mono" datetime={post.date.toISOString().slice(0, 10)}>
+                {formatDate(post.date)}
+              </time>
+              <h2>
+                <a href={post.href}>{post.title}</a>
+              </h2>
+              <p>{post.description}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </main>
+</PageLayout>
+
+<style>
+  .blog {
+    --bg: #121110;
+    --line: #262420;
+    --text: #e9e6df;
+    --muted: #8f8c84;
+    --accent: #d8c79b;
+    --sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 16px/1.6 var(--sans);
+    min-height: 100vh;
+  }
+  /* Light mode: the landing page's paper palette. Text colors meet 4.5:1 on --bg. */
+  :global(:root[data-theme="light"]) .blog {
+    --bg: #f7f5f0;
+    --line: #e3dfd6;
+    --text: #1c1a17;
+    --muted: #6b6760;
+    --accent: #7a4f12;
+  }
+  .blog :is(h1, h2, p, a) {
+    font-family: var(--sans);
+  }
+  .mono {
+    font-family: var(--mono);
+  }
+  .wrap {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 4.5rem 1.5rem 6rem;
+  }
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin: 0 0 1rem;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: 1.0625rem;
+    max-width: 38rem;
+    margin: 0;
+  }
+  .lede a,
+  .feed a {
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: var(--muted);
+    text-underline-offset: 3px;
+  }
+  .feed {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+  }
+  .posts {
+    list-style: none;
+    margin: 3rem 0 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+  .post {
+    padding: 1.75rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .date {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  h2 {
+    font-size: 1.375rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    margin: 0.375rem 0 0.5rem;
+  }
+  h2 a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  h2 a:hover {
+    color: var(--accent);
+  }
+  h2 a:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+  .post p {
+    color: var(--muted);
+    margin: 0;
+  }
+  @media (max-width: 640px) {
+    .wrap {
+      padding: 3rem 1.25rem 4rem;
+    }
+    h1 {
+      font-size: 2rem;
+    }
+  }
+</style>
