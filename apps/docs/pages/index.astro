@@ -138,6 +138,16 @@ const footerColumns = [
     ],
   },
   {
+    title: "Guides",
+    links: [
+      { label: "Blog", href: "/blog" },
+      { label: "Twilio alternatives", href: "/blog/twilio-alternative" },
+      { label: "Avoid double-texting", href: "/blog/sms-fallback-without-duplicate-texts" },
+      { label: "Segment calculator", href: "/tools/sms-segment-calculator" },
+      { label: "Local testing", href: "/testing/local-testing" },
+    ],
+  },
+  {
     title: "Providers",
     links: providers.map((provider) => ({ label: provider.name, href: `/providers/${provider.id}` })),
   },
@@ -956,7 +966,7 @@ const footerColumns = [
   }
   .footer-main {
     display: grid;
-    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
     gap: 40px;
     padding: 56px 0 64px;
     border-top: 1px solid var(--line);
