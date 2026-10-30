@@ -1,0 +1,174 @@
+---
+title: "SMS fallback without double-texting: when to switch providers, and when to stop"
+type: blog
+date: 2026-10-30
+description: "Falling back to a second SMS provider on any error sends duplicate texts. Which errors are safe to fall back on, why timeouts and 5xx aren't, and how to build it in TypeScript."
+---
+
+The usual advice for SMS fallback is to wrap the send in `try`/`catch` and call a backup provider when anything goes wrong. Ask an AI assistant how to add fallback from Twilio to another provider and you'll likely get exactly that, with timeouts and 5xx errors listed as reasons to switch.
+
+That code texts people twice. A timeout doesn't mean the first provider failed. It means you don't know what happened, and the provider may already have the message.
+
+This post explains which errors are safe to fall back on, which aren't, and how to build fallback that sends each message at most once from your side. The examples use TypeScript. The last part uses SMS SDK, the open-source library this site documents, which calls your own provider accounts; it isn't a carrier or an SMS provider.
+
+## The short answer
+
+Fall back to a second provider only when the first one **proved it refused the message**, and only when the reason belongs to that provider account. Stop on everything else.
+
+| What the first provider returned | Did it take the message? | Fall back? |
+| --- | --- | --- |
+| Accepted (2xx with a message ID) | Yes | No. It's sent. |
+| Refused with a 4xx and an error code tied to your account: bad credentials, an unusable sender, no balance, a rate limit | No | Yes |
+| Refused because of the recipient or the content: invalid number, opted out, blocked content | No | No. A second provider would refuse it too, or must not be used to get around it. |
+| Timeout, network error, 5xx, a 429 without the provider's rate-limit code, or a 2xx without a message ID | Unknown | No. Record it and check with the provider. |
+
+Then give every message an idempotency key, so a retried job or a double click can't start a second send either.
+
+## Why a timeout isn't a failure
+
+Here is how the `try`/`catch` version goes wrong:
+
+1. Your server posts the message to provider A.
+2. Provider A creates the message and hands it to a carrier.
+3. The response is slow, and your 10-second timeout fires. Or a load balancer drops the connection. Or provider A answers 503 after it already queued the message.
+4. Your `catch` block calls provider B, which sends the same text.
+5. The customer gets two copies of the one-time code. If the codes differ, one of them is now wrong.
+
+Nothing in step 3 tells you the message wasn't sent. A 5xx is the provider saying something went wrong on its side, which can happen after the message exists. A 429 is a rate limit only when the body carries the provider's own rate-limit error, such as Twilio's 20429; a bare 429 from a proxy or CDN says nothing about your message.
+
+The safe response to an unknown outcome is to stop, record it, and look the message up with the provider before doing anything else.
+
+## Which refusals should fall back
+
+A refusal falls back when the problem is specific to one provider account, so another account might succeed:
+
+| Category | Falls back | Examples |
+| --- | --- | --- |
+| Credentials | Yes | 401, Twilio 20003, Telnyx 10009 |
+| Rate limit | Yes, after retrying the same provider | Twilio 20429, Telnyx 10011, Vonage 1000 |
+| Sender | Yes | Twilio 21606, Telnyx 40305, Vonage 1420 |
+| Account: balance, trial, country permission | Yes | Twilio 21408, Telnyx 40333, Vonage 402 |
+| Recipient: invalid or unreachable number | No | Twilio 21211, Telnyx 40310, Vonage 1430 |
+| Compliance: opted out, blocked content | Never | Twilio 21610, Telnyx 40300, Vonage 1240 |
+| Anything else in the request | No | Other 4xx |
+
+Compliance deserves the word "never". If someone replied STOP to your Twilio number, sending the same text through Telnyx is a way around their opt-out, not a fallback. The full mapping for each provider is in [Fallback and retries](/sending/fallback-and-retries#which-rejections-fall-back).
+
+## Build it by hand
+
+The rule fits in one function: classify each response into accepted, refused, or unknown, and move on only after a refusal that falls back.
+
+```ts
+type Outcome =
+  | { readonly kind: "accepted"; readonly providerId: string }
+  | { readonly kind: "refused"; readonly fallsBack: boolean; readonly code: string }
+  | { readonly kind: "unknown"; readonly reason: string };
+
+type Provider = {
+  readonly name: string;
+  send(to: string, body: string): Promise<Outcome>;
+};
+
+export async function sendWithFallback(providers: readonly Provider[], to: string, body: string) {
+  const refusals: string[] = [];
+  for (const provider of providers) {
+    const outcome = await provider.send(to, body);
+    if (outcome.kind === "accepted") return { provider: provider.name, providerId: outcome.providerId };
+    if (outcome.kind === "unknown") {
+      // The provider may have the message. Trying the next one could text twice.
+      throw new Error(`Outcome unknown at ${provider.name} (${outcome.reason}). Check before resending.`);
+    }
+    refusals.push(`${provider.name}: ${outcome.code}`);
+    if (!outcome.fallsBack) break;
+  }
+  throw new Error(`Not sent. ${refusals.join(", ")}`);
+}
+```
+
+The hard part is each provider's `send()`. It has to map every documented error code to a category, treat any response it can't read as unknown, and never retry a 5xx. Each provider documents its errors differently, and some don't say which HTTP status goes with which code.
+
+## Build it with SMS SDK
+
+SMS SDK does that classification for Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch. List adapters in priority order and turn on fallback:
+
+```ts
+import { createSmsClient, HandoffUnknownError, memoryIdempotencyStore } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+
+const sms = createSmsClient({
+  adapters: [
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100001",
+    }),
+    telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
+  ],
+  fallback: "on-known-rejection",
+  // Use a shared store in production; this one lives in one process.
+  idempotency: { store: memoryIdempotencyStore() },
+});
+
+try {
+  const result = await sms.send({
+    to: "+14155550123",
+    body: "Your code is 482913",
+    idempotencyKey: "login:user_42:482913",
+  });
+  console.log(result.provider, result.attemptedProviders); // "telnyx" ["twilio", "telnyx"] if Twilio refused
+} catch (error) {
+  if (error instanceof HandoffUnknownError) {
+    // Twilio may have the message. Telnyx was not tried. Look it up before resending.
+    console.error("Outcome unknown:", error.reason, error.providerName);
+  }
+  throw error;
+}
+```
+
+Twilio sends first. Telnyx is tried only after Twilio refuses for an account reason. A timeout, network error, 5xx, or bare 429 throws `HandoffUnknownError` and stops, and no option turns that off. Rate limits that the provider proves are retried on the same provider first, with backoff.
+
+## Idempotency keys stop the other duplicate
+
+Fallback isn't the only way to text twice. Your job queue retries a job that crashed after the send. A user double-clicks "resend code". A serverless function runs twice.
+
+An idempotency key names the message, not the attempt: `login:user_42:482913`, `order:123:shipped`. Build it from your own IDs rather than the phone number, because keys show up in logs and hook events. With a store configured, a second send with the same key returns the first result instead of sending again, for as long as the store keeps it: 24 hours by default (`idempotency.ttlSec`). Set that longer than your job queue's longest retry window, or a late retry sends again. When the first send's outcome was unknown, every later send with that key throws `HandoffUnknownError` until someone checks with the provider and clears the key. That is the property you want: the uncertain case blocks resends instead of guessing.
+
+The in-memory store forgets everything on restart and isn't shared between servers, so production needs a shared one, such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Even with keys, no client can promise exactly-once delivery: if a process crashes after the provider received the request, nobody knows whether it went out until you check. See [Prevent duplicate sends](/sending/idempotency).
+
+## Resolve an unknown outcome
+
+When a send ends unknown:
+
+1. Look the message up with the provider: its console, its message list API, or a status webhook for that number around that time.
+2. If the provider has it, stop. It went out.
+3. If it doesn't, clear the idempotency key and send again.
+
+Count unknown outcomes per provider. A rising count points to a timeout set too short or trouble at the provider.
+
+## Before you turn fallback on
+
+A second provider is a second account, and SMS rules apply per account:
+
+- **Register senders on both.** A 10DLC campaign or a toll-free verification on Twilio doesn't cover a Telnyx number. A message sent from an unregistered US number can be accepted and then blocked by the carrier. See [Registration and consent](/providers/registration-and-consent).
+- **Keep one opt-out list.** Twilio records a STOP sent to your Twilio number, and Telnyx never sees it. Keep your own suppression list and check it before every send, so fallback can't reach someone who opted out. See [STOP, HELP, and opt-outs](/receiving/opt-outs).
+- **Receive webhooks from both.** Status updates and replies come from whichever provider sent the message. See [Webhooks](/receiving/webhooks).
+- **Give each provider its own sender.** Each adapter sends from its own number, so leave `from` off the message unless every provider can send from that exact number.
+
+## FAQ
+
+### Should I fall back on a 5xx error?
+
+No. A 5xx can come after the provider created the message, even when it says to try again later. Treat it as unknown, and check before resending.
+
+### Should I resend through another provider when delivery fails?
+
+That's a separate decision from fallback, because the first provider took the message and reported later that it didn't reach the phone. SMS SDK doesn't resend on its own. If the status says the message was filtered as spam or blocked content (`message.filtered`), don't resend it elsewhere: that is the same case as a compliance refusal, and another provider is no way around it.
+
+### Does fallback guarantee the message arrives?
+
+No. It raises the chance that some provider accepts it. Accepted still isn't delivered: delivery is reported later, by webhook, and can fail for reasons no provider controls.
+
+### Can I test fallback without sending texts?
+
+Yes. Give two fake adapters different names, script the first one to refuse, and check that the second one sent. See [Test without a provider](/testing/local-testing#script-failures).
