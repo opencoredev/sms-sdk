@@ -278,6 +278,10 @@ export async function handleVonageWebhook(request: Request): Promise<Response> {
       case "recipient.opted_out":
         await tx.suppressions.add(event.from);
         break;
+      case "recipient.help":
+        // Save HELP replies too, so your app can answer them with your help text.
+        await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
+        break;
       case "message.received":
         await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
         // A START reply arrives as message.received, so lift the suppression here.
@@ -291,7 +295,7 @@ export async function handleVonageWebhook(request: Request): Promise<Response> {
 
 `sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, either because the recipient opted out (checked by `beforeSend` before any request) or because the providers refused it. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key, within the store's 24-hour default (`idempotency.ttlSec`), returns the stored result when the first send was accepted, and throws `HandoffUnknownError` again when its outcome was unknown, so neither case texts twice. Before production, swap `memoryIdempotencyStore()` for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Vonage rejection that belongs to your Vonage account, such as an unusable sender (1420) or low balance (402); see [Fallback and retries](/sending/fallback-and-retries). Vonage error codes this adapter doesn't recognize become `request`, which never falls back.
 
-`handleVonageWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, records status, opt-out, and inbound events, and lifts the suppression when someone who opted out replies START. `dedupeKey` is `vonage:{message_uuid}:{status}`, so insert it with a unique constraint in the same transaction as the writes it guards. Vonage sends no `queued` status. Status events can arrive out of order or before `saveSent` runs, so `updateStatus` must upsert by `providerId` and keep the furthest status.
+`handleVonageWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, records status, opt-out, HELP, and inbound events, and lifts the suppression when someone who opted out replies START. Replies can arrive out of order, so in production store when each opt-out and opt-in happened (`event.occurredAt`) and lift a suppression only for a START newer than the latest STOP. `dedupeKey` is `vonage:{message_uuid}:{status}`, so insert it with a unique constraint in the same transaction as the writes it guards. Vonage sends no `queued` status. Status events can arrive out of order or before `saveSent` runs, so `updateStatus` must upsert by `providerId` and keep the furthest status (`delivered` never goes back to `sent`), and `saveSent` must fill in the send details without touching a status that is already there.
 
 Save this module, `db.ts`, and `auth.ts` at your project root, where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the private key can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`. If you configure Twilio, its status callbacks and STOP replies need their own route that writes to the same suppression list, or someone who opts out on the Twilio number can still get texts through Vonage; see [Twilio](/providers/twilio#webhooks) and [STOP, HELP, and opt-outs](/receiving/opt-outs). To protect a route that calls `sendSms()`, follow [Protect the send route](/providers/telnyx#2-protect-the-send-route): a route that texts whatever number its caller names is an open SMS relay.
 
@@ -375,8 +379,10 @@ test("an unknown outcome stops without trying Twilio", async () => {
   fetch.mockRestore();
 });
 
+// A fresh ID per run, so a test database that keeps event keys between runs doesn't skip the event.
+const messageId = crypto.randomUUID();
 const delivered = {
-  message_uuid: "msg-1",
+  message_uuid: messageId,
   to: "14155550123",
   from: "15550100001",
   timestamp: new Date().toISOString(),
@@ -392,7 +398,7 @@ test("a signed delivery event is recorded once", async () => {
   const repeat = await handleVonageWebhook(await signedVonageRequest({ signatureSecret, url, body: delivered }));
   expect([first.status, repeat.status]).toEqual([200, 200]);
   expect(updateStatus).toHaveBeenCalledTimes(1);
-  expect(updateStatus).toHaveBeenCalledWith("msg-1", "message.delivered", undefined);
+  expect(updateStatus).toHaveBeenCalledWith(messageId, "message.delivered", undefined);
 });
 
 test("a forged event is refused", async () => {

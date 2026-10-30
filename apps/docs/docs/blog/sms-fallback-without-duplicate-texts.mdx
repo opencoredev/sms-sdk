@@ -114,7 +114,7 @@ try {
   const result = await sms.send({
     to: "+14155550123",
     body: "Your code is 482913",
-    idempotencyKey: "login:+14155550123:482913",
+    idempotencyKey: "login:user_42:482913",
   });
   console.log(result.provider, result.attemptedProviders); // "telnyx" ["twilio", "telnyx"] if Twilio refused
 } catch (error) {
@@ -132,7 +132,7 @@ Twilio sends first. Telnyx is tried only after Twilio refuses for an account rea
 
 Fallback isn't the only way to text twice. Your job queue retries a job that crashed after the send. A user double-clicks "resend code". A serverless function runs twice.
 
-An idempotency key names the message, not the attempt: `login:+14155550123:482913`, `order:123:shipped`. With a store configured, a second send with the same key returns the first result instead of sending again, for as long as the store keeps it: 24 hours by default (`idempotency.ttlSec`). Set that longer than your job queue's longest retry window, or a late retry sends again. When the first send's outcome was unknown, every later send with that key throws `HandoffUnknownError` until someone checks with the provider and clears the key. That is the property you want: the uncertain case blocks resends instead of guessing.
+An idempotency key names the message, not the attempt: `login:user_42:482913`, `order:123:shipped`. Build it from your own IDs rather than the phone number, because keys show up in logs and hook events. With a store configured, a second send with the same key returns the first result instead of sending again, for as long as the store keeps it: 24 hours by default (`idempotency.ttlSec`). Set that longer than your job queue's longest retry window, or a late retry sends again. When the first send's outcome was unknown, every later send with that key throws `HandoffUnknownError` until someone checks with the provider and clears the key. That is the property you want: the uncertain case blocks resends instead of guessing.
 
 The in-memory store forgets everything on restart and isn't shared between servers, so production needs a shared one, such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Even with keys, no client can promise exactly-once delivery: if a process crashes after the provider received the request, nobody knows whether it went out until you check. See [Prevent duplicate sends](/sending/idempotency).
 
