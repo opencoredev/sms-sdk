@@ -141,3 +141,8 @@ Plan for it. A2P 10DLC brands and campaigns, toll-free verifications, and short 
 ### Can I test my SMS code without sending real messages?
 
 Yes. `memory()` from `@opencoredev/sms-sdk/testing` records simulated sends, and the doctor CLI checks an adapter's configuration locally without sending. Neither verifies your provider credentials, sender registration, or webhook setup. See [Local testing](/testing/local-testing) and the [doctor CLI](/reference/doctor-cli).
+
+## Related
+
+- [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): when a second provider should take a text, and when a timeout means you have to stop.
+- [Migrate from Twilio](/migration/migrate-from-twilio): the code changes, step by step.
