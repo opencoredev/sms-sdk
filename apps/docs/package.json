@@ -13,12 +13,12 @@
     "check:snippets": "bun scripts/check-snippets.ts"
   },
   "dependencies": {
-    "blume": "2.2.1"
+    "blume": "2.2.6"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.4",
     "@types/node": "^25.9.4",
-    "hono": "^4.13.5",
+    "hono": "^4.13.14",
     "typescript": "^5.9.3"
   }
 }
