@@ -1,9 +1,27 @@
 ---
-title: "Vonage"
-description: "Send and receive SMS through the Vonage Messages API with the SMS SDK vonage() adapter: JWT vs Basic auth, senders, provider options, signed webhooks, and error mapping."
+title: "Vonage SMS API with TypeScript: Messages API sends, signed webhooks, and offline tests"
+description: "Send SMS through the Vonage Messages API from TypeScript, verify signed JWT webhooks in Next.js, and test offline, using fetch or the SMS SDK vonage() adapter."
+sidebar:
+  label: "Vonage"
+search:
+  keywords: ["vonage sms api", "vonage messages api", "nexmo sms api", "vonage signed webhooks", "vonage next.js"]
 ---
 
-The `vonage()` adapter sends SMS through the Vonage Messages API and verifies its signed status and inbound webhooks. To compare it with other providers, see [Choose a provider](/providers/overview).
+This guide takes a TypeScript server from a Vonage account to a verified delivery event. You send one SMS with the raw Messages API, verify a signed webhook by hand, then build the same thing with the SMS SDK `vonage()` adapter: a send module that never texts twice, a Next.js webhook route, and tests that run offline. The second half of the page is the adapter reference. To compare providers first, see [Choose a provider](/providers/overview).
+
+## SMS API or Messages API?
+
+Vonage has two APIs that send SMS, and most "Vonage SMS API" tutorials use the older one:
+
+| | SMS API (legacy, from Nexmo) | Messages API |
+| --- | --- | --- |
+| Endpoint | `POST https://rest.nexmo.com/sms/json` | `POST https://api.nexmo.com/v1/messages`, with regional hosts `api-eu`, `api-us`, `api-ap` |
+| Request | Form or JSON with `api_key`, `api_secret`, `from`, `to`, `text` | JSON with `message_type: "text"`, `channel: "sms"`, `from`, `to`, `text` |
+| Result | HTTP 200 with a status per message part in the body | `202` with a `message_uuid`, or an HTTP error with RFC 7807 problem details |
+| Auth | API key and secret | JWT from an application's private key, or Basic auth with the API key and secret |
+| Webhooks | Delivery receipts and inbound SMS, with their own signing scheme | Status and inbound webhooks signed with an HS256 JWT |
+
+SMS SDK uses only the Messages API. Its `vonage()` adapter never calls `rest.nexmo.com`, and SMS API webhooks do not verify with its webhook parser. If you are starting fresh, use the Messages API: one HTTP status per request is easier to handle safely than per-part statuses inside a 200.
 
 ## Support status
 
@@ -17,20 +35,391 @@ The `vonage()` adapter sends SMS through the Vonage Messages API and verifies it
 
 The same notes are in `adapter.support.notes` at runtime.
 
-## Setup
+## Before you start
+
+You need these from the Vonage API Dashboard:
+
+1. **A Vonage number with SMS**, or an alphanumeric sender ID where the destination country allows one. See [Senders](#senders).
+2. **An application with the Messages capability.** Create it under Applications, generate its key pair, and download the private key. The application ID and that key sign each API request.
+3. **The number linked to the application.** Inbound SMS reach your server only through a linked number. Once a number is linked, Basic auth requests that send from it fail with 401, so use JWT auth.
+4. **Your signature secret**, from the dashboard's API settings. It verifies webhook signatures and is not the API secret.
+
+US traffic to mobile numbers also needs 10DLC registration for long codes, or verification for toll-free numbers. See [Registration and consent](/providers/registration-and-consent).
+
+The examples read these variables:
+
+| Variable | Required | Used for |
+| --- | --- | --- |
+| `VONAGE_APPLICATION_ID`, `VONAGE_PRIVATE_KEY` | For JWT auth | Application ID and its RSA private key as PKCS#8 PEM. Literal `\n` sequences are accepted. |
+| `VONAGE_API_KEY`, `VONAGE_API_SECRET` | For Basic auth, and the raw example below | Account API key and secret. |
+| `VONAGE_FROM` | No | Default sender: a Vonage number in E.164, such as `+15550100001`, or an alphanumeric sender ID. |
+| `VONAGE_SIGNATURE_SECRET` | For webhooks | Signature secret from the dashboard's API settings. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Only for the optional fallback | A second provider for known rejections. |
+
+The adapter reads no environment variables itself; the examples and the [doctor CLI](/reference/doctor-cli) use these names. Keep every secret on the server.
+
+## Send an SMS with the raw Messages API
+
+One `POST /v1/messages` request sends a message. The quickest way to try it is Basic auth with your API key and secret, from a number that is not linked to an application. It needs only `fetch`, which Node.js 18 and later have built in:
+
+```ts
+const apiKey = process.env.VONAGE_API_KEY;
+const apiSecret = process.env.VONAGE_API_SECRET;
+if (!apiKey || !apiSecret) throw new Error("Set VONAGE_API_KEY and VONAGE_API_SECRET.");
+
+const response = await fetch("https://api.nexmo.com/v1/messages", {
+  method: "POST",
+  headers: {
+    Authorization: `Basic ${btoa(`${apiKey}:${apiSecret}`)}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  },
+  body: JSON.stringify({
+    message_type: "text",
+    channel: "sms",
+    from: "15550100001", // Vonage wants numbers without the leading +
+    to: "14155550123",
+    text: "Your order has shipped.",
+  }),
+});
+
+const body: unknown = await response.json();
+console.log(response.status, JSON.stringify(body, null, 2));
+```
+
+A successful send prints `202` and one field, with an example ID:
+
+```json
+{ "message_uuid": "aaaaaaaa-bbbb-4ccc-8ddd-0123456789ab" }
+```
+
+Save `message_uuid`. Every status webhook about this message carries it.
+
+A 4xx with a problem body means Vonage refused the message. The error code is at the end of the `type` URL, such as `https://developer.vonage.com/api-errors/messages#1420`. A 5xx, a timeout, or a dropped connection means you don't know whether Vonage took it. The Messages API has no idempotency key for SMS, so a blind resend can text the person twice.
+
+### Accepted is not delivered
+
+The `202` means Vonage accepted the message. Delivery to the phone is reported later, by webhook:
+
+| Stage | Raw Messages API | SMS SDK |
+| --- | --- | --- |
+| Accepted | `202` with `message_uuid` | `send()` resolves with `handoff: "accepted"` |
+| Refused | 4xx with a problem body | `ProviderRejectedError` with a `category` |
+| Outcome unknown | 5xx, timeout, network error, or a 2xx without `message_uuid` | `HandoffUnknownError`. Never resent automatically. |
+| Handed to the carrier | status webhook, `submitted` | `message.sent` event |
+| Delivered or failed | status webhook, `delivered`, `rejected`, or `undeliverable` | `message.delivered`, `message.undelivered`, or `message.filtered` event |
+
+## Verify a webhook with the raw API
+
+With signed webhooks turned on, Vonage puts an HS256 JWT in each webhook's `Authorization: Bearer` header, signed with your signature secret. Its claims include `iat` (issued at, in Unix seconds) and `payload_hash`, a SHA-256 hash of the body. Check the signature, the age, and the hash against the exact bytes Vonage sent, before you parse them:
+
+```ts
+export async function verifyVonageWebhook(request: Request, signatureSecret: string): Promise<unknown> {
+  const rawBody = await request.text();
+  const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const [header, payload, signature] = token?.split(".") ?? [];
+  if (header === undefined || payload === undefined || signature === undefined) throw new Error("Missing Vonage JWT.");
+
+  const fromBase64Url = (value: string) =>
+    Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
+  const json = (part: string): Record<string, unknown> => JSON.parse(new TextDecoder().decode(fromBase64Url(part)));
+  if (json(header)["alg"] !== "HS256") throw new Error("Unexpected JWT algorithm.");
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(signatureSecret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  if (!(await crypto.subtle.verify("HMAC", key, fromBase64Url(signature), encoder.encode(`${header}.${payload}`)))) {
+    throw new Error("Invalid Vonage signature.");
+  }
+
+  const claims = json(payload);
+  const ageSec = Math.abs(Date.now() / 1000 - Number(claims["iat"]));
+  if (!(ageSec <= 300)) throw new Error("Vonage token is missing iat or too old.");
+
+  if (typeof claims["payload_hash"] === "string") {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(rawBody)));
+    const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (hex !== claims["payload_hash"].toLowerCase()) throw new Error("Body does not match payload_hash.");
+  }
+  return JSON.parse(rawBody);
+}
+```
+
+The function rejects requests without a token, tokens signed with another secret or algorithm, tokens older than five minutes, and bodies that don't match `payload_hash`. Vonage documents no freshness window, so 300 seconds is this example's choice. It returns the parsed JSON only after every check passes. You still have to map Vonage's statuses, drop duplicate deliveries, and detect STOP replies yourself, which is what the SMS SDK version below does.
+
+## Common setup errors
+
+| What you see | Cause | Fix |
+| --- | --- | --- |
+| 401 with Basic auth | The number is linked to an application, or the key and secret are wrong | Use JWT auth with the application ID and private key. |
+| 401 with JWT auth | Wrong application ID, or a private key from another application | Download the key again from the application that owns the number. |
+| Error 1420, "Invalid sender" | `from` is not usable on SMS for this account | Send from a number on your account or an allowed sender ID, without the `+`. |
+| Error 1430 or 1170, "Invalid recipient" | `to` is not a valid number | Send digits in E.164 order, such as `14155550123`. |
+| Error 1240, "Illegal Number" | The recipient replied STOP | Don't send to them until they opt back in. |
+| `202`, but the text never arrives | Acceptance is not delivery | Read the status webhook and its `error`. Check 10DLC or toll-free registration. |
+| No status webhooks | No Status URL on the application, and no `webhook_url` on the message | Set the application's Status URL, or pass `webhookUrl` per message. |
+| No inbound webhooks | The number is not linked to the application | Link it, and set the application's Inbound URL. |
+| `invalid_signature` | The API secret was used instead of the signature secret | Use the signature secret from the API settings. |
+| `body_hash_mismatch` | The body was parsed and re-serialized before verification | Pass the untouched request. |
+| `stale_timestamp` | Server clock drift, or a replayed request | Sync the clock; the window is 300 seconds. |
+
+The full error mapping is in [Error codes](#error-codes).
+
+## Build it with SMS SDK
+
+The SMS SDK version is one module plus a small Next.js route. It sends with `vonage()` over JWT auth, optionally falls back to Twilio when Vonage proves it refused the message, stops on an unknown outcome, and verifies every webhook before it reads it.
 
 ```package-install
 npm install @opencoredev/sms-sdk
 ```
 
-| Variable | Required | Used for |
-| --- | --- | --- |
-| `VONAGE_APPLICATION_ID`, `VONAGE_PRIVATE_KEY` | For JWT auth | Application ID and its RSA private key as PKCS#8 PEM. Literal `\n` sequences are accepted. |
-| `VONAGE_API_KEY`, `VONAGE_API_SECRET` | For Basic auth | Account API key and secret. |
-| `VONAGE_FROM` | No | Default sender: a Vonage number or an alphanumeric sender ID. |
-| `VONAGE_SIGNATURE_SECRET` | For webhooks | Signature secret from the Vonage dashboard settings. |
+### 1. Create the client and handlers
 
-The adapter reads no environment variables itself; the examples and the [doctor CLI](/reference/doctor-cli) use these names. Keep secrets on the server.
+```ts vonage-sms.ts
+import {
+  AllProvidersRejectedError,
+  createSmsClient,
+  HandoffUnknownError,
+  isE164,
+  memoryIdempotencyStore,
+  PolicyRejectedError,
+  ProviderRejectedError,
+  type E164,
+  type SmsAdapter,
+} from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+import { parseSmsWebhook, WebhookSignatureError, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "@/db";
+
+function env(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === "") throw new Error(`Set ${name}.`);
+  return value;
+}
+
+function sender(name: string): E164 {
+  const value = env(name);
+  if (!isE164(value)) throw new Error(`${name} must be an E.164 number.`);
+  return value;
+}
+
+function twilioFallback(): SmsAdapter[] {
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
+  if (TWILIO_ACCOUNT_SID === undefined || TWILIO_AUTH_TOKEN === undefined) return [];
+  return [twilio({ accountSid: TWILIO_ACCOUNT_SID, authToken: TWILIO_AUTH_TOKEN, from: sender("TWILIO_FROM") })];
+}
+
+export const sms = createSmsClient({
+  adapters: [
+    vonage({
+      applicationId: env("VONAGE_APPLICATION_ID"),
+      privateKey: env("VONAGE_PRIVATE_KEY"),
+      from: sender("VONAGE_FROM"),
+    }),
+    ...twilioFallback(),
+  ],
+  fallback: "on-known-rejection",
+  // Checked before any provider request, so fallback can't text someone who replied STOP.
+  beforeSend: async ({ message }) =>
+    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "opted_out" } : { kind: "allow" },
+  // Lost on restart and not shared between instances. Use a durable store in production.
+  idempotency: { store: memoryIdempotencyStore() },
+});
+
+export type SendOutcome =
+  | { readonly kind: "accepted"; readonly provider: string; readonly providerId: string }
+  | { readonly kind: "rejected"; readonly reason: string }
+  | { readonly kind: "unknown" };
+
+export async function sendSms(input: { to: E164; body: string; idempotencyKey: string }): Promise<SendOutcome> {
+  try {
+    const result = await sms.send(input);
+    // Upsert: a replayed send returns the original result, and a status webhook may have created the row first.
+    await db.messages.saveSent({ id: result.id, provider: result.provider, providerId: result.providerId, to: input.to, status: result.delivery });
+    return { kind: "accepted", provider: result.provider, providerId: result.providerId };
+  } catch (error) {
+    if (error instanceof HandoffUnknownError) {
+      // The provider may have the message. Never resend; reconcile it first.
+      await db.messages.markNeedsReview(input.idempotencyKey, error.reason);
+      return { kind: "unknown" };
+    }
+    if (error instanceof PolicyRejectedError) return { kind: "rejected", reason: error.reason };
+    if (error instanceof ProviderRejectedError) return { kind: "rejected", reason: error.category };
+    if (error instanceof AllProvidersRejectedError) {
+      return { kind: "rejected", reason: error.errors.map((rejection) => `${rejection.providerName}: ${rejection.category}`).join(", ") };
+    }
+    throw error;
+  }
+}
+
+export async function handleVonageWebhook(request: Request): Promise<Response> {
+  let event: SmsEvent;
+  try {
+    event = await parseSmsWebhook({
+      provider: "vonage",
+      request,
+      credentials: { signatureSecret: env("VONAGE_SIGNATURE_SECRET") },
+    });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+
+  // Record the event key and its effects together, so a failed write rolls both back and Vonage's retry is handled.
+  await db.transaction(async (tx) => {
+    if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+    switch (event.type) {
+      case "message.sent":
+      case "message.delivered":
+      case "message.undelivered":
+      case "message.filtered":
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+        break;
+      case "recipient.opted_out":
+        await tx.suppressions.add(event.from);
+        break;
+      case "message.received":
+        await tx.inbox.save({ from: event.from, to: event.to, body: event.body, providerId: event.providerId });
+        // A START reply arrives as message.received, so lift the suppression here.
+        if (event.body.trim().toUpperCase() === "START") await tx.suppressions.remove(event.from);
+        break;
+    }
+  });
+  return new Response(null, { status: 200 });
+}
+```
+
+`sendSms()` returns one of three outcomes. `accepted` names the provider that took the message. `rejected` means no provider took it, either because the recipient opted out (checked by `beforeSend` before any request) or because the providers refused it. `unknown` means a timeout, network error, or 5xx left the result unclear; the message is flagged for review and not resent, even when Twilio is configured. A retry with the same idempotency key returns the stored result when the first send was accepted, and throws `HandoffUnknownError` again when its outcome was unknown, so neither case texts twice. Before production, swap `memoryIdempotencyStore()` for a durable store such as the [Postgres store](/advanced/multiple-instances#a-postgres-store). Twilio is tried only after a Vonage rejection that belongs to your Vonage account, such as an unusable sender (1420) or low balance (402); see [Fallback and retries](/sending/fallback-and-retries). Vonage error codes this adapter doesn't recognize become `request`, which never falls back.
+
+`handleVonageWebhook()` answers 401 to forged requests, answers 200 to a repeat without handling it twice, records status, opt-out, and inbound events, and lifts the suppression when someone who opted out replies START. `dedupeKey` is `vonage:{message_uuid}:{status}`, so insert it with a unique constraint in the same transaction as the writes it guards. Vonage sends no `queued` status. Status events can arrive out of order or before `saveSent` runs, so `updateStatus` must upsert by `providerId` and keep the furthest status.
+
+Save this module, `db.ts`, and `auth.ts` at your project root, where the default `@/*` alias of `create-next-app` points. Add `import "server-only";` to this module so the private key can never reach a client bundle, and never prefix these variables with `NEXT_PUBLIC_`. To protect a route that calls `sendSms()`, follow [Protect the send route](/providers/telnyx#2-protect-the-send-route): a route that texts whatever number its caller names is an open SMS relay.
+
+### 2. Receive webhooks in Next.js
+
+```ts app/api/webhooks/vonage/route.ts
+import { handleVonageWebhook } from "@/vonage-sms";
+
+export const runtime = "nodejs";
+
+export async function POST(request: Request): Promise<Response> {
+  return handleVonageWebhook(request);
+}
+```
+
+The route hands the untouched `Request` to the handler. Don't call `request.json()` or `request.text()` first, and keep middleware from reading the body, because `payload_hash` covers the exact bytes and a body can be read only once. The URL is not signed, so a proxy that rewrites the host doesn't break verification.
+
+Turn on signed webhooks for the application, then use this route's public HTTPS URL as both the application's Status URL and its Inbound URL, or pass it per message as `webhookUrl`. To reach your laptop, expose the port with a tunnel; see [Receive real webhooks on your laptop](/testing/local-testing#receive-real-webhooks-on-your-laptop).
+
+### 3. Test it offline
+
+These tests send nothing and need no Vonage account. They replace `fetch` with canned Vonage and Twilio responses, in order, and sign webhook fixtures with a test secret, so the real JWT check runs. The adapter signs each request with your private key, so the test generates a throwaway RSA key:
+
+```ts vonage-sms.test.ts
+import { expect, mock, spyOn, test } from "bun:test";
+import { signedVonageRequest } from "@opencoredev/sms-sdk/testing";
+import { db } from "./db";
+
+const keyPair = await crypto.subtle.generateKey(
+  { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  true,
+  ["sign", "verify"],
+);
+const pkcs8 = Buffer.from(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey)).toString("base64");
+Object.assign(process.env, {
+  VONAGE_APPLICATION_ID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  VONAGE_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----`,
+  VONAGE_FROM: "+15550100001",
+  VONAGE_SIGNATURE_SECRET: "test-signature-secret",
+  TWILIO_ACCOUNT_SID: "AC0123456789abcdef0123456789abcdef",
+  TWILIO_AUTH_TOKEN: "test",
+  TWILIO_FROM: "+15550100002",
+});
+// `server-only` throws outside a Next.js server build, so stub it before loading the module.
+mock.module("server-only", () => ({}));
+const { handleVonageWebhook, sendSms } = await import("./vonage-sms");
+
+function fakeFetch(...replies: Response[]) {
+  const fetch = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected network call"));
+  for (const reply of replies) fetch.mockResolvedValueOnce(reply);
+  return fetch;
+}
+
+test("Vonage accepts the message", async () => {
+  const fetch = fakeFetch(Response.json({ message_uuid: "msg-1" }, { status: 202 }));
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 1 has shipped.", idempotencyKey: "order:1:shipped" });
+  expect(outcome).toEqual({ kind: "accepted", provider: "vonage", providerId: "msg-1" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockRestore();
+});
+
+test("a Vonage sender rejection falls back to Twilio", async () => {
+  const fetch = fakeFetch(
+    Response.json(
+      { type: "https://developer.vonage.com/api-errors/messages#1420", title: "Invalid sender" },
+      { status: 422, headers: { "content-type": "application/problem+json" } },
+    ),
+    Response.json({ sid: "SM0123456789abcdef0123456789abcdef", status: "queued" }, { status: 201 }),
+  );
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 2 has shipped.", idempotencyKey: "order:2:shipped" });
+  expect(outcome).toEqual({ kind: "accepted", provider: "twilio", providerId: "SM0123456789abcdef0123456789abcdef" });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockRestore();
+});
+
+test("an unknown outcome stops without trying Twilio", async () => {
+  const fetch = fakeFetch(new Response("Service Unavailable", { status: 503 }));
+  const outcome = await sendSms({ to: "+14155550123", body: "Order 3 has shipped.", idempotencyKey: "order:3:shipped" });
+  expect(outcome).toEqual({ kind: "unknown" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockRestore();
+});
+
+const delivered = {
+  message_uuid: "msg-1",
+  to: "14155550123",
+  from: "15550100001",
+  timestamp: new Date().toISOString(),
+  status: "delivered",
+  channel: "sms",
+};
+const url = "https://example.com/api/webhooks/vonage";
+
+test("a signed delivery event is recorded once", async () => {
+  const updateStatus = spyOn(db.messages, "updateStatus");
+  const signatureSecret = "test-signature-secret";
+  const first = await handleVonageWebhook(await signedVonageRequest({ signatureSecret, url, body: delivered }));
+  const repeat = await handleVonageWebhook(await signedVonageRequest({ signatureSecret, url, body: delivered }));
+  expect([first.status, repeat.status]).toEqual([200, 200]);
+  expect(updateStatus).toHaveBeenCalledTimes(1);
+  expect(updateStatus).toHaveBeenCalledWith("msg-1", "message.delivered", undefined);
+});
+
+test("a forged event is refused", async () => {
+  const forged = await signedVonageRequest({ signatureSecret: "not-the-secret", url, body: delivered });
+  expect((await handleVonageWebhook(forged)).status).toBe(401);
+});
+```
+
+Run `bun test` with `db` pointing at a test database. If your `db.transaction` hands the callback a separate client, spy on that client's `updateStatus` instead. The output looks like this:
+
+```txt
+vonage-sms.test.ts:
+(pass) Vonage accepts the message
+(pass) a Vonage sender rejection falls back to Twilio
+(pass) an unknown outcome stops without trying Twilio
+(pass) a signed delivery event is recorded once
+(pass) a forged event is refused
+
+ 5 pass
+ 0 fail
+```
+
+Before the first live send, `npx @opencoredev/sms-sdk doctor --adapter vonage` checks your variables and sender without sending anything. See [Doctor CLI](/reference/doctor-cli).
+
+## Adapter options
+
+Create the adapter with JWT auth (shown) or Basic auth (`apiKey`, `apiSecret`):
 
 ```ts
 import { createSmsClient } from "@opencoredev/sms-sdk";

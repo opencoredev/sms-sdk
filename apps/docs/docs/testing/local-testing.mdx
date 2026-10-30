@@ -1,9 +1,19 @@
 ---
-title: "Test without a provider"
-description: "Test SMS code without a provider account or network: the memory() adapter, scripted failures, mockFetch, and signed webhook requests."
+title: "Test SMS code without sending real texts"
+sidebar:
+  label: "Test without a provider"
+description: "How to test code that sends SMS without sending real texts: a fake adapter, a fake fetch, and signed webhook requests, with no provider account or network."
 ---
 
-Tests and CI should never send a real text. `@opencoredev/sms-sdk/testing` gives you a fake adapter for app code, a fake `fetch` for adapter code, and builders for signed webhook requests. The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
+To test code that sends SMS without sending real texts, replace the provider at the layer you are testing, and keep provider credentials out of your test environment:
+
+| What you are testing | Replace | With |
+| --- | --- | --- |
+| Your app code: what it sends, to whom, and how it handles rejections, timeouts, and fallback | The provider adapter | `memory()`, a fake adapter that records every send and returns the outcomes you script |
+| A provider adapter: the HTTP request it builds and how it reads the response | `fetch` | `mockFetch()`, which records each request and returns canned provider responses |
+| Your webhook route: signature checks, duplicates, opt-outs | The incoming request | `signedTwilioRequest()`, `signedTelnyxRequest()`, `signedPlivoRequest()`, or `signedVonageRequest()`, which sign test requests the way each provider does |
+
+All of them come from `@opencoredev/sms-sdk/testing`, make no network calls, and need no provider account. Before the first live send, the [doctor CLI](#check-your-configuration-with-the-doctor) checks your configuration without sending anything. The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
 
 ## Use the memory adapter
 
@@ -144,6 +154,10 @@ For Plivo, `signedPlivoRequest({ authToken, url, params })` builds a form POST w
 :::warning
 Use these builders instead of `unsafeSkipVerification: true`, which skips the code you most need to test.
 :::
+
+## Receive real webhooks on your laptop
+
+Signed test requests cover most handler tests. To see real status and inbound webhooks from a provider while you develop, expose your local port with a tunnel, such as `ngrok http 3000` or `cloudflared tunnel --url http://localhost:3000`, and set the HTTPS URL it prints as the webhook URL in the provider's console or as `webhookUrl` on a send. Twilio and Plivo sign the exact URL they call, so pass that tunnel URL as `publicUrl` to the parser; see [Webhook security](/receiving/webhook-security). Tunnel URLs change between runs unless you reserve one, so update the provider when yours changes.
 
 ## Check your configuration with the doctor
 
