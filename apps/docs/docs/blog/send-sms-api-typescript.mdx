@@ -91,7 +91,7 @@ Store and check numbers in E.164: a `+`, the country code, and the number, with 
 
 ### 3. One key per message
 
-Job queues retry, users double-click, and serverless functions run twice. Without protection, each of those sends another text. Give every message a stable key, such as `order:123:shipped:v1`, and remember which keys already sent. None of the six providers above documents an idempotency key for its send endpoint, so this is your job.
+Job queues retry, users double-click, and serverless functions run twice. Without protection, each of those sends another text. Give every message a stable key, such as `order:123:shipped:v1`, and remember which keys already sent. Don't rely on the provider for this: support for a provider-side idempotency key varies, and SMS SDK sends none to any of these six APIs, so keep your own record.
 
 ### 4. A timeout means "unknown", not "failed"
 
@@ -142,6 +142,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const order = await db.orders.findForUser(orderId, session.userId);
   if (order === null || !isE164(order.phone)) return new Response("Order not found", { status: 404 });
+  if (order.status !== "shipped") return new Response("Order has not shipped", { status: 409 });
+  // Add your per-user rate limit here: the key stops repeats of one order, not texts for many orders.
 
   const idempotencyKey = `order:${order.id}:shipped:v1`;
   try {
@@ -174,7 +176,7 @@ What the client handles for you in that call:
 - With a store, sending the same message with the same key again returns the first result without a request, for as long as the record is kept: 24 hours by default (`idempotency.ttlSec`). If the first send ended unknown, the repeat throws `HandoffUnknownError` instead of sending. Set the TTL longer than your longest retry window.
 - It reports the delivery status from the send response, usually `queued`. Later changes arrive by webhook.
 
-To switch to Twilio, Plivo, Vonage, Bandwidth, or Sinch, change the adapter in `sms.ts`. To keep a second provider for when the first one refuses, list both adapters and set `fallback: "on-known-rejection"`; see [Fallback and retries](/sending/fallback-and-retries). For delivery updates, [Receive webhooks](/receiving/webhooks) has one verified handler for all six providers.
+To switch to Twilio, Plivo, Vonage, Bandwidth, or Sinch, change the adapter in `sms.ts`. Check the provider's page for anything its webhooks need: Sinch, for example, sends a status webhook per message only when you set `providerOptions: { sinch: { deliveryReport: "per_recipient" } }`, and Vonage needs JWT auth. To keep a second provider for when the first one refuses, list both adapters and set `fallback: "on-known-rejection"`; see [Fallback and retries](/sending/fallback-and-retries). For delivery updates, [Receive webhooks](/receiving/webhooks) has one verified handler for all six providers.
 
 ## Test it without sending texts
 
