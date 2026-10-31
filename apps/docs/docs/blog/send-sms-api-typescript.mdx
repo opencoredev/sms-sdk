@@ -5,7 +5,7 @@ date: 2026-10-31
 description: "Send an SMS from TypeScript with one HTTP request to Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch, then add a protected route, idempotency, and delivery webhooks."
 ---
 
-Every SMS API works the same way underneath. Your server sends one authenticated `POST` with a recipient, a sender, and the text. The provider answers with a message ID, and it reports later, through a webhook, whether the text reached the phone.
+Every SMS API works the same way underneath. Your server sends one authenticated `POST` with a recipient, a sender, and the text. The provider answers with a message ID, and it can report later, through a webhook, whether the text reached the phone.
 
 This post shows that request for six providers, a working example with `fetch`, and the five things a production send needs on top of it. The last part does the same with SMS SDK, the open-source TypeScript library this site documents. It calls your own provider account; it isn't a carrier or an SMS provider, so you still need an account with one of them.
 
@@ -14,7 +14,7 @@ This post shows that request for six providers, a working example with `fetch`, 
 To send an SMS through an API from TypeScript:
 
 1. Get an API credential and a sending number from an SMS provider.
-2. On your server, `POST` the recipient in E.164 format (`+14155550123`), your sender, and the text to the provider's message endpoint.
+2. On your server, `POST` the recipient's number (E.164, such as `+14155550123`), your sender, and the text to the provider's message endpoint.
 3. Save the message ID from the response. A success response means the provider **accepted** the message, not that it was delivered.
 4. Receive the provider's status webhook to learn whether it was delivered.
 
@@ -31,7 +31,7 @@ These are the endpoints the SMS SDK adapters call, with the ID each provider ret
 | [Twilio](/providers/twilio) | `POST https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json` | Basic: Account SID and Auth Token, or API key SID and secret |
 | [Telnyx](/providers/telnyx) | `POST https://api.telnyx.com/v2/messages` | `Bearer` API key |
 | [Plivo](/providers/plivo) | `POST https://api.plivo.com/v1/Account/{auth_id}/Message/` | Basic: Auth ID and Auth Token |
-| [Vonage](/providers/vonage) | `POST https://api.nexmo.com/v1/messages` (Messages API) | JWT, or Basic with API key and secret |
+| [Vonage](/providers/vonage) | `POST https://api.nexmo.com/v1/messages` (Messages API) | JWT, or Basic with API key and secret (no delivery webhooks with Basic) |
 | [Bandwidth](/providers/bandwidth) | `POST https://messaging.bandwidth.com/api/v2/users/{userId}/messages` | Basic: API token and secret |
 | [Sinch](/providers/sinch) | `POST https://sms.api.sinch.com/xms/v1/{servicePlanId}/batches` | `Bearer` API token |
 
@@ -87,11 +87,11 @@ Credentials stay on the server, and so does the decision about who gets a text. 
 
 ### 2. A valid number before you call
 
-Providers expect E.164: a `+`, the country code, and the number, with no spaces. Check the format before the request so a bad number fails in your code with a clear message instead of as a provider error.
+Store and check numbers in E.164: a `+`, the country code, and the number, with no spaces. Check the format before the request so a bad number fails in your code with a clear message instead of as a provider error. Most of these APIs take the number with its `+`; Vonage's Messages API takes the digits without it.
 
 ### 3. One key per message
 
-Job queues retry, users double-click, and serverless functions run twice. Without protection, each of those sends another text. Give every message a stable key, such as `order:123:shipped:v1`, and remember which keys already sent. None of the six providers above deduplicates SMS sends for you.
+Job queues retry, users double-click, and serverless functions run twice. Without protection, each of those sends another text. Give every message a stable key, such as `order:123:shipped:v1`, and remember which keys already sent. None of the six providers above documents an idempotency key for its send endpoint, so this is your job.
 
 ### 4. A timeout means "unknown", not "failed"
 
@@ -99,7 +99,7 @@ When the request times out, the connection drops, or the provider answers 5xx, t
 
 ### 5. Delivery comes later, by webhook
 
-The send response says the provider took the message. Whether the phone got it arrives minutes later as a webhook: delivered, undelivered, or filtered by the carrier. Verify the webhook's signature before you trust it, because the URL is public. Each provider signs differently: HMAC-SHA1 for Twilio, Ed25519 for Telnyx, HMAC-SHA256 for Plivo, and a signed JWT for Vonage. See [Webhook security](/receiving/webhook-security).
+The send response says the provider took the message. Whether the phone got it arrives minutes later as a webhook: delivered, undelivered, or filtered by the carrier. Check that each webhook really came from the provider before you trust it, because the URL is public. Most providers sign it, each differently: HMAC-SHA1 for Twilio, Ed25519 for Telnyx, HMAC-SHA256 for Plivo, and a signed JWT for Vonage. Bandwidth doesn't sign callbacks; it sends Basic credentials you set, and Sinch uses Basic credentials or an HMAC secret. See [Webhook security](/receiving/webhook-security).
 
 US numbers also need registration (10DLC or toll-free verification) before carriers deliver their texts. An unregistered number can get a success response and then fail at the carrier. See [Registration and consent](/providers/registration-and-consent).
 
@@ -122,7 +122,7 @@ export const sms = createSmsClient({
 });
 ```
 
-`memoryIdempotencyStore()` keeps keys in one process. With more than one server or a serverless host, use a shared store; see [Prevent duplicate sends](/sending/idempotency).
+`memoryIdempotencyStore()` keeps keys in one process, for 24 hours unless you set `ttlSec`. With more than one server or a serverless host, use a shared store; see [Prevent duplicate sends](/sending/idempotency).
 
 Then send from a route that decides the recipient itself. This one is a Next.js route handler; the same function body works in Hono or `Bun.serve`:
 
@@ -170,8 +170,9 @@ What the client handles for you in that call:
 
 - It rejects a malformed `to` before any request.
 - It turns each provider's response into one of three outcomes: accepted (`send()` resolves), refused (an error with a stable `code`), or unknown (`HandoffUnknownError`).
-- It never resends after an unknown outcome, and with a store, a repeat of the same key returns the first result without sending again.
-- It reports delivery as `queued` until a webhook says otherwise.
+- It never retries or falls back after an unknown outcome.
+- With a store, sending the same message with the same key again returns the first result without a request, for as long as the record is kept: 24 hours by default (`idempotency.ttlSec`). If the first send ended unknown, the repeat throws `HandoffUnknownError` instead of sending. Set the TTL longer than your longest retry window.
+- It reports the delivery status from the send response, usually `queued`. Later changes arrive by webhook.
 
 To switch to Twilio, Plivo, Vonage, Bandwidth, or Sinch, change the adapter in `sms.ts`. To keep a second provider for when the first one refuses, list both adapters and set `fallback: "on-known-rejection"`; see [Fallback and retries](/sending/fallback-and-retries). For delivery updates, [Receive webhooks](/receiving/webhooks) has one verified handler for all six providers.
 
@@ -209,7 +210,7 @@ No. Calling an SMS API from the browser exposes your credentials to every visito
 
 ### Is there a free SMS API?
 
-Most providers offer a trial with credit, usually limited to verified numbers, and paid sends after that. For development, send to the `memory()` adapter instead, which costs nothing and sends nothing.
+Check each provider's own site for trial terms; they differ and change. For development you don't need one: the `memory()` adapter records sends, costs nothing, and sends nothing.
 
 ### Does a 200 or 201 response mean the text was delivered?
 
