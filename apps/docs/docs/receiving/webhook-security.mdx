@@ -1,6 +1,6 @@
 ---
 title: "Webhook security"
-description: "How SMS SDK verifies Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch webhooks, and how to fix verification behind a proxy."
+description: "How SMS SDK verifies Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch webhooks, how to check a Twilio or Telnyx signature by hand in Node.js, and how to fix verification behind a proxy."
 ---
 
 Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature or credentials before it reads any field, and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
@@ -66,6 +66,53 @@ Where to find each credential:
 - Sinch: the Basic credentials on your callback URL, or the HMAC secret your Sinch account manager set up.
 
 Twilio, Plivo, Bandwidth, and Sinch with Basic auth sign no timestamp, so someone who captures a real request can send it again. Deduplicating on `dedupeKey` makes a replay harmless. See [Receive webhooks](/receiving/webhooks#duplicates-and-ordering).
+
+## Verify Twilio and Telnyx signatures by hand
+
+To check a Twilio webhook in Node.js, compute a Base64 HMAC-SHA1 of the full URL Twilio called followed by every POST parameter's name and value, sorted by name, keyed with your Auth Token, and compare it to `X-Twilio-Signature` in constant time. To check a Telnyx webhook, verify the Ed25519 signature in `telnyx-signature-ed25519` over `` `${telnyx-timestamp}|${rawBody}` `` with your Telnyx public key, and reject timestamps older than a few minutes.
+
+`parseSmsWebhook()` does this for you. If you only need the check, for example in middleware for an app that doesn't use SMS SDK, this is the whole thing with no dependencies, in Node.js 20 or later and Bun:
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+// Twilio: Base64 HMAC-SHA1 keyed with your Auth Token, over the full URL
+// Twilio called plus each POST parameter's name and value, sorted by name.
+export function isValidTwilioSignature(
+  authToken: string,
+  url: string,
+  params: URLSearchParams,
+  signature: string,
+): boolean {
+  const byNameThenValue = ([nameA, valueA]: string[], [nameB, valueB]: string[]) =>
+    nameA === nameB ? (valueA < valueB ? -1 : 1) : nameA < nameB ? -1 : 1;
+  const data = [...params]
+    .sort(byNameThenValue)
+    .reduce((signed, [name, value]) => signed + name + value, url);
+  const expected = Buffer.from(createHmac("sha1", authToken).update(data).digest("base64"));
+  const received = Buffer.from(signature);
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
+// Telnyx: Ed25519 over `${timestamp}|${rawBody}`, checked with the base64
+// public key from Mission Control. Old timestamps are refused, so a captured
+// request can't be replayed later.
+export async function isValidTelnyxSignature(
+  publicKey: string,
+  rawBody: string,
+  signature: string,
+  timestamp: string,
+): Promise<boolean> {
+  const ageSec = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!/^\d+$/.test(timestamp) || ageSec > 300) return false;
+  const bytes = (base64: string) => Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const key = await crypto.subtle.importKey("raw", bytes(publicKey), "Ed25519", false, ["verify"]);
+  const signed = new TextEncoder().encode(`${timestamp}|${rawBody}`);
+  return crypto.subtle.verify("Ed25519", key, bytes(signature), signed);
+}
+```
+
+Pass the URL exactly as configured in Twilio, including any query string (see [below](#fix-url-mismatches-behind-a-proxy)), and the raw body for Telnyx before anything parses it. This handles Twilio's form-encoded webhooks. A JSON body from Twilio carries `bodySHA256` in the URL instead, and `parseSmsWebhook()` checks both. SMS SDK's own Twilio check also tries the URL with and without the default port, which the snippet does not.
 
 ## Fix URL mismatches behind a proxy
 
