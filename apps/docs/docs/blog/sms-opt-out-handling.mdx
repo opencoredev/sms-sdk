@@ -110,12 +110,9 @@ export function optOutChange(event: SmsEvent): OptOutChange | undefined {
 }
 
 export async function applyOptOutChange(change: OptOutChange | undefined, list: SuppressionList): Promise<void> {
-  if (change?.kind === "opted_out") {
-    // A refusal only adds a row when no reply did, so a later START to the
-    // number that got the STOP still clears the block.
-    if (change.source === "refusal" && (await list.has(change.phoneNumber))) return;
-    await list.add(change.phoneNumber, change.ourNumber);
-  }
+  // A refusal always adds its own row. It may outlive a START, which is the
+  // safe way to be wrong: a person stays blocked rather than texted.
+  if (change?.kind === "opted_out") await list.add(change.phoneNumber, change.ourNumber);
   // A START lifts only the opt-out from the number it was sent to.
   if (change?.kind === "opted_in") await list.remove(change.phoneNumber, change.ourNumber);
 }
@@ -137,6 +134,8 @@ export function blockSuppressed(list: SuppressionList) {
 ```
 
 The list blocks a person if they opted out from any of your numbers, and a START clears only the number it was sent to. That matches Telnyx, which lifts a block only for a START sent to the number that got the STOP. Someone who texts STOP to one number and START to another stays blocked.
+
+Rows from provider refusals are the awkward case. A 21610 says the provider blocked that send, not which of your numbers got the STOP; on a Messaging Service or Telnyx profile it may have been another number. So a refusal row can outlive the START that lifted the provider's block, and the person stays suppressed until you clear the row yourself. That's deliberate. When your records and the provider's disagree, blocking a send is recoverable and texting someone who opted out isn't.
 
 Matching is still whole-message only. "Please stop texting me" isn't a keyword for SMS SDK, Twilio, or Telnyx. Whether you should honor it anyway is a question for your counsel; if the answer is yes, route `message.received` texts to a person or your own classifier.
 
@@ -221,9 +220,9 @@ export async function sendReminder(to: `+${string}`, body: string): Promise<void
     await sms.send({ to, body });
   } catch (error) {
     if (!isOptOutRefusal(error)) throw error;
-    // The refusal doesn't say which of your numbers got the STOP. Record it only
-    // when no reply did; this row stays until you clear it after a real opt-in.
-    if (!(await db.suppressions.has(to))) await db.suppressions.add(to, "provider-refusal");
+    // The refusal doesn't say which of your numbers got the STOP, so this row
+    // stays until you clear it after confirming a real opt-in.
+    await db.suppressions.add(to, "provider-refusal");
   }
 }
 ```
@@ -299,13 +298,13 @@ test("START to a different number keeps the block", async () => {
   expect(await list.has("+14155550123")).toBe(true);
 });
 
-test("a refusal from a shared sender doesn't outlive START", async () => {
+test("a provider refusal keeps the person blocked after START", async () => {
   const list = memoryList();
   await receive(list, "STOP", "+15550100002");
   const refusal = { kind: "opted_out", phoneNumber: "+14155550123", ourNumber: "+15550100009", source: "refusal" } as const;
   await applyOptOutChange(refusal, list);
   await receive(list, "START", "+15550100002");
-  expect(await list.has("+14155550123")).toBe(false);
+  expect(await list.has("+14155550123")).toBe(true); // cleared only by you
 });
 
 test("a provider's extra opt-out word is honored", async () => {
@@ -325,7 +324,7 @@ test("a sentence that mentions stop is not an opt-out", async () => {
 opt-outs.test.ts:
 (pass) STOP blocks the next send and START clears it
 (pass) START to a different number keeps the block
-(pass) a refusal from a shared sender doesn't outlive START
+(pass) a provider refusal keeps the person blocked after START
 (pass) a provider's extra opt-out word is honored
 (pass) a sentence that mentions stop is not an opt-out
 
