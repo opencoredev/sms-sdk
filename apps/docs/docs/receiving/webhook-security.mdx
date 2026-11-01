@@ -84,11 +84,13 @@ export function isValidTwilioSignature(
   params: URLSearchParams,
   signature: string,
 ): boolean {
-  const byNameThenValue = ([nameA, valueA]: string[], [nameB, valueB]: string[]) =>
-    nameA === nameB ? (valueA < valueB ? -1 : 1) : nameA < nameB ? -1 : 1;
-  const data = [...params]
-    .sort(byNameThenValue)
-    .reduce((signed, [name, value]) => signed + name + value, url);
+  // Group values by name and drop exact repeats, as Twilio's own helper does.
+  const values = new Map<string, Set<string>>();
+  for (const [name, value] of params) values.set(name, (values.get(name) ?? new Set()).add(value));
+  let data = url;
+  for (const name of [...values.keys()].sort()) {
+    for (const value of [...(values.get(name) ?? [])].sort()) data += name + value;
+  }
   const expected = Buffer.from(createHmac("sha1", authToken).update(data).digest("base64"));
   const received = Buffer.from(signature);
   return expected.length === received.length && timingSafeEqual(expected, received);

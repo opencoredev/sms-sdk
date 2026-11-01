@@ -31,13 +31,13 @@ Twilio and Telnyx both watch for opt-out keywords and block later messages on th
 | Opt-out words | STOP, UNSUBSCRIBE, END, QUIT, STOPALL, REVOKE, OPTOUT, CANCEL | stop, stopall, stop all, unsubscribe, cancel, end, quit, as the whole message |
 | Opt back in | START, UNSTOP | START, UNSTOP, sent to the same number they opted out from |
 | Reply sent for you | Standard English replies by default on long codes; custom ones with Advanced Opt-Out | A generic confirmation by default |
-| Who gets blocked | Later messages "from your account" to that person, per Twilio's docs | Every number on that messaging profile |
+| Who gets blocked | The sender number that got the STOP, and its Messaging Service if it has one | Every number on that messaging profile |
 | A later send fails with | Error 21610, reported after the API accepts the send | Error 40300 ("Blocked due to STOP message") |
 | Tells your webhook | `OptOutType` field, only with Advanced Opt-Out on a Messaging Service | Nothing. You see the text "STOP". |
 
-Sources: Twilio's [Advanced Opt-Out](https://www.twilio.com/docs/messaging/tutorials/advanced-opt-out) docs and Telnyx's [opt-out keywords](https://support.telnyx.com/en/articles/1270091-sms-opt-out-keywords) article, checked 2026-11-01. Plivo, Vonage, Bandwidth, and Sinch have their own rules; read their docs for your sender type.
+Sources: Twilio's [Advanced Opt-Out](https://www.twilio.com/docs/messaging/tutorials/advanced-opt-out) and [Consent Management](https://www.twilio.com/docs/messaging/features/consent-api) docs and Telnyx's [opt-out keywords](https://support.telnyx.com/en/articles/1270091-sms-opt-out-keywords) article, checked 2026-11-01. Plivo, Vonage, Bandwidth, and Sinch have their own rules; read their docs for your sender type.
 
-Notice the "who gets blocked" row. Twilio's list protects Twilio sends. Telnyx's list protects one messaging profile. Neither knows about the other. So if your app sends through Twilio with Telnyx as a fallback, or moves a customer from one provider to another, a person who texted STOP to your Twilio number can get your next message from Telnyx.
+Notice the "who gets blocked" row. Twilio's list protects one sender and its Messaging Service. Telnyx's list protects one messaging profile. Neither knows about the other, or about your other numbers. So if your app sends through Twilio with Telnyx as a fallback, or moves a customer from one provider to another, a person who texted STOP to your Twilio number can get your next message from Telnyx.
 
 That's why the list has to live in your database. It's the only place that sees every provider.
 
@@ -53,6 +53,7 @@ Two gaps to cover yourself:
 This module turns any verified event into an opt-out change, or nothing:
 
 ```ts opt-outs.ts
+import { AllProvidersRejectedError, ProviderRejectedError } from "@opencoredev/sms-sdk";
 import type { BeforeSendContext, PolicyDecision } from "@opencoredev/sms-sdk";
 import type { SmsEvent } from "@opencoredev/sms-sdk/webhooks";
 
@@ -68,8 +69,9 @@ export type OptOutChange = { readonly kind: "opted_out" | "opted_in" | "help"; r
 const EXTRA_OPT_OUT_WORDS = new Set(["REVOKE", "OPTOUT", "STOP ALL"]);
 // SMS SDK reports opt-ins only from Twilio's OptOutType, so match these yourself.
 const OPT_IN_WORDS = new Set(["START", "UNSTOP"]);
-// Send failures that mean the person opted out with that provider.
-const OPTED_OUT_ERROR_CODES = new Set(["21610", "40300"]);
+// Provider error codes that mean the person opted out with that provider:
+// Twilio 21610, Telnyx 40300, Vonage 1240.
+const OPTED_OUT_ERROR_CODES = new Set(["21610", "40300", "1240"]);
 
 function normalize(body: string): string {
   return body.trim().replace(/[.!?]+$/, "").trim().replace(/\s+/g, " ").toUpperCase();
@@ -102,6 +104,15 @@ export function optOutChange(event: SmsEvent): OptOutChange | undefined {
 export async function applyOptOutChange(change: OptOutChange | undefined, list: SuppressionList): Promise<void> {
   if (change?.kind === "opted_out") await list.add(change.phoneNumber);
   if (change?.kind === "opted_in") await list.remove(change.phoneNumber);
+}
+
+// True when send() threw because a provider says the person opted out. With
+// fallback on, that refusal can come wrapped in AllProvidersRejectedError,
+// after an earlier provider refused for another reason.
+export function isOptOutRefusal(error: unknown): boolean {
+  const refusals =
+    error instanceof AllProvidersRejectedError ? error.errors : error instanceof ProviderRejectedError ? [error] : [];
+  return refusals.some((refusal) => OPTED_OUT_ERROR_CODES.has(refusal.provider?.code ?? ""));
 }
 
 // For createSmsClient({ beforeSend }): refuses a send before any provider sees it.
@@ -174,13 +185,29 @@ export const sms = createSmsClient({
     }),
     telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" }),
   ],
+  fallback: "on-known-rejection",
   beforeSend: blockSuppressed(db.suppressions),
 });
 ```
 
 A send to a suppressed number throws `PolicyRejectedError` and makes no request. Catch it where you send, and treat it as "don't text this person", not as an outage.
 
-If the provider refuses the send itself, with Twilio 21610, Telnyx 40300, or Vonage 1240, SMS SDK throws `ProviderRejectedError` with `category: "compliance"` and never tries the next provider. Getting around an opt-out isn't what fallback is for. Add the number to your list when you catch one. [STOP, HELP, and opt-outs](/receiving/opt-outs#block-sends-to-suppressed-recipients) has that snippet.
+If a provider refuses the send itself, with Twilio 21610, Telnyx 40300, or Vonage 1240, SMS SDK throws `ProviderRejectedError` with `category: "compliance"` and never tries the next provider. Getting around an opt-out isn't what fallback is for. With fallback on, that refusal can also arrive inside `AllProvidersRejectedError`: Twilio refused for a sender problem, then Telnyx refused because the person had texted STOP to it. `isOptOutRefusal()` checks both shapes:
+
+```ts
+import { db } from "./db";
+import { sms } from "./opt-out-client";
+import { isOptOutRefusal } from "./opt-outs";
+
+export async function sendReminder(to: `+${string}`, body: string): Promise<void> {
+  try {
+    await sms.send({ to, body });
+  } catch (error) {
+    if (!isOptOutRefusal(error)) throw error;
+    await db.suppressions.add(to);
+  }
+}
+```
 
 ## Step 4: answer HELP once
 
@@ -275,15 +302,15 @@ opt-outs.test.ts:
 
 ### Does the provider handle STOP for me?
 
-Partly. Twilio and Telnyx block later sends from their own account or messaging profile and can reply for you. They don't tell your other providers, and they don't update your database. Keep your own list.
+Partly. Twilio blocks later sends from the sender and Messaging Service that got the STOP, Telnyx from the whole messaging profile, and both can reply for you. They don't tell your other providers, and they don't update your database. Keep your own list.
 
 ### Should I block STOP replies from only the number they texted?
 
-Telnyx blocks the whole messaging profile and Twilio blocks its senders, not just one number. Blocking the person across all your senders for that kind of message is the simplest rule that never undershoots the providers. If you run separate programs, such as order updates and marketing, ask your counsel whether a STOP to one covers the other.
+Telnyx already blocks every number on the messaging profile, and Twilio blocks the Messaging Service as well as the sender. Blocking the person across all your senders for that kind of message is the simplest rule that never undershoots the providers. If you run separate programs, such as order updates and marketing, ask your counsel whether a STOP to one covers the other.
 
 ### What about one-time codes? Can I text a code to someone who opted out?
 
-Not through a provider that has blocked them: Twilio and Telnyx refuse the send. Whether your app should try another route is a compliance question, not a technical one. SMS SDK never falls back after a compliance refusal.
+Not through a sender that has blocked them: Twilio and Telnyx refuse the send. Whether your app should try another route is a compliance question, not a technical one. SMS SDK never falls back after a compliance refusal.
 
 ### Does SMS SDK store the opt-out list?
 
