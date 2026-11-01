@@ -14,8 +14,9 @@ const tables = {
     async markNeedsReview(_idempotencyKey: string, _reason: string): Promise<void> {},
   }),
   suppressions: table({
-    async add(_phoneNumber: string): Promise<void> {},
-    async remove(_phoneNumber: string): Promise<void> {},
+    /** `ourNumber` is the sender the opt-out applies to, for snippets that track it. */
+    async add(_phoneNumber: string, _ourNumber?: string): Promise<void> {},
+    async remove(_phoneNumber: string, _ourNumber?: string): Promise<void> {},
     async has(_phoneNumber: string): Promise<boolean> {
       return false;
     },

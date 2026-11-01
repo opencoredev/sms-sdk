@@ -17,7 +17,7 @@ When someone replies STOP, your app should:
 2. Recognize it as an opt-out, including the words your provider treats as opt-outs.
 3. Write the number to a suppression list in your own database.
 4. Check that list before every send, on every provider.
-5. Remove the number when they reply START or UNSTOP.
+5. Lift the block when they reply START or UNSTOP to the number they opted out from.
 6. Treat a provider's "this person opted out" refusal as an opt-out too.
 
 The provider already does part of this. That part is the trap.
@@ -57,13 +57,19 @@ import { AllProvidersRejectedError, ProviderRejectedError } from "@opencoredev/s
 import type { BeforeSendContext, PolicyDecision } from "@opencoredev/sms-sdk";
 import type { SmsEvent } from "@opencoredev/sms-sdk/webhooks";
 
+// One row per person and the number of yours they opted out from.
 export type SuppressionList = {
-  add(phoneNumber: string): Promise<void>;
-  remove(phoneNumber: string): Promise<void>;
+  add(phoneNumber: string, ourNumber: string): Promise<void>;
+  remove(phoneNumber: string, ourNumber: string): Promise<void>;
+  // True when the person opted out from any of your numbers.
   has(phoneNumber: string): Promise<boolean>;
 };
 
-export type OptOutChange = { readonly kind: "opted_out" | "opted_in" | "help"; readonly phoneNumber: string };
+export type OptOutChange = {
+  readonly kind: "opted_out" | "opted_in" | "help";
+  readonly phoneNumber: string;
+  readonly ourNumber: string;
+};
 
 // Words Twilio or Telnyx treat as opt-outs that SMS SDK's keyword list doesn't.
 const EXTRA_OPT_OUT_WORDS = new Set(["REVOKE", "OPTOUT", "STOP ALL"]);
@@ -80,30 +86,30 @@ function normalize(body: string): string {
 export function optOutChange(event: SmsEvent): OptOutChange | undefined {
   switch (event.type) {
     case "recipient.opted_out":
-      return { kind: "opted_out", phoneNumber: event.from };
+      return { kind: "opted_out", phoneNumber: event.from, ourNumber: event.to };
     case "recipient.opted_in":
-      return { kind: "opted_in", phoneNumber: event.from };
+      return { kind: "opted_in", phoneNumber: event.from, ourNumber: event.to };
     case "recipient.help":
-      return { kind: "help", phoneNumber: event.from };
+      return { kind: "help", phoneNumber: event.from, ourNumber: event.to };
     case "message.received": {
       const words = normalize(event.body);
-      if (EXTRA_OPT_OUT_WORDS.has(words)) return { kind: "opted_out", phoneNumber: event.from };
-      if (OPT_IN_WORDS.has(words)) return { kind: "opted_in", phoneNumber: event.from };
+      if (EXTRA_OPT_OUT_WORDS.has(words)) return { kind: "opted_out", phoneNumber: event.from, ourNumber: event.to };
+      if (OPT_IN_WORDS.has(words)) return { kind: "opted_in", phoneNumber: event.from, ourNumber: event.to };
       return undefined;
     }
     case "message.undelivered":
       // Twilio reports 21610 on the status callback after accepting the send.
-      return event.to !== undefined && event.errorCode !== undefined && OPTED_OUT_ERROR_CODES.has(event.errorCode)
-        ? { kind: "opted_out", phoneNumber: event.to }
-        : undefined;
+      if (event.to === undefined || !OPTED_OUT_ERROR_CODES.has(event.errorCode ?? "")) return undefined;
+      return { kind: "opted_out", phoneNumber: event.to, ourNumber: event.from ?? "unknown" };
     default:
       return undefined;
   }
 }
 
 export async function applyOptOutChange(change: OptOutChange | undefined, list: SuppressionList): Promise<void> {
-  if (change?.kind === "opted_out") await list.add(change.phoneNumber);
-  if (change?.kind === "opted_in") await list.remove(change.phoneNumber);
+  if (change?.kind === "opted_out") await list.add(change.phoneNumber, change.ourNumber);
+  // A START lifts only the opt-out from the number it was sent to.
+  if (change?.kind === "opted_in") await list.remove(change.phoneNumber, change.ourNumber);
 }
 
 // True when send() threw because a provider says the person opted out. With
@@ -121,6 +127,8 @@ export function blockSuppressed(list: SuppressionList) {
     (await list.has(message.to)) ? { kind: "reject", reason: "Recipient opted out." } : { kind: "allow" };
 }
 ```
+
+The list blocks a person if they opted out from any of your numbers, and a START clears only the number it was sent to. That matches Telnyx, which lifts a block only for a START sent to the number that got the STOP. Someone who texts STOP to one number and START to another stays blocked.
 
 Matching is still whole-message only. "Please stop texting me" isn't a keyword for SMS SDK, Twilio, or Telnyx. Whether you should honor it anyway is a question for your counsel; if the answer is yes, route `message.received` texts to a person or your own classifier.
 
@@ -152,18 +160,19 @@ export async function POST(request: Request): Promise<Response> {
 
 Adding or removing a number twice changes nothing, so a repeated webhook is harmless. Order is different: providers can deliver webhooks out of order, and a late STOP processed after a START leaves the person blocked. If people toggle often, store `event.occurredAt` with each change and ignore anything older than the row you have.
 
-A suppression table needs little. One row per phone number, in E.164 form, with when and how they opted out:
+A suppression table needs little. One row per person and number of yours, in E.164 form, with when and how they opted out:
 
 ```sql
 create table sms_suppressions (
-  phone_number text primary key,       -- E.164, e.g. +14155550123
+  phone_number text not null,          -- the person, e.g. +14155550123
+  our_number   text not null,          -- the number of yours that got the STOP
   opted_out_at timestamptz not null default now(),
-  provider     text,                   -- which provider's number got the STOP
-  keyword      text                    -- STOP, REVOKE, or a provider error code
+  keyword      text,                   -- STOP, REVOKE, or a provider error code
+  primary key (phone_number, our_number)
 );
 ```
 
-Keep the history if your rules require proof of when someone opted out. A primary key on the number is enough for the check before each send.
+Keep the history if your rules require proof of when someone opted out. The check before each send only asks whether any row exists for the number you're about to text.
 
 ## Step 3: block the send before it leaves
 
@@ -204,7 +213,9 @@ export async function sendReminder(to: `+${string}`, body: string): Promise<void
     await sms.send({ to, body });
   } catch (error) {
     if (!isOptOutRefusal(error)) throw error;
-    await db.suppressions.add(to);
+    // The refusal doesn't say which of your numbers they opted out from, so
+    // this row stays until someone clears it after a real opt-in.
+    await db.suppressions.add(to, "provider-refusal");
   }
 }
 ```
@@ -227,18 +238,18 @@ import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";
 import { applyOptOutChange, blockSuppressed, optOutChange, type SuppressionList } from "./opt-outs";
 
 function memoryList(): SuppressionList {
-  const numbers = new Set<string>();
+  const rows = new Set<string>();
   return {
-    add: async (phoneNumber) => void numbers.add(phoneNumber),
-    remove: async (phoneNumber) => void numbers.delete(phoneNumber),
-    has: async (phoneNumber) => numbers.has(phoneNumber),
+    add: async (phoneNumber, ourNumber) => void rows.add(`${phoneNumber} ${ourNumber}`),
+    remove: async (phoneNumber, ourNumber) => void rows.delete(`${phoneNumber} ${ourNumber}`),
+    has: async (phoneNumber) => [...rows].some((row) => row.startsWith(`${phoneNumber} `)),
   };
 }
 
 const { privateKey, publicKey } = await generateTelnyxKeyPair();
 const url = "https://example.com/api/webhooks/sms";
 
-async function reply(text: string): Promise<Request> {
+async function reply(text: string, to = "+15550100002"): Promise<Request> {
   const body = {
     data: {
       id: `evt_${crypto.randomUUID()}`,
@@ -246,7 +257,7 @@ async function reply(text: string): Promise<Request> {
       payload: {
         id: `msg_${crypto.randomUUID()}`,
         from: { phone_number: "+14155550123" },
-        to: [{ phone_number: "+15550100002" }],
+        to: [{ phone_number: to }],
         text,
       },
     },
@@ -254,8 +265,8 @@ async function reply(text: string): Promise<Request> {
   return signedTelnyxRequest({ privateKey, url, body });
 }
 
-async function receive(list: SuppressionList, text: string): Promise<void> {
-  const event = await parseSmsWebhook({ provider: "telnyx", request: await reply(text), credentials: { publicKey } });
+async function receive(list: SuppressionList, text: string, to?: string): Promise<void> {
+  const event = await parseSmsWebhook({ provider: "telnyx", request: await reply(text, to), credentials: { publicKey } });
   await applyOptOutChange(optOutChange(event), list);
 }
 
@@ -271,6 +282,13 @@ test("STOP blocks the next send and START clears it", async () => {
   await receive(list, "START");
   await sms.send({ to: "+14155550123", body: "Your code is 123456" });
   expect(adapter.sent).toHaveLength(1);
+});
+
+test("START to a different number keeps the block", async () => {
+  const list = memoryList();
+  await receive(list, "STOP", "+15550100002");
+  await receive(list, "START", "+15550100003");
+  expect(await list.has("+14155550123")).toBe(true);
 });
 
 test("a provider's extra opt-out word is honored", async () => {
@@ -289,10 +307,11 @@ test("a sentence that mentions stop is not an opt-out", async () => {
 ```txt
 opt-outs.test.ts:
 (pass) STOP blocks the next send and START clears it
+(pass) START to a different number keeps the block
 (pass) a provider's extra opt-out word is honored
 (pass) a sentence that mentions stop is not an opt-out
 
- 3 pass
+ 4 pass
  0 fail
 ```
 
@@ -306,7 +325,7 @@ Partly. Twilio blocks later sends from the sender and Messaging Service that got
 
 ### Should I block STOP replies from only the number they texted?
 
-Telnyx already blocks every number on the messaging profile, and Twilio blocks the Messaging Service as well as the sender. Blocking the person across all your senders for that kind of message is the simplest rule that never undershoots the providers. If you run separate programs, such as order updates and marketing, ask your counsel whether a STOP to one covers the other.
+Telnyx already blocks every number on the messaging profile, and Twilio blocks the Messaging Service as well as the sender. Blocking the person across all your senders for that kind of message, and lifting it only for the number they sent START to, is the simplest rule that never undershoots the providers. If you run separate programs, such as order updates and marketing, ask your counsel whether a STOP to one covers the other.
 
 ### What about one-time codes? Can I text a code to someone who opted out?
 
