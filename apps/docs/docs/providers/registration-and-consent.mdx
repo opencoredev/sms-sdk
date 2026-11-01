@@ -37,7 +37,7 @@ Register with every provider you send through. A 10DLC campaign on Twilio does n
 Your app is responsible for:
 
 1. Getting consent before sending, in the form the destination requires, and storing proof: who, when, how, and for what kind of messages.
-2. Honoring opt-outs on every provider. Only the provider whose number got the STOP knows about it, so keep your own suppression list and check it in `beforeSend`.
+2. Honoring opt-outs on every provider. Only the provider whose number got the STOP knows about it, so keep your own suppression list and check it in `beforeSend`. [SMS opt-out handling for developers](/blog/sms-opt-out-handling) walks through it.
 3. Answering HELP with who you are and how to get support, where required. Some providers reply automatically for some sender types, so check before adding your own reply.
 4. Following content and timing rules, such as quiet hours and limits on certain message categories.
 
