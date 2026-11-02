@@ -89,7 +89,7 @@ The hard part is each provider's `send()`. It has to map every documented error 
 
 ## Build it with SMS SDK
 
-SMS SDK does that classification for Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch. List adapters in priority order and turn on fallback:
+SMS SDK does that classification for [Twilio](/providers/twilio), [Telnyx](/providers/telnyx), [Plivo](/providers/plivo), [Vonage](/providers/vonage), [Bandwidth](/providers/bandwidth), and [Sinch](/providers/sinch). List adapters in priority order and turn on fallback:
 
 ```ts
 import { createSmsClient, HandoffUnknownError, memoryIdempotencyStore } from "@opencoredev/sms-sdk";
@@ -152,7 +152,7 @@ A second provider is a second account, and SMS rules apply per account:
 
 - **Register senders on both.** A 10DLC campaign or a toll-free verification on Twilio doesn't cover a Telnyx number. A message sent from an unregistered US number can be accepted and then blocked by the carrier. See [Registration and consent](/providers/registration-and-consent).
 - **Keep one opt-out list.** Twilio records a STOP sent to your Twilio number, and Telnyx never sees it. Keep your own suppression list and check it before every send, so fallback can't reach someone who opted out. See [STOP, HELP, and opt-outs](/receiving/opt-outs).
-- **Receive webhooks from both.** Status updates and replies come from whichever provider sent the message. See [Webhooks](/receiving/webhooks).
+- **Receive webhooks from both.** Status updates and replies come from whichever provider sent the message, and each provider authenticates them its own way. See [Webhooks](/receiving/webhooks) and [Webhook security](/receiving/webhook-security).
 - **Give each provider its own sender.** Each adapter sends from its own number, so leave `from` off the message unless every provider can send from that exact number.
 
 ## FAQ
