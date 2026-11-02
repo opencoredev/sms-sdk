@@ -52,6 +52,7 @@ export type Challenge = {
   readonly phoneNumber: E164;
   readonly createdAt: number;
   readonly guessesLeft: number;
+  readonly used: boolean; // kept after use, so the resend wait still applies
 };
 
 // One live challenge per phone number. Each write must be a single atomic
@@ -61,10 +62,12 @@ export interface ChallengeStore {
   // Save `challenge` as the number's only challenge unless its current one is
   // younger than `minGapMs`. Returns the blocking challenge's createdAt if so.
   insertIfQuiet(challenge: Challenge, minGapMs: number): Promise<{ saved: true } | { saved: false; lastCreatedAt: number }>;
-  // Decrement guessesLeft if this challenge is still current and has one left.
+  // Decrement guessesLeft if this challenge is current, unused, and has one left.
   spendGuess(phoneNumber: E164, challengeId: string): Promise<boolean>;
-  // Delete this challenge if it is still current. Only one caller gets true.
+  // Mark this challenge used if it is current and unused. Only one caller gets true.
   consume(phoneNumber: E164, challengeId: string): Promise<boolean>;
+  // Delete this challenge if it is still current: its send was refused, so it never counted.
+  release(phoneNumber: E164, challengeId: string): Promise<void>;
 }
 
 export type Otp = {
@@ -87,7 +90,7 @@ export type StartResult =
 
 export async function startChallenge(otp: Otp, phoneNumber: E164): Promise<StartResult> {
   const now = otp.now?.() ?? Date.now();
-  const challenge = { id: crypto.randomUUID(), phoneNumber, createdAt: now, guessesLeft: MAX_GUESSES };
+  const challenge = { id: crypto.randomUUID(), phoneNumber, createdAt: now, guessesLeft: MAX_GUESSES, used: false };
   const insert = await otp.store.insertIfQuiet(challenge, RESEND_AFTER_SEC * 1000);
   if (!insert.saved) {
     const waitMs = insert.lastCreatedAt + RESEND_AFTER_SEC * 1000 - now;
@@ -122,7 +125,7 @@ export type CheckResult = "ok" | "wrong" | "expired" | "locked" | "no_code";
 export async function checkCode(otp: Otp, phoneNumber: E164, code: string): Promise<CheckResult> {
   const now = otp.now?.() ?? Date.now();
   const challenge = await otp.store.get(phoneNumber);
-  if (challenge === null) return "no_code";
+  if (challenge === null || challenge.used) return "no_code";
   if (now - challenge.createdAt > CODE_TTL_SEC * 1000) {
     await otp.store.consume(phoneNumber, challenge.id);
     return "expired";
@@ -133,20 +136,21 @@ export async function checkCode(otp: Otp, phoneNumber: E164, code: string): Prom
   const expected = Buffer.from(codeFor(otp.secret, challenge.id));
   const given = Buffer.from(code.trim());
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return "wrong";
-  // A code works once: only the request that deletes the challenge succeeds.
+  // A code works once: only the request that marks the challenge used succeeds.
   return (await otp.store.consume(phoneNumber, challenge.id)) ? "ok" : "no_code";
 }
 ```
 
 A new challenge replaces the old one, so only the newest code works. That keeps the rules simple: one number, one live code, five guesses.
 
-The store's three writes carry the security, so each must be one atomic statement in your database. Read-then-write in two steps lets parallel requests slip through: ten "send me a code" clicks at once would each pass the 30-second check and send ten codes, and two logins with the same code would both succeed. In SQL that means:
+The store's writes carry the security, so each must be one atomic statement in your database. Read-then-write in two steps lets parallel requests slip through: ten "send me a code" clicks at once would each pass the 30-second check and send ten codes, and two logins with the same code would both succeed. In SQL that means:
 
 - `insertIfQuiet`: one upsert that replaces the row only when the old `created_at` is at least 30 seconds old.
-- `spendGuess`: `UPDATE ... SET guesses_left = guesses_left - 1 WHERE phone = $1 AND id = $2 AND guesses_left > 0`, true if a row changed.
-- `consume`: `DELETE ... WHERE phone = $1 AND id = $2`, true if a row was deleted.
+- `spendGuess`: `UPDATE ... SET guesses_left = guesses_left - 1 WHERE phone = $1 AND id = $2 AND NOT used AND guesses_left > 0`, true if a row changed.
+- `consume`: `UPDATE ... SET used = true WHERE phone = $1 AND id = $2 AND NOT used`, true if a row changed. Keep the row, so its `created_at` still holds the resend wait.
+- `release`: `DELETE ... WHERE phone = $1 AND id = $2`, used only when the provider refused the send.
 
-`checkCode()` spends a guess before it compares, so parallel guesses can't go past five, and only the request whose `consume` deletes the row gets `"ok"`.
+`checkCode()` spends a guess before it compares, so parallel guesses can't go past five, and only the request whose `consume` marks the row used gets `"ok"`.
 
 ## Step 2: send it once
 
@@ -187,7 +191,7 @@ With `fallback: "on-known-rejection"`, Plivo sends the code only when Twilio pro
 
 ## Step 3: wire it to your endpoints
 
-A route that starts a challenge and sends the code. It answers 429 during the resend wait, and the same 200 for "sent" and "maybe sent", so the screen can say "Code sent" in both cases:
+A route that starts a challenge and sends the code. It answers 400 for a bad body, 429 during the resend wait, and the same 200 for "sent" and "maybe sent", so the screen can say "Code sent" in both cases. When the provider refuses the send, nothing went out, so it releases the number for an immediate retry:
 
 ```ts
 import { isE164, SmsError } from "@opencoredev/sms-sdk";
@@ -195,7 +199,7 @@ import { deliverCode, startChallenge, type Otp } from "./otp";
 
 export function otpStartRoute(otp: Otp) {
   return async function POST(request: Request): Promise<Response> {
-    const body: unknown = await request.json();
+    const body: unknown = await request.json().catch(() => null);
     const phoneNumber = typeof body === "object" && body !== null && "phoneNumber" in body ? body.phoneNumber : undefined;
     if (!isE164(phoneNumber)) return Response.json({ error: "invalid_phone_number" }, { status: 400 });
 
@@ -207,8 +211,10 @@ export function otpStartRoute(otp: Otp) {
       const delivery = await deliverCode(otp, started.challenge);
       return Response.json({ status: delivery.kind });
     } catch (error) {
-      if (error instanceof SmsError) return Response.json({ error: "could_not_send" }, { status: 422 });
-      throw error;
+      if (!(error instanceof SmsError)) throw error;
+      // Nothing was sent, so free the number for an immediate retry.
+      await otp.store.release(phoneNumber, started.challenge.id);
+      return Response.json({ error: "could_not_send" }, { status: 422 });
     }
   };
 }
@@ -249,11 +255,19 @@ function memoryChallenges(): ChallengeStore {
     },
     spendGuess: async (phoneNumber, id) => {
       const row = current(phoneNumber, id);
-      if (row === undefined || row.guessesLeft <= 0) return false;
+      if (row === undefined || row.used || row.guessesLeft <= 0) return false;
       rows.set(phoneNumber, { ...row, guessesLeft: row.guessesLeft - 1 });
       return true;
     },
-    consume: async (phoneNumber, id) => current(phoneNumber, id) !== undefined && rows.delete(phoneNumber),
+    consume: async (phoneNumber, id) => {
+      const row = current(phoneNumber, id);
+      if (row === undefined || row.used) return false;
+      rows.set(phoneNumber, { ...row, used: true });
+      return true;
+    },
+    release: async (phoneNumber, id) => {
+      if (current(phoneNumber, id) !== undefined) rows.delete(phoneNumber);
+    },
   };
 }
 
@@ -295,6 +309,7 @@ test("the right code works once, even in parallel", async () => {
   const code = codeFor("test-secret", challenge.id);
   const results = await Promise.all([checkCode(otp, phone, code), checkCode(otp, phone, code)]);
   expect(results.sort()).toEqual(["no_code", "ok"]);
+  expect((await startChallenge(otp, phone)).kind).toBe("too_soon"); // using a code keeps the resend wait
 });
 
 test("five wrong guesses lock the code", async () => {
