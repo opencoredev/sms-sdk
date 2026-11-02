@@ -346,7 +346,7 @@ Telnyx already blocks every number on the messaging profile, and Twilio blocks t
 
 ### What about one-time codes? Can I text a code to someone who opted out?
 
-Not through a sender that has blocked them: Twilio and Telnyx refuse the send. Whether your app should try another route is a compliance question, not a technical one. SMS SDK never falls back after a compliance refusal.
+Not through a sender that has blocked them: Twilio and Telnyx refuse the send. Whether your app should try another route is a compliance question, not a technical one. SMS SDK never falls back after a compliance refusal. [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript) covers the rest of a code flow.
 
 ### Does SMS SDK store the opt-out list?
 
@@ -358,3 +358,4 @@ No. It turns replies into events and gives you `beforeSend` to enforce your list
 - [Registration and consent](/providers/registration-and-consent): what to arrange with providers before you send.
 - [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): why compliance refusals never fall back.
 - [How to send SMS through an API in TypeScript](/blog/send-sms-api-typescript): the send side, from a raw request to a tested route.
+- [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript): one-time codes that are sent once, even after a timeout.
