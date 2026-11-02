@@ -5,6 +5,8 @@ description: "Use idempotency keys and a store so a retried job does not send th
 
 A retried job should not text the customer twice. Give each message an `idempotencyKey` and give the client a store. A repeat send with the same key returns the first result instead of sending again.
 
+**When a provider request times out**, don't send again with a fresh request: the provider may already have the message. Retry with the same `idempotencyKey` and the client's store decides. If the first send was accepted, the retry returns that result without a request. If its outcome is unknown, because of a timeout, a dropped connection, or a 5xx, the retry throws `HandoffUnknownError` and sends nothing until you [check with the provider](#reconcile-an-unknown-outcome). While the record is stored, the same key makes a new request only after a rejection: one the provider sent back, or one from your `beforeSend` check before any request went out.
+
 :::warning[Exactly once is not possible]
 None of the supported providers deduplicates SMS sends, so no client can promise exactly-once delivery. If a process crashes or a request times out after the provider received it, nobody knows whether it went out. The SDK records that and refuses to resend, and you check with the provider by hand.
 :::
@@ -90,3 +92,4 @@ The memory store has `delete`. A store you write needs some way for an operator 
 - [Share idempotency across servers](/advanced/multiple-instances)
 - [Idempotency store reference](/reference/idempotency-store)
 - [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts) (blog)
+- [Send one-time codes without double-texting](/blog/sms-otp-api-typescript) (blog)
