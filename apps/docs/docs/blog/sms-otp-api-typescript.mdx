@@ -7,7 +7,7 @@ description: "Send SMS verification codes through your own Twilio, Plivo, or Von
 
 There are two ways to text someone a one-time code from your app. You can use a hosted verification API, which generates, sends, and checks the code for you. Or you can generate the code yourself and send it through the SMS API you already use for everything else. This post is about the second way: what the code has to get right, and a tested TypeScript module that does it.
 
-The examples use SMS SDK, the open-source library this site documents. It calls your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. It isn't a carrier or an SMS provider, and it doesn't generate or check codes. That part is yours, and it's about 100 lines.
+The examples use SMS SDK, the open-source library this site documents. It calls your own [Twilio](/providers/twilio), [Telnyx](/providers/telnyx), [Plivo](/providers/plivo), [Vonage](/providers/vonage), [Bandwidth](/providers/bandwidth), or [Sinch](/providers/sinch) account. It isn't a carrier or an SMS provider, and it doesn't generate or check codes. That part is yours, and it's about 100 lines.
 
 ## The short answer
 
@@ -227,7 +227,7 @@ The check route calls `checkCode()` and signs the person in only on `"ok"`. Two 
 
 ## Test it without sending texts
 
-`memory()` from `@opencoredev/sms-sdk/testing` records sends and can play back any outcome, including a timeout. These tests check the parts that are easy to get wrong, including parallel requests:
+`memory()` from `@opencoredev/sms-sdk/testing` records sends and can play back any outcome, including a timeout. [Test without a provider](/testing/local-testing) covers the other helpers, such as signed webhook requests. These tests check the parts that are easy to get wrong, including parallel requests:
 
 ```ts otp.test.ts
 import { expect, test } from "bun:test";
@@ -376,3 +376,4 @@ A random code has to be stored, ideally hashed, and kept around for a retry to r
 - [SMS opt-out handling](/blog/sms-opt-out-handling): STOP, START, and HELP replies in TypeScript.
 - [How to send SMS through an API in TypeScript](/blog/send-sms-api-typescript): the send side, from a raw request to a tested route.
 - [SMS segment calculator](/tools/sms-segment-calculator): check that your code message fits in one segment.
+- [Webhook security](/receiving/webhook-security): verify the status callbacks that report a late 21610 or a failed delivery.
