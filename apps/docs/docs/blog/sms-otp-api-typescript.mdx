@@ -7,7 +7,7 @@ description: "Send SMS verification codes through your own Twilio, Plivo, or Von
 
 There are two ways to text someone a one-time code from your app. You can use a hosted verification API, which generates, sends, and checks the code for you. Or you can generate the code yourself and send it through the SMS API you already use for everything else. This post is about the second way: what the code has to get right, and a tested TypeScript module that does it.
 
-The examples use SMS SDK, the open-source library this site documents. It calls your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. It isn't a carrier or an SMS provider, and it doesn't generate or check codes. That part is yours, and it's about 80 lines.
+The examples use SMS SDK, the open-source library this site documents. It calls your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. It isn't a carrier or an SMS provider, and it doesn't generate or check codes. That part is yours, and it's about 100 lines.
 
 ## The short answer
 
@@ -54,11 +54,17 @@ export type Challenge = {
   readonly guessesLeft: number;
 };
 
-// One live challenge per phone number. Saving a new one replaces the old one.
+// One live challenge per phone number. Each write must be a single atomic
+// statement in your database, or parallel requests race past the checks.
 export interface ChallengeStore {
   get(phoneNumber: E164): Promise<Challenge | null>;
-  put(challenge: Challenge): Promise<void>;
-  delete(phoneNumber: E164): Promise<void>;
+  // Save `challenge` as the number's only challenge unless its current one is
+  // younger than `minGapMs`. Returns the blocking challenge's createdAt if so.
+  insertIfQuiet(challenge: Challenge, minGapMs: number): Promise<{ saved: true } | { saved: false; lastCreatedAt: number }>;
+  // Decrement guessesLeft if this challenge is still current and has one left.
+  spendGuess(phoneNumber: E164, challengeId: string): Promise<boolean>;
+  // Delete this challenge if it is still current. Only one caller gets true.
+  consume(phoneNumber: E164, challengeId: string): Promise<boolean>;
 }
 
 export type Otp = {
@@ -81,12 +87,12 @@ export type StartResult =
 
 export async function startChallenge(otp: Otp, phoneNumber: E164): Promise<StartResult> {
   const now = otp.now?.() ?? Date.now();
-  const previous = await otp.store.get(phoneNumber);
-  const waitMs = previous === null ? 0 : previous.createdAt + RESEND_AFTER_SEC * 1000 - now;
-  if (waitMs > 0) return { kind: "too_soon", retryAfterSec: Math.ceil(waitMs / 1000) };
-
   const challenge = { id: crypto.randomUUID(), phoneNumber, createdAt: now, guessesLeft: MAX_GUESSES };
-  await otp.store.put(challenge);
+  const insert = await otp.store.insertIfQuiet(challenge, RESEND_AFTER_SEC * 1000);
+  if (!insert.saved) {
+    const waitMs = insert.lastCreatedAt + RESEND_AFTER_SEC * 1000 - now;
+    return { kind: "too_soon", retryAfterSec: Math.max(1, Math.ceil(waitMs / 1000)) };
+  }
   return { kind: "started", challenge };
 }
 
@@ -118,23 +124,29 @@ export async function checkCode(otp: Otp, phoneNumber: E164, code: string): Prom
   const challenge = await otp.store.get(phoneNumber);
   if (challenge === null) return "no_code";
   if (now - challenge.createdAt > CODE_TTL_SEC * 1000) {
-    await otp.store.delete(phoneNumber);
+    await otp.store.consume(phoneNumber, challenge.id);
     return "expired";
   }
-  if (challenge.guessesLeft <= 0) return "locked";
+  // Spend the guess before comparing, so parallel guesses can't exceed the limit.
+  if (!(await otp.store.spendGuess(phoneNumber, challenge.id))) return "locked";
 
   const expected = Buffer.from(codeFor(otp.secret, challenge.id));
   const given = Buffer.from(code.trim());
-  if (given.length === expected.length && timingSafeEqual(given, expected)) {
-    await otp.store.delete(phoneNumber); // a code works once
-    return "ok";
-  }
-  await otp.store.put({ ...challenge, guessesLeft: challenge.guessesLeft - 1 });
-  return "wrong";
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return "wrong";
+  // A code works once: only the request that deletes the challenge succeeds.
+  return (await otp.store.consume(phoneNumber, challenge.id)) ? "ok" : "no_code";
 }
 ```
 
-A new challenge replaces the old one, so only the newest code works. That keeps the rules simple: one number, one live code, five guesses. In production, make the guess counter an atomic decrement in your database, so ten parallel guesses can't all read "5 left".
+A new challenge replaces the old one, so only the newest code works. That keeps the rules simple: one number, one live code, five guesses.
+
+The store's three writes carry the security, so each must be one atomic statement in your database. Read-then-write in two steps lets parallel requests slip through: ten "send me a code" clicks at once would each pass the 30-second check and send ten codes, and two logins with the same code would both succeed. In SQL that means:
+
+- `insertIfQuiet`: one upsert that replaces the row only when the old `created_at` is at least 30 seconds old.
+- `spendGuess`: `UPDATE ... SET guesses_left = guesses_left - 1 WHERE phone = $1 AND id = $2 AND guesses_left > 0`, true if a row changed.
+- `consume`: `DELETE ... WHERE phone = $1 AND id = $2`, true if a row was deleted.
+
+`checkCode()` spends a guess before it compares, so parallel guesses can't go past five, and only the request whose `consume` deletes the row gets `"ok"`.
 
 ## Step 2: send it once
 
@@ -144,7 +156,7 @@ A new challenge replaces the old one, so only the newest code works. That keeps 
 
 **A timeout is "maybe sent", not "failed".** When the request times out, the network drops, or the provider answers 5xx, SMS SDK can't tell whether the provider accepted the text, so it throws `HandoffUnknownError`. It also marks the key unknown, and every later send with that key throws the same error instead of sending. The module turns that into `maybe_sent`. Tell the person a code is on its way either way, and offer "Send a new code" once the 30-second wait is over. That new code is a new challenge with a new key.
 
-**`validityPeriodSec` stops stale codes.** It asks the provider to give up on a text it's still holding after that many seconds, so a code doesn't arrive after it has expired. Each adapter maps it to its provider's field: Twilio's `ValidityPeriod` (how long a message may wait in Twilio's outgoing queue), Plivo's `message_expiry`, Vonage's `ttl`, and Sinch's `expire_at`. The Telnyx and Bandwidth adapters have no such field. With one of them as your primary adapter, `send()` throws `UnsupportedFieldError` before any request, so leave `validityPeriodSec` out there and rely on the expiry check.
+**`validityPeriodSec` cuts down on stale codes.** It asks the provider to give up on a text it's still holding after that many seconds. It can't stop a carrier that already has the message from delivering it late, so the expiry check in `checkCode()` is what actually enforces the 10 minutes. Each adapter maps it to its provider's field: Twilio's `ValidityPeriod` (how long a message may wait in Twilio's outgoing queue), Plivo's `message_expiry`, Vonage's `ttl`, and Sinch's `expire_at`. The Telnyx and Bandwidth adapters have no such field. With one of them as your primary adapter, `send()` throws `UnsupportedFieldError` before any request, so leave `validityPeriodSec` out there and rely on the expiry check.
 
 The client needs an idempotency store. `memoryIdempotencyStore()` works in one process; for several servers or serverless functions, see [Share idempotency across servers](/advanced/multiple-instances).
 
@@ -209,7 +221,7 @@ The check route calls `checkCode()` and signs the person in only on `"ok"`. Two 
 
 ## Test it without sending texts
 
-`memory()` from `@opencoredev/sms-sdk/testing` records sends and can play back any outcome, including a timeout. These tests check the parts that are easy to get wrong:
+`memory()` from `@opencoredev/sms-sdk/testing` records sends and can play back any outcome, including a timeout. These tests check the parts that are easy to get wrong, including parallel requests:
 
 ```ts otp.test.ts
 import { expect, test } from "bun:test";
@@ -217,12 +229,31 @@ import { createSmsClient, memoryIdempotencyStore, type E164 } from "@opencoredev
 import { memory, unknownOutcome } from "@opencoredev/sms-sdk/testing";
 import { checkCode, codeFor, deliverCode, startChallenge, type Challenge, type ChallengeStore, type Otp } from "./otp";
 
+// In-memory store. Each method reads and writes with no await in between,
+// which makes it atomic in one JavaScript process.
 function memoryChallenges(): ChallengeStore {
   const rows = new Map<E164, Challenge>();
+  const current = (phoneNumber: E164, id: string) => {
+    const row = rows.get(phoneNumber);
+    return row?.id === id ? row : undefined;
+  };
   return {
     get: async (phoneNumber) => rows.get(phoneNumber) ?? null,
-    put: async (challenge) => void rows.set(challenge.phoneNumber, challenge),
-    delete: async (phoneNumber) => void rows.delete(phoneNumber),
+    insertIfQuiet: async (challenge, minGapMs) => {
+      const last = rows.get(challenge.phoneNumber);
+      if (last !== undefined && challenge.createdAt - last.createdAt < minGapMs) {
+        return { saved: false, lastCreatedAt: last.createdAt };
+      }
+      rows.set(challenge.phoneNumber, challenge);
+      return { saved: true };
+    },
+    spendGuess: async (phoneNumber, id) => {
+      const row = current(phoneNumber, id);
+      if (row === undefined || row.guessesLeft <= 0) return false;
+      rows.set(phoneNumber, { ...row, guessesLeft: row.guessesLeft - 1 });
+      return true;
+    },
+    consume: async (phoneNumber, id) => current(phoneNumber, id) !== undefined && rows.delete(phoneNumber),
   };
 }
 
@@ -258,12 +289,12 @@ test("a timeout is reported as maybe sent and never resent", async () => {
   expect(adapter.sent).toHaveLength(1);
 });
 
-test("the right code works once", async () => {
+test("the right code works once, even in parallel", async () => {
   const { otp } = setup();
   const challenge = await start(otp);
   const code = codeFor("test-secret", challenge.id);
-  expect(await checkCode(otp, phone, code)).toBe("ok");
-  expect(await checkCode(otp, phone, code)).toBe("no_code");
+  const results = await Promise.all([checkCode(otp, phone, code), checkCode(otp, phone, code)]);
+  expect(results.sort()).toEqual(["no_code", "ok"]);
 });
 
 test("five wrong guesses lock the code", async () => {
@@ -275,13 +306,13 @@ test("five wrong guesses lock the code", async () => {
   expect(await checkCode(otp, phone, code)).toBe("locked");
 });
 
-test("codes expire and resends wait 30 seconds", async () => {
+test("parallel requests start one challenge, and codes expire", async () => {
   const { otp, clock } = setup();
-  const first = await start(otp);
+  const starts = await Promise.all(Array.from({ length: 10 }, () => startChallenge(otp, phone)));
+  expect(starts.filter((result) => result.kind === "started")).toHaveLength(1);
   expect(await startChallenge(otp, phone)).toEqual({ kind: "too_soon", retryAfterSec: 30 });
   clock.now += 31_000;
   const second = await start(otp); // replaces the first code
-  expect(await checkCode(otp, phone, codeFor("test-secret", first.id))).toBe("wrong");
   clock.now += 11 * 60_000;
   expect(await checkCode(otp, phone, codeFor("test-secret", second.id))).toBe("expired");
 });
@@ -291,21 +322,21 @@ test("codes expire and resends wait 30 seconds", async () => {
 otp.test.ts:
 (pass) a retried delivery sends one text
 (pass) a timeout is reported as maybe sent and never resent
-(pass) the right code works once
+(pass) the right code works once, even in parallel
 (pass) five wrong guesses lock the code
-(pass) codes expire and resends wait 30 seconds
+(pass) parallel requests start one challenge, and codes expire
 
  5 pass
  0 fail
 ```
 
-The second test is the double-texting case: the provider times out, a retry runs, and the adapter still saw exactly one request.
+The second test is the double-texting case: the provider times out, a retry runs, and the adapter still saw exactly one request. The third and fifth fire requests in parallel, which is where a read-then-write store fails.
 
 ## FAQ
 
 ### How long should an SMS code stay valid?
 
-Long enough for a slow text to arrive and be typed in: 5 to 10 minutes is common. Pair it with `validityPeriodSec` on providers that support it, so the provider gives up on a text it couldn't send in time.
+Long enough for a slow text to arrive and be typed in: 5 to 10 minutes is common. Pair it with `validityPeriodSec` on providers that support it, so the provider gives up on a text it couldn't send in time. A carrier can still deliver late, so always check the expiry on your side.
 
 ### Should the resend button send the same code again?
 
