@@ -99,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
       publicUrl: "https://example.com/api/webhooks/sms/status",
     });
     await db.transaction(async (tx) => {
-      // Providers repeat callbacks. Handle each event once; a throw below rolls this back so the retry alerts.
+      // Providers repeat callbacks. Handle each event once; a throw below rolls this back so a retry can alert.
       if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
       if ("providerStatus" in event) {
         await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
@@ -119,7 +119,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Providers retry status callbacks, so the route records each event's `dedupeKey` and pages once per failed message. One failure means every message from that number is failing, so an alert beats a log line. If you send one-time codes, also show the user a "didn't get a code?" path that doesn't depend on the same number. [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript) covers resends.
+Providers repeat status callbacks, so the route records each event's `dedupeKey` and pages once per failed message. If the alert or the database write throws, the route answers 500 and rolls back. Twilio doesn't retry a 500 by default, though, so add connection overrides such as `#rc=3&rp=5xx` to the status callback URL you configure in Twilio, and keep `publicUrl` without the fragment. The [Twilio guide](/providers/twilio) covers this. One failure means every message from that number is failing, so an alert beats a log line. If you send one-time codes, also show the user a "didn't get a code?" path that doesn't depend on the same number. [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript) covers resends.
 
 ## Test it without sending texts
 
