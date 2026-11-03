@@ -2,7 +2,7 @@
 title: "10DLC registration for developers: why sends fail with 30034, and how to catch it"
 type: blog
 date: 2026-11-03
-description: "What A2P 10DLC registration means for the code that sends your texts: brands and campaigns, why an unregistered send is accepted and then fails with Twilio 30034 or Telnyx 40010, and a tested TypeScript webhook check."
+description: "10DLC registration for the code that sends your texts: brands, campaigns, and numbers, why an unregistered send is accepted and then fails with Twilio 30034 or Telnyx 40010, and how to catch it in TypeScript."
 ---
 
 Most 10DLC guides are written for whoever fills in the registration form. They cover opt-in pages, privacy policies, and campaign descriptions. If you write the code that sends the texts, you have a different problem: the first time you send from an unregistered US number, the API accepts the message, your code logs a success, and the text never arrives.
