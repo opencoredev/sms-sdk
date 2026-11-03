@@ -1,0 +1,224 @@
+---
+title: "10DLC registration for developers: why sends fail with 30034, and how to catch it"
+type: blog
+date: 2026-11-03
+description: "10DLC registration for the code that sends your texts: brands, campaigns, and numbers, why an unregistered send is accepted and then fails with Twilio 30034 or Telnyx 40010, and how to catch it in TypeScript."
+---
+
+Most 10DLC guides are written for whoever fills in the registration form. They cover opt-in pages, privacy policies, and campaign descriptions. If you write the code that sends the texts, you have a different problem: the first time you send from an unregistered US number, the API accepts the message, your code logs a success, and the text never arrives.
+
+This post covers the developer side: what 10DLC registration is, what each part attaches to, how a missing registration shows up in your code, and how to catch it. The examples use SMS SDK, the open-source TypeScript library this site documents. It calls your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. It isn't a carrier or an SMS provider, and it doesn't register anything for you. Registration rules change and differ by provider and use case, so treat this as plumbing, not legal advice.
+
+## The short answer
+
+10DLC means a standard 10-digit US phone number used for application-to-person (A2P) messages. US carriers require those numbers to be registered before they carry your traffic:
+
+1. A **brand** says who is sending: your business, with its tax ID.
+2. A **campaign** says what you send and how people opt in, opt out, and get help.
+3. Each **number** you send from is attached to an approved campaign, usually through a group your provider manages (a Twilio Messaging Service, a Telnyx messaging profile).
+
+Send from a number that isn't attached and carriers block the message. Your provider usually accepts the API request first. The failure comes later on the status webhook: error **30034** on Twilio, **40010** on Telnyx. Your code only sees it if it listens for those webhooks.
+
+## Brands, campaigns, and numbers
+
+Registration happens in your provider's console or API, and the provider passes it on to The Campaign Registry, the industry database carriers check. The two supported providers describe it this way:
+
+| | Twilio | Telnyx |
+| --- | --- | --- |
+| Brand | Sole Proprietor (one campaign, no tax ID, US and Canada only), Low-Volume Standard, or Standard (up to five campaigns each, tax ID required) | The business sending the messages; vetting gives a trust score from 0 to 100 that sets your throughput |
+| Campaign | Your use case, message samples, and how people opt in, opt out, and get help. Campaigns get a manual review. | One per distinct kind of messaging. Created at once, then pending carrier approval. |
+| Numbers | In the sender pool of the Messaging Service linked to the approved campaign | Assigned to a messaging profile first, then to the campaign |
+| Register from code | The API, for ISVs registering their customers | `POST /v2/10dlc/brand`, `/v2/10dlc/campaignBuilder`, `/v2/10dlc/phoneNumberCampaign` |
+| Unregistered send fails with | 30034, "Message from an Unregistered Number" | 40010, "Unregistered 10DLC Message" |
+
+Sources: Twilio's [A2P 10DLC overview](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc) and [error 30034](https://www.twilio.com/docs/api/errors/30034), Telnyx's [10DLC guide](https://developers.telnyx.com/docs/messaging/10dlc) and [messaging error codes](https://support.telnyx.com/en/articles/6505121-telnyx-messaging-error-codes), checked 2026-11-03. Telnyx lists brand vetting at 1 to 7 business days. Neither provider promises how long campaign approval takes, so leave time before a launch. Plivo, Vonage, Bandwidth, and Sinch have their own steps; [Registration and consent](/providers/registration-and-consent) links their docs.
+
+Three details catch developers more than the forms do:
+
+- **Registration belongs to one provider.** A campaign on Twilio covers nothing on Telnyx. If you configure a fallback provider, its numbers need their own brand, campaign, and assignment, or every fallback send fails the same way.
+- **The number has to be in the right group.** Twilio's 30034 page lists a number missing from the Messaging Service's sender pool as a cause, even when the campaign is approved. Buying a new number and sending from it directly is the classic way to hit this.
+- **Toll-free numbers and short codes are not 10DLC.** They have their own verification or application process. Twilio suggests them, or its Verify product, as alternatives when a number can't be registered.
+
+## How a missing registration shows up in your code
+
+Here is the sequence on Twilio when the sender isn't registered:
+
+1. `send()` resolves. Twilio accepted the request and returned a message SID, so SMS SDK reports a handoff, not a delivery.
+2. The carrier route refuses the message.
+3. Twilio calls your status webhook with `MessageStatus=failed` or `undelivered` and `ErrorCode=30034`.
+
+SMS SDK's webhook parser turns that into a `message.undelivered` event with `errorCode: "30034"`. On Telnyx, a `message.finalized` webhook with a failed status and error 40010 becomes the same event type with `errorCode: "40010"`. If you never point a status webhook at your app, nothing in your logs says anything went wrong.
+
+This is also why [provider fallback](/sending/fallback-and-retries) can't rescue an unregistered number. SMS SDK falls back only when a provider refuses a send at send time with a code the adapter knows, such as a `sender` or `account` rejection. By the time 30034 arrives, the send has already been handed off. Retrying automatically on another provider at that point is how people get the same text twice. The fix is to register the number, not to retry.
+
+Telnyx's own docs are not consistent here: its 10DLC troubleshooting guide also lists 40300 for an unregistered number, while its error-code article defines 40300 as a block after a STOP reply. SMS SDK treats 40300 as an opt-out refusal, so it never falls back on it. If you see 40300 from a number nobody opted out of, check the number's campaign.
+
+## Catch it from the status webhook
+
+This module picks registration failures out of verified events. It ignores everything else, so you can call it on every webhook:
+
+```ts registration-alerts.ts
+import type { SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+
+// Error codes each provider documents for a send from an unregistered 10DLC number.
+const UNREGISTERED_CODES: Partial<Record<SmsEvent["provider"], readonly string[]>> = {
+  twilio: ["30034"],
+  telnyx: ["40010"],
+};
+
+export type RegistrationFailure = {
+  readonly provider: SmsEvent["provider"];
+  readonly providerId: string;
+  readonly errorCode: string;
+  readonly from: string | undefined;
+};
+
+/** Returns the failure when a status event says the sending number isn't registered. */
+export function registrationFailure(event: SmsEvent): RegistrationFailure | undefined {
+  if (event.type !== "message.undelivered" && event.type !== "message.filtered") return undefined;
+  if (event.errorCode === undefined) return undefined;
+  if (!(UNREGISTERED_CODES[event.provider] ?? []).includes(event.errorCode)) return undefined;
+  return { provider: event.provider, providerId: event.providerId, errorCode: event.errorCode, from: event.from };
+}
+```
+
+Then call it from the route that receives status callbacks. This one takes Twilio. A Telnyx route is the same with `provider: "telnyx"` and its `publicKey`:
+
+```ts
+import { parseSmsWebhook, WebhookPayloadError, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+import { alertOnCall } from "./notify";
+import { registrationFailure } from "./registration-alerts";
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const event = await parseSmsWebhook({
+      provider: "twilio",
+      request,
+      credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+      publicUrl: "https://example.com/api/webhooks/sms/status",
+    });
+    await db.transaction(async (tx) => {
+      // Providers repeat callbacks. Handle each event once; a throw below rolls this back so a retry can alert.
+      if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+      if ("providerStatus" in event) {
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+      }
+      const failure = registrationFailure(event);
+      if (failure !== undefined) {
+        // Every send from this number fails until it's attached to a campaign. Page someone.
+        await alertOnCall(`SMS sender ${failure.from ?? "unknown"} is not 10DLC registered (${failure.provider} ${failure.errorCode})`, failure);
+      }
+    });
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    if (error instanceof WebhookPayloadError) return new Response("Unexpected payload", { status: 400 });
+    throw error;
+  }
+}
+```
+
+Providers repeat status callbacks, so the route records each event's `dedupeKey` and pages once per failed message. If the alert or the database write throws, the route answers 500 and rolls back. Twilio doesn't retry a 500 by default, though, so add connection overrides such as `#rc=3&rp=5xx` to the status callback URL you configure in Twilio, and keep `publicUrl` without the fragment. The [Twilio guide](/providers/twilio) covers this. One failure means every message from that number is failing, so an alert beats a log line. If you send one-time codes, also show the user a "didn't get a code?" path that doesn't depend on the same number. [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript) covers resends.
+
+## Test it without sending texts
+
+The signed request builders in `@opencoredev/sms-sdk/testing` make webhook requests that pass the real signature checks, so you can feed your route the exact failure a carrier would produce:
+
+```ts registration-alerts.test.ts
+import { expect, test } from "bun:test";
+import { generateTelnyxKeyPair, signedTelnyxRequest, signedTwilioRequest } from "@opencoredev/sms-sdk/testing";
+import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";
+import { registrationFailure } from "./registration-alerts";
+
+const url = "https://example.com/api/webhooks/sms/status";
+const authToken = "test-auth-token";
+
+async function twilioStatus(status: string, errorCode?: string) {
+  const params: Record<string, string> = {
+    MessageSid: `SM${crypto.randomUUID().replaceAll("-", "")}`,
+    MessageStatus: status,
+    From: "+15550100002",
+    To: "+14155550123",
+  };
+  if (errorCode !== undefined) params["ErrorCode"] = errorCode;
+  const request = await signedTwilioRequest({ authToken, url, params });
+  return parseSmsWebhook({ provider: "twilio", request, credentials: { authToken }, publicUrl: url });
+}
+
+test("Twilio 30034 is a registration failure", async () => {
+  const failure = registrationFailure(await twilioStatus("failed", "30034"));
+  expect(failure).toMatchObject({ provider: "twilio", errorCode: "30034", from: "+15550100002" });
+});
+
+test("a delivered message and other errors are not", async () => {
+  expect(registrationFailure(await twilioStatus("delivered"))).toBeUndefined();
+  expect(registrationFailure(await twilioStatus("undelivered", "30003"))).toBeUndefined();
+});
+
+test("Telnyx 40010 is a registration failure", async () => {
+  const { privateKey, publicKey } = await generateTelnyxKeyPair();
+  const body = {
+    data: {
+      id: `evt_${crypto.randomUUID()}`,
+      event_type: "message.finalized",
+      payload: {
+        id: `msg_${crypto.randomUUID()}`,
+        from: { phone_number: "+15550100002" },
+        to: [{ phone_number: "+14155550123", status: "delivery_failed" }],
+        errors: [{ code: "40010", title: "Unregistered 10DLC Message" }],
+      },
+    },
+  };
+  const request = await signedTelnyxRequest({ privateKey, url, body });
+  const event = await parseSmsWebhook({ provider: "telnyx", request, credentials: { publicKey } });
+  expect(registrationFailure(event)).toMatchObject({ provider: "telnyx", errorCode: "40010" });
+});
+```
+
+```txt
+registration-alerts.test.ts:
+(pass) Twilio 30034 is a registration failure
+(pass) a delivered message and other errors are not
+(pass) Telnyx 40010 is a registration failure
+
+ 3 pass
+ 0 fail
+```
+
+[Test without a provider](/testing/local-testing) covers the other builders.
+
+## A checklist before you send to US numbers
+
+- Register a brand and a campaign with every provider you send through, including the fallback.
+- Attach every sending number to the campaign: Twilio's Messaging Service sender pool, Telnyx's messaging profile plus campaign assignment.
+- Send from the group (the Messaging Service) rather than a bare number where your provider supports it, so new numbers don't skip the campaign.
+- Point status webhooks at your app and alert on 30034 and 40010.
+- Run `npx @opencoredev/sms-sdk doctor --adapter <provider>`. It checks your configuration without sending, and it reports 10DLC registration as "not verified" because the dry run doesn't call your provider. Check campaign status and number assignment in your provider's console or API.
+- Keep consent records and handle STOP and HELP. Carriers review these during campaign vetting. [SMS opt-out handling](/blog/sms-opt-out-handling) covers the code.
+
+## FAQ
+
+### Do I need 10DLC registration for one-time codes and notifications?
+
+If you send them from a standard US 10-digit number, yes. Twilio says carriers treat every message sent from its numbers as A2P traffic, whatever the content. Toll-free numbers, short codes, and hosted verification products have their own processes instead.
+
+### Does the API tell me the number isn't registered when I send?
+
+Usually not. On Twilio the request is accepted and error 30034 arrives on the status callback. Telnyx lists 40010 among its delivery errors, which come back from the carriers after the send. Plan for the webhook either way.
+
+### Does SMS SDK register numbers or check registration?
+
+No. It sends through your provider account and reports what the provider says. Registration is between you and your provider. SMS SDK's `doctor` command lists it as "not verified" so it isn't forgotten.
+
+### Will fallback to another provider fix a 30034?
+
+No. The failure arrives after the handoff, and SMS SDK never resends a handed-off message on its own. The other provider would also need its own registration. Register the number and resend deliberately if the message still matters.
+
+## Related
+
+- [Registration and consent](/providers/registration-and-consent): sender types and each provider's registration docs.
+- [Twilio SMS API with TypeScript](/providers/twilio): the Twilio guide, including Messaging Services and status callbacks.
+- [Telnyx SMS API with TypeScript](/providers/telnyx): the Telnyx guide, including messaging profiles and verified webhooks.
+- [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): which failures may switch providers, and which must not.
+- [SMS opt-out handling](/blog/sms-opt-out-handling): STOP, START, and HELP replies, which campaign review expects you to handle.

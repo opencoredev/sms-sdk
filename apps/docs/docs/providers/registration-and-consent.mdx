@@ -30,7 +30,7 @@ It does not:
 | Alphanumeric sender ID | Allowed only in some countries, some with pre-registration. Not supported in the US or Canada. Recipients cannot reply. | One-way notifications outside North America. |
 | Messaging service or pool | The numbers inside it still need the registration their type requires. | Sender selection and scaling handled by the provider. |
 
-Register with every provider you send through. A 10DLC campaign on Twilio does not cover a number on Telnyx. With fallback configured, the fallback provider's sender needs its own registration, or carriers reject or filter its sends.
+Register with every provider you send through. A 10DLC campaign on Twilio does not cover a number on Telnyx. [10DLC registration for developers](/blog/10dlc-registration-for-developers) shows how an unregistered send fails and how to catch it. With fallback configured, the fallback provider's sender needs its own registration, or carriers reject or filter its sends.
 
 ## Consent and opt-outs
 
@@ -84,4 +84,5 @@ Plivo does not document its error body, and SMS SDK maps only a few Bandwidth an
 ## Next steps
 
 - [STOP, HELP, and opt-outs](/receiving/opt-outs)
+- [10DLC registration for developers](/blog/10dlc-registration-for-developers)
 - [Send a message](/sending/send-a-message)
