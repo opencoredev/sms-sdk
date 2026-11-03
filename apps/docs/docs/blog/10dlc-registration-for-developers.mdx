@@ -98,14 +98,18 @@ export async function POST(request: Request): Promise<Response> {
       credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
       publicUrl: "https://example.com/api/webhooks/sms/status",
     });
-    if ("providerStatus" in event) {
-      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
-    }
-    const failure = registrationFailure(event);
-    if (failure !== undefined) {
-      // Every send from this number fails until it's attached to a campaign. Page someone.
-      await alertOnCall(`SMS sender ${failure.from ?? "unknown"} is not 10DLC registered (${failure.provider} ${failure.errorCode})`, failure);
-    }
+    await db.transaction(async (tx) => {
+      // Providers repeat callbacks. Handle each event once; a throw below rolls this back so the retry alerts.
+      if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+      if ("providerStatus" in event) {
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+      }
+      const failure = registrationFailure(event);
+      if (failure !== undefined) {
+        // Every send from this number fails until it's attached to a campaign. Page someone.
+        await alertOnCall(`SMS sender ${failure.from ?? "unknown"} is not 10DLC registered (${failure.provider} ${failure.errorCode})`, failure);
+      }
+    });
     return new Response(null, { status: 200 });
   } catch (error) {
     if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
@@ -115,7 +119,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-One failure means every message from that number is failing, so an alert beats a log line. If you send one-time codes, also show the user a "didn't get a code?" path that doesn't depend on the same number. [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript) covers resends.
+Providers retry status callbacks, so the route records each event's `dedupeKey` and pages once per failed message. One failure means every message from that number is failing, so an alert beats a log line. If you send one-time codes, also show the user a "didn't get a code?" path that doesn't depend on the same number. [SMS OTP API in TypeScript](/blog/sms-otp-api-typescript) covers resends.
 
 ## Test it without sending texts
 
