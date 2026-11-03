@@ -190,7 +190,7 @@ registration-alerts.test.ts:
 - Attach every sending number to the campaign: Twilio's Messaging Service sender pool, Telnyx's messaging profile plus campaign assignment.
 - Send from the group (the Messaging Service) rather than a bare number where your provider supports it, so new numbers don't skip the campaign.
 - Point status webhooks at your app and alert on 30034 and 40010.
-- Run `npx @opencoredev/sms-sdk doctor --adapter <provider>`. It checks your configuration without sending, and it reports 10DLC registration as "not verified" because no API call can prove it. Check the campaign status in your provider's console.
+- Run `npx @opencoredev/sms-sdk doctor --adapter <provider>`. It checks your configuration without sending, and it reports 10DLC registration as "not verified" because the dry run doesn't call your provider. Check campaign status and number assignment in your provider's console or API.
 - Keep consent records and handle STOP and HELP. Carriers review these during campaign vetting. [SMS opt-out handling](/blog/sms-opt-out-handling) covers the code.
 
 ## FAQ
