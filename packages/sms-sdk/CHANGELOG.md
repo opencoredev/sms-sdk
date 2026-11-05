@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- [#5](https://github.com/opencoredev/sms-sdk/pull/5) [`8a0a5a4`](https://github.com/opencoredev/sms-sdk/commit/8a0a5a4861e79501c1f132a1cde0a6cfdf716a1c) Thanks [@leoisadev1](https://github.com/leoisadev1)! - Point the package homepage and README links at the docs site's own domain, www.sms-sdk.com.
+
 ## 0.1.1
 
 ### Patch Changes
