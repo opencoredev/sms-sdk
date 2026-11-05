@@ -5,7 +5,7 @@ sidebar:
 description: "How to switch from Twilio to Telnyx, or between any two SMS providers, without rewriting your code: swap one adapter, move the sender and webhooks, run both during cutover, and keep a rollback path."
 ---
 
-To switch from Twilio to Telnyx without rewriting your code, send through a provider-neutral client and swap the provider underneath it. With SMS SDK, you replace the `twilio()` adapter with `telnyx()` in one file; your `sms.send()` calls, error handling, and the function that handles webhook events stay the same, and you add a Telnyx webhook route next to the Twilio one. The exceptions are Twilio-only fields: drop `validityPeriodSec` and replace a Messaging Service sender, as [step 2](#2-swap-the-adapter) shows. The rest of the work is outside your code: the sender number (buy one or port yours), its 10DLC or toll-free registration, the webhook URL, and the public key that verifies Telnyx webhooks.
+To switch from Twilio to Telnyx without rewriting your code, send through a provider-neutral client and swap the provider underneath it. With SMS SDK, you replace the `twilio()` adapter with `telnyx()` in one file; your `sms.send()` calls, error handling, and the function that handles webhook events stay the same, and you add a Telnyx webhook route next to the Twilio one. The exceptions are Twilio-only settings: drop `validityPeriodSec`, replace a Messaging Service sender, and review any `providerOptions.twilio` entries, as [step 2](#2-swap-the-adapter) shows. The rest of the work is outside your code: the sender number (buy one or port yours), its 10DLC or toll-free registration, the webhook URL, and the public key that verifies Telnyx webhooks.
 
 Telnyx also offers its own route, Twexit: a messaging profile created with the Twexit API option, which Telnyx says lets you keep your Twilio code with minimal changes and delivers inbound messages and webhooks in Twilio's format ([telnyx.com/twexit](https://telnyx.com/twexit), checked 2026-11-05). That only covers Twilio to Telnyx. SMS SDK gives you the same API for all six providers it supports, and lets you run the old and new provider side by side during cutover (step 5).
 
@@ -81,6 +81,7 @@ A field the new provider does not support throws `UnsupportedFieldError` instead
 - `sendAt` works from any Telnyx sender, not only a Messaging Service.
 - A `{ messagingService: "MG…" }` sender becomes a Telnyx messaging profile ID or a number.
 - Alphanumeric senders need `messagingProfileId` on the `telnyx()` adapter.
+- Entries under `providerOptions.twilio` (such as `smartEncoded` or `shortenUrls`) are ignored once the client has no Twilio adapter, and `sms.validate()` does not flag them. Drop them on purpose, or find the closest Telnyx setting, if one exists, and send it under `providerOptions.telnyx`.
 
 Run `sms.validate()` over a sample of real messages to catch these before you deploy.
 
