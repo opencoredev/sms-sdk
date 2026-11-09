@@ -9,6 +9,12 @@ Carriers want to know who is sending, what kind of messages they send, and that 
 Registration rules, fees, and review times change often and differ by country and sender type. This page is a checklist, not legal advice. Check each provider's documentation and ask your own counsel before you send at scale.
 :::
 
+## Do you need 10DLC?
+
+10DLC means a standard 10-digit US phone number used for application-to-person (A2P) messages, the texts an app sends: one-time codes, alerts, and notifications. If your app texts US recipients from one of those numbers, yes. US carriers require a registered brand (who is sending) and campaign (what you send and how people opt in and out), and the number has to be attached to that campaign. Carriers block messages from numbers that aren't. The provider usually accepts the API request first, and the failure arrives later on the status webhook, for example error 30034 on Twilio or 40010 on Telnyx.
+
+You don't need 10DLC for a toll-free number or a short code, which have their own verification or approval. You register through each provider you send from, in its console or API. SMS SDK can't register for you. [10DLC registration for developers](/blog/10dlc-registration-for-developers) covers the brand, campaign, and number steps on Twilio and Telnyx and how to catch an unregistered send in code.
+
 ## What SMS SDK does and does not do
 
 SMS SDK validates number and sender formats locally, reports a provider's refusal of your sender as a `ProviderRejectedError` with `category: "sender"` or `"account"`, turns STOP, START, and HELP replies into events, and lets you block sends with `beforeSend`.

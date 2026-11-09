@@ -82,7 +82,7 @@ try {
 }
 ```
 
-Moving from Twilio to Telnyx, or from Telnyx to Plivo, changes the adapter import and its credentials. The `send()` calls, the error categories, and the webhook events stay the same. `parseSmsWebhook()` verifies each provider's signature scheme and returns one event shape, so a single handler covers delivery updates, inbound messages, and STOP replies from any of them. A field the new provider can't send, such as a validity period on Telnyx, throws `UnsupportedFieldError` before any request, so it can't be dropped silently.
+Moving from Twilio to Telnyx, or from Telnyx to Plivo, changes the adapter import and its credentials. The `send()` calls, the error categories, and the webhook events stay the same. `parseSmsWebhook()` [verifies each provider's signature scheme](/receiving/webhook-security) and returns one event shape, so a single handler covers delivery updates, inbound messages, and STOP replies from any of them. A field the new provider can't send, such as a validity period on Telnyx, throws `UnsupportedFieldError` before any request, so it can't be dropped silently.
 
 Coming from the `twilio` package? [Migrate from the Twilio SDK](/migration/migrate-from-twilio) moves your code first while you stay on Twilio. [Switch providers](/migration/switch-providers) then covers the account side, webhooks, opt-outs, and a rollback path.
 
@@ -148,3 +148,4 @@ Yes. `memory()` from `@opencoredev/sms-sdk/testing` records simulated sends, and
 - [Migrate from Twilio](/migration/migrate-from-twilio): the code changes, step by step.
 - [How to send SMS through an API in TypeScript](/blog/send-sms-api-typescript): the raw request for six providers side by side.
 - [SMS opt-out handling for developers](/blog/sms-opt-out-handling): keep your own suppression list, so opt-outs survive a provider switch.
+- [Prevent duplicate sends](/sending/idempotency): what happens when a provider request times out, and how to retry without sending the text twice.
