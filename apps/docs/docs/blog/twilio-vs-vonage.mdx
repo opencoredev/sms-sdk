@@ -104,6 +104,7 @@ You don't have to pick one forever. With SMS SDK, each provider is an adapter, a
 import { createSmsClient } from "@opencoredev/sms-sdk";
 import { twilio } from "@opencoredev/sms-sdk/twilio";
 import { vonage } from "@opencoredev/sms-sdk/vonage";
+import { db } from "./db";
 
 export const sms = createSmsClient({
   adapters: [
@@ -119,10 +120,15 @@ export const sms = createSmsClient({
     }),
   ],
   fallback: "on-known-rejection",
+  // Checked before any provider request, so neither provider texts someone who replied STOP to the other.
+  beforeSend: async ({ message }) =>
+    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "opted_out" } : { kind: "allow" },
 });
 ```
 
 Vonage sends first. Twilio sends only when Vonage refuses the message for a reason tied to the account, such as bad credentials, a rate limit, or a sender problem. An opt-out, a bad number, or a timeout never falls back, so nobody gets the same text twice. Swap the order to make Twilio the primary. Each adapter sends from its own number, so recipients can see either one.
+
+Each provider blocks only its own opted-out recipients, so someone who replies STOP to your Vonage number can still get a text through Twilio. The `beforeSend` check closes that gap: it reads your own suppression list, which the webhook handler below fills from both providers. In production, also give the client an [idempotency store](/sending/idempotency) so a retried request doesn't send twice.
 
 Webhooks go through one parser, which verifies each scheme and returns the same event shape:
 
@@ -148,7 +154,11 @@ export async function handleSmsWebhook(provider: "twilio" | "vonage", request: R
     if (!(await db.webhookEvents.insertIfNew(event.dedupeKey))) return new Response(null, { status: 200 });
     if (event.type === "recipient.opted_out") {
       await db.suppressions.add(event.from, event.to);
-    } else if (event.type === "message.delivered" || event.type === "message.undelivered") {
+    } else if (
+      event.type === "message.delivered" ||
+      event.type === "message.undelivered" ||
+      event.type === "message.filtered"
+    ) {
       await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
     }
     return new Response(null, { status: 200 });
