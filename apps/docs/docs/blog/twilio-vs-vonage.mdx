@@ -151,16 +151,23 @@ export async function handleSmsWebhook(provider: "twilio" | "vonage", request: R
             request,
             credentials: { signatureSecret: process.env.VONAGE_SIGNATURE_SECRET ?? "" },
           });
-    if (!(await db.webhookEvents.insertIfNew(event.dedupeKey))) return new Response(null, { status: 200 });
-    if (event.type === "recipient.opted_out") {
-      await db.suppressions.add(event.from, event.to);
-    } else if (
-      event.type === "message.delivered" ||
-      event.type === "message.undelivered" ||
-      event.type === "message.filtered"
-    ) {
-      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
-    }
+    // Record the event key and its writes together, so a failed write rolls both back and the retry is handled.
+    await db.transaction(async (tx) => {
+      if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+      if (event.type === "recipient.opted_out") {
+        await tx.suppressions.add(event.from, event.to);
+      } else if (
+        event.type === "message.delivered" ||
+        event.type === "message.undelivered" ||
+        event.type === "message.filtered"
+      ) {
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+        // Twilio can report 21610 (recipient unsubscribed) on the status callback, after the send was accepted.
+        if (event.errorCode === "21610" && event.to !== undefined) await tx.suppressions.add(event.to, event.from);
+      }
+    });
+    // Twilio expects TwiML from an inbound webhook. Empty TwiML sends no automatic reply.
+    if (provider === "twilio") return new Response("<Response></Response>", { headers: { "content-type": "text/xml" } });
     return new Response(null, { status: 200 });
   } catch (error) {
     if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
@@ -169,7 +176,26 @@ export async function handleSmsWebhook(provider: "twilio" | "vonage", request: R
 }
 ```
 
-Twilio's `undelivered` and Vonage's `undeliverable` both arrive as `message.undelivered` (or `message.filtered` when a carrier or spam filter blocked the text), and a STOP from either one arrives as `recipient.opted_out`. In production, keep the dedupe insert and the writes it guards in one transaction. The [Twilio guide](/providers/twilio#1-create-the-client-and-handlers) and the [Vonage guide](/providers/vonage#1-create-the-client-and-handlers) have full handlers with START, HELP, and tests that run offline.
+Twilio's `undelivered` and Vonage's `undeliverable` both arrive as `message.undelivered` (or `message.filtered` when a carrier or spam filter blocked the text), and a STOP from either one arrives as `recipient.opted_out`.
+
+A STOP webhook can be missed, so also record the provider's own refusal. When a send fails because the recipient opted out (Twilio 21610, Vonage 1240), SMS SDK throws `ProviderRejectedError` with category `compliance`, and nothing falls back:
+
+```ts
+import { ProviderRejectedError, type E164 } from "@opencoredev/sms-sdk";
+import { db } from "./db";
+import { sms } from "./sms";
+
+export async function sendText(to: E164, body: string): Promise<void> {
+  try {
+    await sms.send({ to, body });
+  } catch (error) {
+    if (error instanceof ProviderRejectedError && error.category === "compliance") await db.suppressions.add(to);
+    throw error;
+  }
+}
+```
+
+The [Twilio guide](/providers/twilio#1-create-the-client-and-handlers) and the [Vonage guide](/providers/vonage#1-create-the-client-and-handlers) have full handlers with START, HELP, and tests that run offline.
 
 ## FAQ
 
