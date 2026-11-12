@@ -178,10 +178,10 @@ export async function handleSmsWebhook(provider: "twilio" | "vonage", request: R
 
 Twilio's `undelivered` and Vonage's `undeliverable` both arrive as `message.undelivered` (or `message.filtered` when a carrier or spam filter blocked the text), and a STOP from either one arrives as `recipient.opted_out`.
 
-A STOP webhook can be missed, so also record the provider's own refusal. When a send fails because the recipient opted out (Twilio 21610, Vonage 1240), SMS SDK throws `ProviderRejectedError` with category `compliance`, and nothing falls back:
+A STOP webhook can be missed, so also record the provider's own refusal. When a send fails because the recipient opted out (Twilio 21610, Vonage 1240), the refusal has category `compliance` and nothing falls back. With fallback on, it can also arrive wrapped in `AllProvidersRejectedError`, after the first provider refused for another reason, so check every refusal:
 
 ```ts
-import { ProviderRejectedError, type E164 } from "@opencoredev/sms-sdk";
+import { AllProvidersRejectedError, ProviderRejectedError, type E164 } from "@opencoredev/sms-sdk";
 import { db } from "./db";
 import { sms } from "./sms";
 
@@ -189,7 +189,9 @@ export async function sendText(to: E164, body: string): Promise<void> {
   try {
     await sms.send({ to, body });
   } catch (error) {
-    if (error instanceof ProviderRejectedError && error.category === "compliance") await db.suppressions.add(to);
+    const refusals =
+      error instanceof AllProvidersRejectedError ? error.errors : error instanceof ProviderRejectedError ? [error] : [];
+    if (refusals.some((refusal) => refusal.category === "compliance")) await db.suppressions.add(to);
     throw error;
   }
 }
