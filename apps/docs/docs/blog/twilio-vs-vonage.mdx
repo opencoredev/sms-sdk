@@ -1,0 +1,225 @@
+---
+title: "Twilio vs Vonage for developers: SMS APIs, webhooks, and errors compared"
+type: blog
+date: 2026-11-12
+description: "Twilio vs Vonage from the code side: how each SMS API sends, authenticates, signs webhooks, reports errors, and handles STOP, plus how to use both from one TypeScript client."
+---
+
+Most Twilio vs Vonage comparisons rank the two on price, channels, and review scores. If you're choosing an SMS API for your own backend, the differences that cost you time are in the code: how a send is authenticated, what a failure looks like, how webhooks are signed, and what happens when someone replies STOP.
+
+This post compares Twilio's Programmable Messaging API with Vonage's Messages API on those points, from the TypeScript side. It doesn't list prices, because they depend on country, number type, and volume. Check [Twilio's](https://www.twilio.com/en-us/sms/pricing/us) and [Vonage's](https://www.vonage.com/communications-apis/sms/pricing/) pricing pages.
+
+SMS SDK, which this site documents, is an open-source TypeScript library with adapters for both providers. It isn't a carrier. You still need an account with Twilio, Vonage, or both.
+
+## The short answer
+
+Both send transactional SMS through a REST API, sell US long codes and toll-free numbers, and need the same US carrier registration (10DLC for long codes, verification for toll-free). For a developer, the main differences are:
+
+- **Vonage has two SMS APIs.** The legacy SMS API (`rest.nexmo.com/sms/json`) and the newer Messages API (`api.nexmo.com/v1/messages`) use different auth, response formats, and webhook signing. Pick the Messages API for new code, and check which one a tutorial uses before you copy it.
+- **Twilio's sends are form-encoded with Basic auth. Vonage's Messages API takes JSON, ideally with an application JWT.** Vonage's Basic auth gets no webhooks, and it fails with 401 for a number linked to an application.
+- **Webhook signing differs.** Twilio signs the URL and form fields with HMAC-SHA1 and no timestamp. Vonage signs a JWT with HS256 and a timestamp, and its claims include a hash of the body.
+- **Twilio offers more sender types and features.** It has short codes, MMS, scheduling, and Messaging Services. Through the Messages API's SMS channel, Vonage covers long codes, toll-free numbers, and alphanumeric sender IDs, with no MMS on that channel and no scheduling.
+- **Twilio documents its errors more completely.** Its error dictionary is machine-readable and says which HTTP 429s weren't processed. Vonage lists error codes but not which HTTP status each one uses.
+
+If you need MMS, short codes, or scheduled sends, Twilio fits better. If you only send text and want JSON requests with signed, timestamped webhooks, the Vonage Messages API is the cleaner surface. You can also use both. See [Use both from one client](#use-both-from-one-client).
+
+## Side by side
+
+| | Twilio Programmable Messaging | Vonage Messages API |
+| --- | --- | --- |
+| Endpoint | `POST https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json` | `POST https://api.nexmo.com/v1/messages`, or regional `api-eu`, `api-us`, `api-ap` |
+| Request body | Form-encoded `To`, `From`, `Body` | JSON `message_type: "text"`, `channel: "sms"`, `to`, `from`, `text` |
+| Phone number format | E.164 with `+` | Digits without the `+` |
+| Auth | Basic: Account SID and Auth Token, or an API key and secret | JWT signed with an application's RSA private key, or Basic with the API key and secret (no webhooks) |
+| Success | `201` with a `sid` (`SM…`) and `status: "queued"`, or `accepted` with a Messaging Service | `202` with a `message_uuid` |
+| Errors | JSON with a numeric `code`, `message`, and `more_info` link | RFC 7807 problem details. The code is in the `type` URL fragment (`…#1420`) |
+| Sender types | Long code, toll-free, short code, alphanumeric, Messaging Service | Long code, toll-free, alphanumeric |
+| MMS | Yes | Not on the SMS channel |
+| Scheduling | With a Messaging Service sender | No |
+| Validity period | 1 to 36,000 seconds (`ValidityPeriod`) | 20 to 604,800 seconds (`ttl`) |
+| Send idempotency key | None | None |
+
+The sender and feature rows describe what SMS SDK's adapters send through each API. Vonage sends MMS through a separate Messages API channel, which the adapter doesn't use.
+
+## Sending: what a request looks like
+
+A Twilio send is a form POST with Basic auth:
+
+```bash
+curl -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Messages.json" \
+  -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+  --data-urlencode "To=+14155550123" \
+  --data-urlencode "From=+15550100001" \
+  --data-urlencode "Body=Your order has shipped."
+```
+
+A Vonage Messages API send is JSON, with numbers written without the `+`. This one uses Basic auth to keep it short. For webhooks, sign a JWT with your application's private key instead, as the [Vonage guide](/providers/vonage#send-an-sms-with-the-raw-messages-api) shows:
+
+```bash
+curl -X POST "https://api.nexmo.com/v1/messages" \
+  -u "$VONAGE_API_KEY:$VONAGE_API_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"message_type":"text","channel":"sms","to":"14155550123","from":"15550100001","text":"Your order has shipped."}'
+```
+
+In both cases, the success response means the provider accepted the message, not that it reached the phone. Delivery arrives later in a webhook. [Why "accepted" isn't "delivered"](/providers/twilio#accepted-is-not-delivered) covers what to store in the meantime.
+
+Neither API takes an idempotency key on the send. If a request times out, you can't tell whether the provider created the message, and resending can text the person twice. Store your own key per message. [Prevent duplicate sends](/sending/idempotency) shows how.
+
+## Webhooks: how each one is signed
+
+This is where the two differ most, and where copied code most often fails.
+
+**Twilio** puts a signature in `X-Twilio-Signature`: a Base64 HMAC-SHA1, keyed with your Auth Token, over the full public URL followed by every POST parameter sorted by name. That has two consequences:
+
+- The URL has to match exactly what Twilio called. Behind a proxy or a tunnel, rebuild it from the public URL, not from the request your server sees.
+- No timestamp is signed, so a captured request stays valid. Deduplicate every webhook by message SID and status.
+
+**Vonage** sends `Authorization: Bearer <JWT>`, signed with HS256 using the signature secret from your dashboard. That isn't your API secret. The token carries an `iat` timestamp and a `payload_hash` claim, the SHA-256 of the body. So:
+
+- The URL isn't signed, so proxies don't break verification.
+- You can reject old tokens. Vonage doesn't document a window. SMS SDK uses 300 seconds.
+- You must hash the raw body bytes, before any JSON parsing.
+
+[Verify Twilio and Telnyx signatures by hand](/receiving/webhook-security) has dependency-free verifiers, and the [Vonage guide](/providers/vonage#verify-a-webhook-with-the-raw-api) has a hand-written HS256 check.
+
+The status values differ too. Twilio reports `queued`, `sending`, `sent`, `delivered`, `undelivered`, and `failed`, among others, in no guaranteed order. Vonage's Messages API reports `submitted`, `delivered`, `rejected`, and `undeliverable`, and sends no queued status at all. If your database stores provider statuses as is, a switch means migrating those values too.
+
+## Errors, opt-outs, and STOP
+
+When a recipient has replied STOP, both providers refuse later sends to them from that sender: Twilio with error 21610, Vonage with error 1240 ("Illegal Number"). Your code should treat both as "never retry, never fall back to another provider", and record the opt-out in your own suppression list so it survives a provider switch. [SMS opt-out handling](/blog/sms-opt-out-handling) walks through it.
+
+How the STOP reply reaches you differs:
+
+- Twilio adds an `OptOutType` field (`STOP`, `START`, `HELP`) to the inbound webhook when Advanced Opt-Out is turned on for a Messaging Service. Without it, you only get the message text.
+- Vonage's inbound webhook carries the text and an `sms.keyword` field with the first word. You match the keywords yourself.
+
+For other failures, Twilio's error dictionary gives each code a meaning and says that a 429 with error 20429 wasn't processed, so it's safe to retry after backing off. Vonage documents 401, 402, and 422 and a list of error codes, but not which HTTP status each code uses, so some account or sender problems are hard to tell apart from a bad request. SMS SDK marks its Vonage adapter "partial" for that reason. The [error tables](/providers/vonage#error-codes) list how each code is classified.
+
+## Use both from one client
+
+You don't have to pick one forever. With SMS SDK, each provider is an adapter, and your send code doesn't name either:
+
+```ts sms.ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { twilio } from "@opencoredev/sms-sdk/twilio";
+import { vonage } from "@opencoredev/sms-sdk/vonage";
+import { db } from "./db";
+
+export const sms = createSmsClient({
+  adapters: [
+    vonage({
+      applicationId: process.env.VONAGE_APPLICATION_ID ?? "",
+      privateKey: process.env.VONAGE_PRIVATE_KEY ?? "",
+      from: "+15550100001",
+    }),
+    twilio({
+      accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+      authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+      from: "+15550100002",
+    }),
+  ],
+  fallback: "on-known-rejection",
+  // Checked before any provider request, so neither provider texts someone who replied STOP to the other.
+  beforeSend: async ({ message }) =>
+    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "opted_out" } : { kind: "allow" },
+});
+```
+
+Vonage sends first. Twilio sends only when Vonage refuses the message for a reason tied to the account, such as bad credentials, a rate limit, or a sender problem. An opt-out, a bad number, or a timeout never falls back, so nobody gets the same text twice. Swap the order to make Twilio the primary. Each adapter sends from its own number, so recipients can see either one.
+
+Each provider blocks only its own opted-out recipients, so someone who replies STOP to your Vonage number can still get a text through Twilio. The `beforeSend` check closes that gap: it reads your own suppression list, which the webhook handler below fills from both providers. In production, also give the client an [idempotency store](/sending/idempotency) so a retried request doesn't send twice.
+
+Webhooks go through one parser, which verifies each scheme and returns the same event shape:
+
+```ts
+import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function handleSmsWebhook(provider: "twilio" | "vonage", request: Request): Promise<Response> {
+  try {
+    const event =
+      provider === "twilio"
+        ? await parseSmsWebhook({
+            provider: "twilio",
+            request,
+            publicUrl: process.env.TWILIO_WEBHOOK_URL ?? "",
+            credentials: { authToken: process.env.TWILIO_AUTH_TOKEN ?? "" },
+          })
+        : await parseSmsWebhook({
+            provider: "vonage",
+            request,
+            credentials: { signatureSecret: process.env.VONAGE_SIGNATURE_SECRET ?? "" },
+          });
+    // Record the event key and its writes together, so a failed write rolls both back and the retry is handled.
+    await db.transaction(async (tx) => {
+      if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+      if (event.type === "recipient.opted_out") {
+        await tx.suppressions.add(event.from, event.to);
+      } else if (
+        event.type === "message.delivered" ||
+        event.type === "message.undelivered" ||
+        event.type === "message.filtered"
+      ) {
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+        // Twilio can report 21610 (recipient unsubscribed) on the status callback, after the send was accepted.
+        if (event.errorCode === "21610" && event.to !== undefined) await tx.suppressions.add(event.to, event.from);
+      }
+    });
+    // Twilio expects TwiML from an inbound webhook. Empty TwiML sends no automatic reply.
+    if (provider === "twilio") return new Response("<Response></Response>", { headers: { "content-type": "text/xml" } });
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) return new Response("Invalid signature", { status: 401 });
+    throw error;
+  }
+}
+```
+
+Twilio's `undelivered` and Vonage's `undeliverable` both arrive as `message.undelivered` (or `message.filtered` when a carrier or spam filter blocked the text), and a STOP from either one arrives as `recipient.opted_out`.
+
+A STOP webhook can be missed, so also record the provider's own refusal. When a send fails because the recipient opted out (Twilio 21610, Vonage 1240), the refusal has category `compliance` and nothing falls back. With fallback on, it can also arrive wrapped in `AllProvidersRejectedError`, after the first provider refused for another reason, so check every refusal:
+
+```ts
+import { AllProvidersRejectedError, ProviderRejectedError, type E164 } from "@opencoredev/sms-sdk";
+import { db } from "./db";
+import { sms } from "./sms";
+
+export async function sendText(to: E164, body: string): Promise<void> {
+  try {
+    await sms.send({ to, body });
+  } catch (error) {
+    const refusals =
+      error instanceof AllProvidersRejectedError ? error.errors : error instanceof ProviderRejectedError ? [error] : [];
+    if (refusals.some((refusal) => refusal.category === "compliance")) await db.suppressions.add(to);
+    throw error;
+  }
+}
+```
+
+The [Twilio guide](/providers/twilio#1-create-the-client-and-handlers) and the [Vonage guide](/providers/vonage#1-create-the-client-and-handlers) have full handlers with START, HELP, and tests that run offline.
+
+## FAQ
+
+### Is the Vonage SMS API the same as the Messages API?
+
+No. The SMS API is Vonage's older API, inherited from Nexmo. It answers HTTP 200 with a status for each message part and uses its own signing scheme. The Messages API answers with one HTTP status per request and signs webhooks with a JWT. They aren't interchangeable, so check which one a tutorial uses.
+
+### Which is easier to test without sending real texts?
+
+Twilio's test credentials only exist on accounts that created them in the legacy console, so plan on testing without the provider. With SMS SDK, `memory()` records simulated sends, and `signedTwilioRequest()` and `signedVonageRequest()` build correctly signed webhook requests for your tests. See [Local testing](/testing/local-testing).
+
+### Do I need 10DLC with both?
+
+Yes, for application-to-person SMS from a US 10-digit number to US recipients. Registration lives in each provider account, so using both means registering with both. See [10DLC registration for developers](/blog/10dlc-registration-for-developers).
+
+### Can I move from Twilio to Vonage without rewriting my code?
+
+If your code calls the `twilio` package directly, the send path, error handling, and webhook routes all change. With an adapter layer, the switch is the adapter import, its credentials, and your account setup. [Switch providers](/migration/switch-providers) lists what moves and what doesn't.
+
+## Related
+
+- [Twilio alternatives for developers](/blog/twilio-alternative): Telnyx, Plivo, Vonage, Bandwidth, and Sinch compared on the code side.
+- [Twilio SMS API with TypeScript](/providers/twilio): send, verify, and test without a carrier.
+- [Vonage SMS API with TypeScript](/providers/vonage): Messages API sends, signed webhooks, and offline tests.
+- [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): when a second provider should take a text, and when to stop.
