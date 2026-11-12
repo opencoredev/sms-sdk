@@ -120,7 +120,7 @@
     "@ai-sdk/harness": "1.0.27",
     "@asciidev/box-sdk": "0.0.24",
     "@daytona/sdk": "^0.196.0",
-    "@mastra/core": "1.51.0",
+    "@mastra/core": "1.55.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^22.13.14",
     "@upstash/box": "0.5.3",
