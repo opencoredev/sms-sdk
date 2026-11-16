@@ -149,7 +149,7 @@ test("parses a signed Telnyx inbound message", async () => {
 });
 ```
 
-For Plivo, `signedPlivoRequest({ authToken, url, params })` builds a form POST with V2 signature headers. For Vonage, `signedVonageRequest({ signatureSecret, url, body })` builds a JSON POST with an HS256 JWT. Bandwidth and Sinch (Basic mode) check an `Authorization: Basic` header instead of a signature, so a plain `Request` with that header is enough; there is no builder for them. The [testing reference](/reference/testing) lists optional fields such as a fixed timestamp or nonce.
+For Plivo, `signedPlivoRequest({ authToken, url, params })` builds a form POST with V2 signature headers. For Vonage, `signedVonageRequest({ signatureSecret, url, body })` builds a JSON POST with an HS256 JWT. Bandwidth and Sinch (Basic mode) check an `Authorization: Basic` header instead of a signature, so a plain `Request` with that header is enough; there is no builder for them. The [testing reference](/reference/testing) lists optional fields such as a fixed timestamp or nonce. For a complete offline test of a send route and its webhook handler, see the [Twilio](/providers/twilio#4-test-it-offline), [Telnyx](/providers/telnyx#4-test-it-offline), and [Vonage](/providers/vonage#3-test-it-offline) guides.
 
 :::warning
 Use these builders instead of `unsafeSkipVerification: true`, which skips the code you most need to test.

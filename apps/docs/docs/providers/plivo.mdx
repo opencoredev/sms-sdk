@@ -14,7 +14,7 @@ This guide takes a TypeScript server from a Plivo Auth ID and Auth Token to a ve
 **Partial.** The adapter works and passes the shared contract tests, but Plivo documents less than the other providers, so SMS SDK knows less about why a send failed:
 
 - **Unknown and unmapped failures never fall back.** Plivo does not document its API error body. SMS SDK recognizes a 401 (`auth`) and a 429 that carries Plivo's `api_id` (`rate_limited`), and only those move on to a fallback provider. Every other 4xx is a `request` rejection that stops the send, even when the real cause is a sender or account problem another provider could avoid. A 5xx, timeout, or network error is an unknown outcome and is never resent or passed to another provider.
-- **No scheduling.** `sendAt` throws `UnsupportedFieldError` before any request. Use Telnyx, or Twilio with a Messaging Service.
+- **No scheduling.** `sendAt` throws `UnsupportedFieldError` before any request. Use [Telnyx](/providers/telnyx), or [Twilio](/providers/twilio) with a Messaging Service.
 - **Callbacks are signed weakly.** Plivo's V2 signature covers the URL and a nonce, but neither the body nor a timestamp. A captured callback can be replayed, or its body changed, and still pass verification. Plivo's V3 scheme, which signs parameters, is documented for Voice only, so SMS SDK verifies V2.
 
 The same notes are in `adapter.support.notes` at runtime. The guide below works within these limits: it checks opt-outs before sending, treats unknown outcomes as "reconcile, don't resend", and blocks replayed callbacks.
@@ -614,3 +614,4 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 
 - [How to send SMS through an API in TypeScript](/blog/send-sms-api-typescript): the raw send request for six providers side by side, then the same send with SMS SDK.
 - [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): when a second provider should take a text, and why a timeout means stop.
+- [Switch SMS providers without rewriting your code](/migration/switch-providers): move between Plivo, Twilio, Telnyx, and the rest by changing the adapter.
