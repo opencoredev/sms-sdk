@@ -24,7 +24,7 @@ The provider already does part of this. That part is the trap.
 
 ## What your provider already does
 
-Twilio and Telnyx both watch for opt-out keywords and block later messages on their side:
+[Twilio](/providers/twilio) and [Telnyx](/providers/telnyx) both watch for opt-out keywords and block later messages on their side:
 
 | | Twilio | Telnyx |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ Twilio and Telnyx both watch for opt-out keywords and block later messages on th
 
 Sources: Twilio's [Advanced Opt-Out](https://www.twilio.com/docs/messaging/tutorials/advanced-opt-out) and [Consent Management](https://www.twilio.com/docs/messaging/features/consent-api) docs and Telnyx's [opt-out keywords](https://support.telnyx.com/en/articles/1270091-sms-opt-out-keywords) article, checked 2026-11-01. Plivo, Vonage, Bandwidth, and Sinch have their own rules; read their docs for your sender type.
 
-Notice the "who gets blocked" row. Twilio's list protects one sender and its Messaging Service. Telnyx's list protects one messaging profile. Neither knows about the other, or about your other numbers. So if your app sends through Twilio with Telnyx as a fallback, or moves a customer from one provider to another, a person who texted STOP to your Twilio number can get your next message from Telnyx.
+Notice the "who gets blocked" row. Twilio's list protects one sender and its Messaging Service. Telnyx's list protects one messaging profile. Neither knows about the other, or about your other numbers. So if your app sends through Twilio with Telnyx as a fallback, or [moves from one provider to another](/migration/switch-providers), a person who texted STOP to your Twilio number can get your next message from Telnyx.
 
 That's why the list has to live in your database. It's the only place that sees every provider.
 

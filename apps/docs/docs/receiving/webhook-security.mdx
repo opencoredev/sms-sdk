@@ -120,7 +120,7 @@ export async function isValidTelnyxSignature(
 }
 ```
 
-Pass the URL exactly as configured in Twilio, including any query string (see [below](#fix-url-mismatches-behind-a-proxy)), and the raw body for Telnyx before anything parses it. This handles Twilio's form-encoded webhooks. A JSON body from Twilio carries `bodySHA256` in the URL instead, and `parseSmsWebhook()` checks both. SMS SDK's own Twilio check also tries the URL with and without the default port, which the snippet does not.
+Pass the URL exactly as configured in Twilio, including any query string (see [below](#fix-url-mismatches-behind-a-proxy)), and the raw body for Telnyx before anything parses it. This handles Twilio's form-encoded webhooks. A JSON body from Twilio carries `bodySHA256` in the URL instead, and `parseSmsWebhook()` checks both. SMS SDK's own Twilio check also tries the URL with and without the default port, which the snippet does not. For the same checks wired into a Next.js route with offline tests, see the [Twilio](/providers/twilio#verify-x-twilio-signature-behind-a-proxy), [Telnyx](/providers/telnyx#verify-a-webhook-with-the-raw-api), and [Vonage](/providers/vonage#verify-a-webhook-with-the-raw-api) guides.
 
 ## Fix URL mismatches behind a proxy
 
