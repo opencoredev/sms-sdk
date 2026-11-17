@@ -13,7 +13,7 @@ To test code that sends SMS without sending real texts, replace the provider at 
 | A provider adapter: the HTTP request it builds and how it reads the response | `fetch` | `mockFetch()`, which records each request and returns canned provider responses |
 | Your webhook route: signature checks, duplicates, opt-outs | The incoming request | `signedTwilioRequest()`, `signedTelnyxRequest()`, `signedPlivoRequest()`, or `signedVonageRequest()`, which sign test requests the way each provider does |
 
-All of them come from `@opencoredev/sms-sdk/testing`, make no network calls, and need no provider account. Before the first live send, the [doctor CLI](#check-your-configuration-with-the-doctor) checks your configuration without sending anything. The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
+All of them come from `@opencoredev/sms-sdk/testing`, make no network calls, and need no provider account. To try a real provider API without texting a real phone, Twilio has [test credentials and a Virtual Phone](#test-against-twilio-without-a-real-phone); use them for a final check, not in your test suite. Before the first live send, the [doctor CLI](#check-your-configuration-with-the-doctor) checks your configuration without sending anything. The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
 
 ## Use the memory adapter
 
@@ -158,6 +158,17 @@ Use these builders instead of `unsafeSkipVerification: true`, which skips the co
 ## Receive real webhooks on your laptop
 
 Signed test requests cover most handler tests. To see real status and inbound webhooks from a provider while you develop, expose your local port with a tunnel, such as `ngrok http 3000` or `cloudflared tunnel --url http://localhost:3000`, and set the HTTPS URL it prints as the webhook URL in the provider's console or as `webhookUrl` on a send. Twilio and Plivo sign the exact URL they call, so pass that tunnel URL as `publicUrl` to the parser; see [Webhook security](/receiving/webhook-security). Tunnel URLs change between runs unless you reserve one, so update the provider when yours changes.
+
+## Test against Twilio without a real phone
+
+The tools above replace the provider. When you want Twilio itself to answer, it has two options, and both need the network and a Twilio account:
+
+| Option | What it does | What it doesn't cover |
+| --- | --- | --- |
+| [Test credentials](/providers/twilio#test-with-twilios-test-credentials) | A separate Account SID and Auth Token. Twilio validates each request like a live one but sends nothing and doesn't charge. Magic numbers such as `+15005550004` return a set error (21610, opted out). | Only accounts that created them in Twilio's legacy console have them. No `MessagingServiceSid`, and no status callbacks. |
+| [Virtual Phone](https://www.twilio.com/docs/messaging/guides/guide-to-using-the-twilio-virtual-phone) | A simulated handset in the Twilio Console at +1 877 780 4236. Messages from your Twilio number to it need no A2P 10DLC registration or toll-free verification and never reach a carrier network. Its New Chat starts an inbound message to your number. | Each message is a real API request on your Twilio account, so keep it out of automated tests. |
+
+Both are Twilio-only. With the `twilio()` adapter they show how your code handles a real Twilio response; the [Twilio guide](/providers/twilio#test-with-twilios-test-credentials) has a runnable example with the magic numbers. Keep `memory()`, `mockFetch()`, and the signed request builders for everything you run on each commit.
 
 ## Check your configuration with the doctor
 
