@@ -7,7 +7,7 @@ sidebar:
 
 Get a message through when a provider rate limits you or refuses your sender, without texting anyone twice. The SDK retries or moves to another provider only when the provider proved it did not take the message.
 
-To add fallback from Twilio to another provider, list the Twilio adapter first and a second adapter, such as Telnyx, after it, and set `fallback: "on-known-rejection"`. The second provider then sends only when Twilio refused for a reason tied to your Twilio account: bad credentials, a rate limit that outlasted retries, an unusable sender, or an account restriction. It never sends after a timeout, a network error, or a 5xx, because Twilio may already have the message, and it never sends after an opt-out refusal such as 21610. Before you turn it on, register a sender with the second provider, point its webhooks at your app, and check your own opt-out list in `beforeSend`, since Twilio's STOP list doesn't reach the other provider.
+To add fallback from Twilio to another provider, list the [Twilio adapter](/providers/twilio) first and a second adapter, such as [Telnyx](/providers/telnyx), after it, and set `fallback: "on-known-rejection"`. The second provider then sends only when Twilio refused for a reason tied to your Twilio account: bad credentials, a rate limit that outlasted retries, an unusable sender, or an account restriction. It never sends after a timeout, a network error, or a 5xx, because Twilio may already have the message, and it never sends after an opt-out refusal such as 21610. Before you turn it on, register a sender with the second provider, point its webhooks at your app, and check your own opt-out list in `beforeSend`, since Twilio's STOP list doesn't reach the other provider.
 
 :::warning[Unknown outcomes are never retried]
 After a timeout, network error, 5xx, or malformed success response, the provider may have the message. The SDK throws `HandoffUnknownError` and does not retry or fall back. No option changes this. See [Prevent duplicate sends](/sending/idempotency#reconcile-an-unknown-outcome) to sort it out.
@@ -92,4 +92,5 @@ Each provider account in the chain needs:
 
 - [Prevent duplicate sends](/sending/idempotency)
 - [Errors reference](/reference/errors)
+- [Switch SMS providers without rewriting your code](/migration/switch-providers)
 - [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts) (blog)
