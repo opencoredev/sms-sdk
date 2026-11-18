@@ -100,6 +100,7 @@ export async function handleSend(request: Request): Promise<Response> {
   // Look the number up yourself. Taking `to` from the request body turns the route into an open SMS relay.
   const order = await db.orders.findForUser(orderId, session.userId);
   if (order === null || !isE164(order.phone)) return new Response("Order not found", { status: 404 });
+  if (order.status !== "shipped") return new Response("Order has not shipped", { status: 409 });
 
   try {
     const result = await sms.send({
