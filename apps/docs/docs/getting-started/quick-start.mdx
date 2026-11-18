@@ -1,6 +1,6 @@
 ---
 title: "Quick start"
-description: "Send your first SMS through Twilio with SMS SDK in three steps."
+description: "Send your first SMS through Twilio with SMS SDK in three steps, then send from a Hono or Bun server route."
 ---
 
 By the end of this page, a server-side script sends one SMS through Twilio and prints the provider's message ID.
@@ -78,6 +78,72 @@ If the send fails, read the error's `code` and `retrySafe`. `provider_auth` mean
 ## 4. Receive a delivery update
 
 `queued` means Twilio accepted the message, not that the phone got it. Twilio reports delivery later by calling a webhook URL on your server. Store `result.providerId` so you can match the update to the message, then follow [Webhooks](/receiving/webhooks) to verify and read it.
+
+## Send from a Hono or Bun server
+
+To send an SMS from a Hono or Bun server, import the client from `sms.ts` and call `sms.send()` inside a POST route that checks who is calling and picks the recipient on the server. SMS SDK has no runtime dependencies and calls providers with `fetch`, so one handler that takes a `Request` and returns a `Response` works in Hono, `Bun.serve`, and Next.js route handlers.
+
+```ts send-route.ts
+import { HandoffUnknownError, isE164, isSmsError } from "@opencoredev/sms-sdk";
+import { getSession } from "./auth";
+import { db } from "./db";
+import { sms } from "./sms";
+
+export async function handleSend(request: Request): Promise<Response> {
+  const session = await getSession(request);
+  if (session === null) return new Response("Unauthorized", { status: 401 });
+
+  const input: unknown = await request.json().catch(() => null);
+  const orderId = typeof input === "object" && input !== null && "orderId" in input ? input.orderId : undefined;
+  if (typeof orderId !== "string") return new Response("orderId is required", { status: 400 });
+
+  // Look the number up yourself. Taking `to` from the request body turns the route into an open SMS relay.
+  const order = await db.orders.findForUser(orderId, session.userId);
+  if (order === null || !isE164(order.phone)) return new Response("Order not found", { status: 404 });
+
+  try {
+    const result = await sms.send({
+      to: order.phone,
+      body: `Order ${order.id} has shipped.`,
+      idempotencyKey: `order:${order.id}:shipped`,
+    });
+    return Response.json({ providerId: result.providerId, delivery: result.delivery });
+  } catch (error) {
+    // The provider may have the message. Don't send it again automatically.
+    if (error instanceof HandoffUnknownError) return Response.json({ status: "unknown" }, { status: 202 });
+    if (isSmsError(error)) return Response.json({ code: error.code }, { status: 422 });
+    throw error;
+  }
+}
+```
+
+Mount it in Hono:
+
+```ts
+import { Hono } from "hono";
+import { handleSend } from "./send-route";
+
+const app = new Hono();
+app.post("/api/orders/notify", (c) => handleSend(c.req.raw));
+
+export default app;
+```
+
+Or in `Bun.serve`, with no framework:
+
+```ts
+import { handleSend } from "./send-route";
+
+Bun.serve({
+  port: 3000,
+  routes: {
+    "/api/orders/notify": { POST: handleSend },
+  },
+  fetch: () => new Response("Not found", { status: 404 }),
+});
+```
+
+Bun reads `.env` on its own, so `bun server.ts` starts either one with your Twilio credentials. Hono on Node.js needs its Node adapter, `@hono/node-server`. In a running server, the `idempotencyKey` only stops a repeated request from sending twice once the client has an idempotency store; see [Prevent duplicate sends](/sending/idempotency). The [Twilio guide](/providers/twilio) adds webhook routes and offline tests to this setup, and [Receive webhooks](/receiving/webhooks) shows the Hono and `Bun.serve` handlers for delivery updates.
 
 ## Next steps
 
