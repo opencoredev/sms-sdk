@@ -1,9 +1,13 @@
 ---
-title: "STOP, HELP, and opt-outs"
-description: "Record opt-outs from STOP replies, answer HELP, and block sends to suppressed recipients. SMS SDK helps; compliance stays your app's job."
+title: "Handle STOP and HELP replies in your app"
+description: "How to handle STOP and HELP SMS replies: record opt-outs in your own suppression list, block sends to those numbers on every provider, answer HELP, and treat provider opt-out refusals as STOPs."
+sidebar:
+  label: "STOP, HELP, and opt-outs"
 ---
 
 When someone replies STOP, you must stop texting them on every provider you use. SMS SDK turns STOP, START, and HELP replies into events, and lets you block sends with `beforeSend`.
+
+To handle STOP and HELP replies in your app: point your provider's inbound webhook at a route that calls `parseSmsWebhook()`. On `recipient.opted_out`, add the sender's number to a suppression list in your own database. On `recipient.opted_in` (START, which only Twilio reports), remove it. Check that list in `beforeSend`, so no provider texts a number that opted out on another one. On `recipient.help`, reply with who you are and how to stop, unless your provider already answers HELP for your sender type. Finally, add a number to the list when a provider refuses a send because the recipient opted out (Twilio 21610, Telnyx 40300, Vonage 1240), because a STOP webhook can be missed. Each step is below.
 
 :::warning[No compliance guarantee]
 SMS SDK does not obtain consent, keep opt-out records, send required HELP or confirmation replies, or know the rules for each country and sender type. Providers and carriers may also act on STOP replies by their own rules. Treat these events as inputs to your own records. See [Registration and consent](/providers/registration-and-consent).
