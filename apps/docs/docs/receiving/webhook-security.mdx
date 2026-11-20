@@ -1,9 +1,13 @@
 ---
-title: "Webhook security"
-description: "How SMS SDK verifies Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch webhooks, how to check a Twilio or Telnyx signature by hand in Node.js, and how to fix verification behind a proxy."
+title: "Verify SMS webhook signatures in Node.js: Twilio, Telnyx, Plivo, and Vonage"
+description: "Verify Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch SMS webhooks in Node.js: each provider's signature scheme, a dependency-free X-Twilio-Signature check, and the fix for proxy URL mismatches."
+sidebar:
+  label: "Webhook security"
+search:
+  keywords: ["verify twilio webhook signature", "x-twilio-signature node.js", "telnyx webhook signature", "sms webhook verification", "sms delivery webhook security"]
 ---
 
-Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature or credentials before it reads any field, and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
+Your SMS webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature or credentials before it reads any field, and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
 
 ## Respond to failures
 
@@ -71,7 +75,7 @@ Twilio, Plivo, Bandwidth, and Sinch with Basic auth sign no timestamp, so someon
 
 To check a Twilio webhook in Node.js, compute a Base64 HMAC-SHA1 of the full URL Twilio called followed by every POST parameter's name and value, sorted by name, keyed with your Auth Token, and compare it to `X-Twilio-Signature` in constant time. To check a Telnyx webhook, verify the Ed25519 signature in `telnyx-signature-ed25519` over `` `${telnyx-timestamp}|${rawBody}` `` with your Telnyx public key, and reject timestamps older than a few minutes.
 
-`parseSmsWebhook()` does this for you. If you only need the check, for example in middleware for an app that doesn't use SMS SDK, this is the whole thing with no dependencies, in Node.js 20 or later and Bun:
+If you already use the `twilio` npm package, its `validateRequest(authToken, signature, url, params)` runs the same check for a form POST, and `twilio.webhook()` wraps it as Express middleware. `parseSmsWebhook()` does the check for every supported provider. If you only need the check, for example in middleware for an app that doesn't use SMS SDK, this is the whole thing with no dependencies, in Node.js 20 or later and Bun:
 
 ```ts
 import { createHmac, timingSafeEqual } from "node:crypto";
