@@ -19,7 +19,7 @@ It never texts anyone twice: it falls back only when a provider proves it refuse
 - Typed errors that say whether sending again is safe, and idempotency keys that stop duplicate sends
 - Verified, normalized webhooks for delivery status, replies, and STOP/HELP opt-outs
 - A `memory()` adapter and signed webhook builders for tests that never touch the network
-- Zero runtime dependencies, ESM, Node.js 20+ and Bun
+- Zero runtime dependencies, ESM only (no CommonJS build), Node.js 20+ and Bun
 
 ## Install
 

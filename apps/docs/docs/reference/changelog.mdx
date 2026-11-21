@@ -5,7 +5,27 @@ description: "Release history for @opencoredev/sms-sdk."
 
 This page summarizes [`CHANGELOG.md`](https://github.com/opencoredev/sms-sdk/blob/main/packages/sms-sdk/CHANGELOG.md) in the repository, which is the canonical record.
 
-## 0.1.0 (unreleased)
+## Unreleased
+
+- [`sms.getMessage(providerId, { adapter?, signal? })`](/reference/create-sms-client#smsgetmessageproviderid-options) looks a message up with the provider and returns its delivery, or `undefined` when the provider has no such message. Failures throw `MessageLookupError` (`retrySafe: false`). Every built-in adapter implements the new optional `SmsAdapter.getMessage`; Vonage reads the Reports API and needs `reportsCredentials` with JWT auth. `capabilities()` reports `messageLookup`.
+- [`parseSmsWebhooks()`](/reference/webhook-events#parsesmswebhooksoptions) returns every event in a request: each element of a Bandwidth callback and each Sinch `recipient_delivery_report` entry. `parseSmsWebhook()` now throws `WebhookPayloadError` for a multi-event payload instead of returning only the first Sinch report.
+- [`fromByAdapter`](/reference/send#frombyadapter) on `send()` input sets a sender per adapter, for fallback chains.
+- Suppression lists: `SuppressionList`, `memorySuppressionList()`, `suppressionPolicy()` for `beforeSend`, and `applySuppressionEvent()` for STOP and START webhooks. See [STOP, HELP, and opt-outs](/receiving/opt-outs).
+- Keyword events (`recipient.opted_out`, `recipient.opted_in`, `recipient.help`) carry `mediaUrls`.
+- `createSmsClient` rejects `idempotency.ttlSec` and `staleReservationSec` that are not finite and positive. A `ttlSec` of 0 let a repeated key send twice. `retry.maxAttempts` must be an integer from 1 to 10, and retry delays finite and at least 0.
+- `validate()` returns issues instead of throwing for malformed runtime input (a non-object message, a non-array `mediaUrls`, a non-string `idempotencyKey`), and `send()` throws `InvalidMessageError` for it.
+- `sinch()` throws `ConfigurationError` for missing options. Non-Latin-1 Basic credentials throw `ConfigurationError` instead of a `DOMException`.
+- `beforeSend` throwing now emits `onFailure`. An unexpected internal failure keeps the attempts already made.
+- `unsafeSkipVerification` throws `ConfigurationError` when `NODE_ENV` is `production`.
+- Provider responses are read up to 1 MiB; a larger body is an unknown outcome.
+- Every subpath export has a `default` condition beside `import`. The package stays ESM only.
+
+## 0.1.1
+
+- The docs site is the package homepage, and the README has the SMS SDK banner, with its Contributing and Examples links pointing at GitHub.
+- README: why Bandwidth and Sinch are partial, and which providers have signed webhook request builders.
+
+## 0.1.0
 
 First public version.
 

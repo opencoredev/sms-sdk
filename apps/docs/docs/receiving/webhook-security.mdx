@@ -159,7 +159,7 @@ Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body once with 
 
 ## Skipping verification in tests
 
-`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
+`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. It throws `ConfigurationError` when `process.env.NODE_ENV` is `"production"`, so a test setting that leaks into a deployment fails loudly instead of accepting forged events. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
 
 ## Lower-level helpers
 

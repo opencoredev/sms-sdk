@@ -1,6 +1,6 @@
 ---
 title: "Adapter contract"
-description: "The SmsAdapter interface and its types: SmsCapabilities, ProviderOptionsSpec, AdapterMessage, SmsSender, SendContext, AdapterSendOutcome, and RejectionCategory."
+description: "The SmsAdapter interface and its types: SmsCapabilities, ProviderOptionsSpec, AdapterMessage, SmsSender, SendContext, AdapterSendOutcome, MessageLookupOutcome, and RejectionCategory."
 ---
 
 These types define an adapter. You need them to [write a provider adapter](/advanced/writing-an-adapter) or to read `sms.capabilities()`. All are exported as types from `@opencoredev/sms-sdk`.
@@ -16,6 +16,7 @@ interface SmsAdapter {
   readonly providerOptions?: ProviderOptionsSpec;
   validate?(message: AdapterMessage): readonly ValidationIssue[];
   send(message: AdapterMessage, context: SendContext): Promise<AdapterSendOutcome>;
+  getMessage?(providerId: string, context: LookupContext): Promise<MessageLookupOutcome>;
 }
 ```
 
@@ -28,6 +29,7 @@ interface SmsAdapter {
 | `providerOptions` | The provider-specific options this adapter accepts under its `name` in `providerOptions`. See [`ProviderOptionsSpec`](#provideroptionsspec). Without it, any entry for this adapter throws `UnsupportedFieldError`. |
 | `validate` | Optional provider-specific checks that need no network, such as sender ID formats or field combinations. Issues make `send()` throw before any request. |
 | `send` | Makes one provider request. Must pass `context.signal` to `fetch`. Must not throw. The client treats a thrown error as `unknown` with `reason: "adapter_exception"`. |
+| `getMessage` | Optional. Looks one message up by the provider's message ID, read-only, for [`sms.getMessage()`](/reference/create-sms-client#smsgetmessageproviderid-options). Must pass `context.signal` to `fetch` and must not throw. See [`MessageLookupOutcome`](#messagelookupoutcome). |
 
 ```ts
 import { createSmsClient, type SmsAdapter } from "@opencoredev/sms-sdk";
@@ -187,6 +189,31 @@ type AdapterSendOutcome =
 - Return `unknown` for everything else, including any response that does not prove either.
 
 `UnknownReason` is `"network" | "timeout" | "aborted" | "malformed_response" | "server_error" | "unexpected_status" | "adapter_exception"`. The client replaces the reason with `timeout` or `aborted` when its own signal fired.
+
+## `MessageLookupOutcome`
+
+```ts ignore="type listing"
+type LookupContext = { readonly signal: AbortSignal }; // aborts on caller cancellation or timeoutMs
+
+type MessageLookupOutcome =
+  | { readonly kind: "found"; readonly status: SmsMessageStatus }
+  | { readonly kind: "not_found" }
+  | { readonly kind: "failed"; readonly reason: LookupFailureReason; readonly details?: ProviderErrorInfo; readonly cause?: unknown };
+
+type SmsMessageStatus = {
+  readonly provider: string;
+  readonly providerId: string;
+  readonly delivery: Delivery;
+  readonly providerStatus?: string;
+  readonly errorCode?: string; // only when delivery is "undelivered" or "filtered"
+};
+
+type LookupFailureReason = UnknownReason | "auth" | "rate_limited" | "request";
+```
+
+- Return `found` when the provider returned the message. Use `delivery: "unknown"` for a status you do not map.
+- Return `not_found` when the provider says it has no such message: a 404, or an empty result list.
+- Return `failed` for everything else. The client throws it as `MessageLookupError`, replacing the reason with `timeout` or `aborted` when its own signal fired.
 
 ## `RejectionCategory`
 

@@ -209,6 +209,10 @@ Set `providerOptions: ACME_PROVIDER_OPTIONS` on the adapter and build the reques
 
 `parseSmsWebhook` covers only the six built-in providers. For a new provider, verify the signature against the raw body yourself before reading any field, then map the payload to the `SmsEvent` union from `@opencoredev/sms-sdk/webhooks` so the rest of your app handles it like the others.
 
+## 6. Look up messages (optional)
+
+If the provider has an endpoint that returns one message by ID, implement `getMessage(providerId, context)` so `sms.getMessage()` works with your adapter. Pass `context.signal` to `fetch`, never throw, and return `{ kind: "found", status }`, `{ kind: "not_found" }`, or `{ kind: "failed", reason }`; see [`MessageLookupOutcome`](/reference/adapter-contract#messagelookupoutcome). Add `lookup` fixtures to the contract tests to check it. Leave it out if the provider has no such endpoint.
+
 ## Contribute it
 
 Community adapters are maintained by their authors. To propose one for the main package, see [Contributing and support](/advanced/contributing#propose-a-provider).

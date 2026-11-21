@@ -29,6 +29,7 @@ SMS SDK uses only the Messages API. Its `vonage()` adapter never calls `rest.nex
 
 - It uses only the Messages API (`POST /v1/messages`, channel `sms`). The older SMS API at `rest.nexmo.com/sms/json` is not supported, and its webhooks do not verify with this parser.
 - Vonage does not document which HTTP status each error code uses. SMS SDK classifies rejections from the documented 401, 402, and 422 statuses and from the error code in the response. Unknown codes become `request`, which never falls back.
+- The Messages API has no message lookup. `getMessage` reads the Reports API, which needs the API key and secret even with JWT auth, and whose per-record status values for Messages are not fully documented.
 - Vonage describes the webhook `payload_hash` only as "a SHA-256 hash of the payload". SMS SDK checks it against the exact raw body. If Vonage ever hashes a re-serialized body instead, verification fails with `body_hash_mismatch`.
 - Vonage documents no freshness window for the webhook JWT. SMS SDK accepts tokens issued within 300 seconds.
 - No short codes and no MMS.
@@ -555,6 +556,15 @@ The parser accepts only HS256, rejects a token whose `iat` is more than 300 seco
 | `read` and anything else | `unrecognized` |
 
 Vonage sends no queued status. It sends numbers without `+`; SMS SDK restores it, so `from` and `to` are E.164. `dedupeKey` is `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received`. STOP and HELP come from keyword detection on the text; Vonage's `sms.keyword` field is not read.
+
+## Look up a message
+
+The Messages API has no message lookup, so `sms.getMessage(messageUuid, { adapter: "vonage" })` reads the Reports API (`GET /v2/reports/records`, product `MESSAGES`, direction `outbound`) on the adapter's API host. That API accepts only the account API key and secret:
+
+- With Basic auth, `getMessage` uses `apiKey` and `apiSecret`.
+- With JWT auth, pass `reportsCredentials: { apiKey, apiSecret }` to `vonage()`. Without it the adapter has no `getMessage`, and `sms.getMessage()` throws `ConfigurationError`.
+
+`submitted` maps to `sent`, `delivered` and `read` to `delivered`, and `rejected`, `undeliverable`, `failed`, and `expired` to `undelivered`. Vonage adds a record shortly after sending, so a lookup right after `send()` can return `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

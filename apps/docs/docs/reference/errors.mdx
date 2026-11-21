@@ -44,8 +44,9 @@ try {
 | `IdempotencyInProgressError` | `idempotency_in_progress` | true | Retry later. You get the other call's result. |
 | `WebhookSignatureError` | `webhook_signature` | false | Respond 401 or 403. Do not process the request. |
 | `WebhookPayloadError` | `webhook_payload` | false | Respond 400 and log. The request was authentic but incomplete. |
+| `MessageLookupError` | `message_lookup_failed` | false | Try the lookup again later. Never resend because of it. |
 
-`createSmsClient` and the adapter factories throw `ConfigurationError`. `parseSmsWebhook` throws the two webhook errors. `send()` throws the rest.
+`createSmsClient` and the adapter factories throw `ConfigurationError`. `parseSmsWebhook` and `parseSmsWebhooks` throw the two webhook errors. `getMessage()` throws `MessageLookupError`. `send()` throws the rest.
 
 ## `SmsError`
 
@@ -70,7 +71,9 @@ The base class. Every error has these fields.
 ### `ConfigurationError`
 
 - `code`: `configuration`. `retrySafe`: true.
-- Thrown by `createSmsClient` for no adapters, duplicate adapter names, or a non-positive `timeoutMs`, and by adapter factories for malformed credentials (a Twilio Account SID that is not `AC` plus 32 hex, an empty API key, a Vonage private key that is not a PEM).
+- Thrown by `createSmsClient` for no adapters, duplicate adapter names, a non-positive `timeoutMs`, an `idempotency.ttlSec` or `staleReservationSec` that is not a finite number above 0, or `retry` values out of range (`maxAttempts` outside 1 to 10, a negative or non-finite delay).
+- Thrown by adapter factories for malformed or missing credentials (a Twilio Account SID that is not `AC` plus 32 hex, a missing or empty API key, a Vonage private key that is not a PEM, Basic credentials with characters outside Latin-1).
+- Thrown by `getMessage()` for an empty `providerId` or an adapter that is not configured or cannot look messages up, and by the webhook parsers when `unsafeSkipVerification` is set while `NODE_ENV` is `"production"`.
 - Fix the configuration. Nothing was sent.
 
 ## Local validation
@@ -209,6 +212,14 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 - The signature was valid, but the payload is not valid JSON or lacks a required field such as `MessageSid`.
 - Respond with 400, log the provider and request, and report it if it looks like a new provider format.
 
+## Message lookup
+
+### `MessageLookupError`
+
+- `code`: `message_lookup_failed`. `retrySafe`: false. Extra fields: `reason: LookupFailureReason`, `providerName: string`, `providerId: string`, and `provider` with the redacted response details when there was one.
+- `reason` is `network`, `timeout`, `aborted`, `malformed_response`, `server_error`, `unexpected_status`, `adapter_exception`, or, from a provider 4xx, `auth`, `rate_limited`, or `request`.
+- `getMessage()` could not read the provider's record. That says nothing about whether the message was sent, so it is never a reason to send again. Calling `getMessage()` again later is safe. Fix credentials for `auth`.
+
 ## Types
 
-`SmsErrorCode`, `SerializedSmsError`, `HandoffUnknownReason`, `WebhookFailureReason`, `RejectionCategory`, `UnknownReason`, and `ProviderErrorInfo` are exported as types from `@opencoredev/sms-sdk`. `WebhookSignatureError`, `WebhookPayloadError`, and `WebhookFailureReason` are also exported from `@opencoredev/sms-sdk/webhooks`.
+`SmsErrorCode`, `SerializedSmsError`, `HandoffUnknownReason`, `WebhookFailureReason`, `RejectionCategory`, `UnknownReason`, `LookupFailureReason`, and `ProviderErrorInfo` are exported as types from `@opencoredev/sms-sdk`. `WebhookSignatureError`, `WebhookPayloadError`, `ConfigurationError`, and `WebhookFailureReason` are also exported from `@opencoredev/sms-sdk/webhooks`.

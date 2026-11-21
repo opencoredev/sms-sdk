@@ -72,7 +72,7 @@ The SDK compares the new send with the stored one by a SHA-256 fingerprint of `t
 
 When a send throws `HandoffUnknownError`, the store marks the key unknown, and every later send with that key throws again. To resolve it:
 
-1. Look the message up with the provider: its console, its message list API, or a status webhook for that recipient around that time.
+1. Look the message up with the provider: its console, its message list API, or a status webhook for that recipient around that time. An unknown outcome has no provider ID, so [`sms.getMessage()`](/reference/create-sms-client#smsgetmessageproviderid-options) helps only once you have one, for example from a status webhook.
 2. If the provider has the message, stop. It went out.
 3. If it does not, delete the record and send again.
 

@@ -92,13 +92,15 @@ Set `deliveryReport: "per_recipient"` to receive a status webhook for each messa
 
 Sinch authenticates callbacks in one of two ways, configured on your callback URL or service plan. Point Sinch at your handler with a per-message `webhookUrl` or the callback URL on the service plan, then pass the matching `credentials`:
 
+A delivery report can list several recipients in `recipient_delivery_report`, so read callbacks with `parseSmsWebhooks`, which returns one event per recipient. `parseSmsWebhook` returns a single event and throws `WebhookPayloadError` for a multi-recipient report rather than drop recipients.
+
 ```ts
-import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { parseSmsWebhooks, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
 import { db } from "./db";
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const event = await parseSmsWebhook({
+    const events = await parseSmsWebhooks({
       provider: "sinch",
       request,
       credentials: {
@@ -107,8 +109,10 @@ export async function POST(request: Request): Promise<Response> {
         password: process.env.SINCH_CALLBACK_PASSWORD ?? "",
       },
     });
-    if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
-      console.log(event.type);
+    for (const event of events) {
+      if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
+        console.log(event.type);
+      }
     }
     return new Response(null, { status: 204 });
   } catch (error) {
@@ -127,12 +131,16 @@ OAuth 2.0 callbacks are not supported. Sinch can send a report more than once an
 | --- | --- |
 | inbound `mo_text`, `mo_binary`, `inbound_sms` | `message.received`, or `recipient.opted_out` / `recipient.help` for STOP and HELP keywords |
 | `Queued`, `Pending` | `message.queued` |
-| `Sent`, `Accepted` | `message.sent` |
+| `Dispatched`, `Sent`, `Accepted` | `message.sent` |
 | `Delivered` | `message.delivered` |
-| `Failed`, `Undelivered`, `Expired` | `message.undelivered` |
+| `Aborted`, `Failed`, `Undelivered`, `Expired` | `message.undelivered` |
 | `Rejected` or `Filtered` with code 40003 | `message.filtered` |
 | `Rejected` or `Filtered` with any other code | `message.undelivered` |
 | anything else | `unrecognized` |
+
+## Look up a message
+
+`sms.getMessage(batchId, { adapter: "sinch" })` reads the batch's summary delivery report (`GET /xms/v1/{servicePlanId}/batches/{batchId}/delivery_report?type=summary`). Each send is a one-recipient batch, so the report's single status gives the delivery, mapped as in the table above. A batch with no report yet is found with `delivery: "unknown"`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

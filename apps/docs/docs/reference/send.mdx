@@ -54,6 +54,24 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 
 The SDK cannot see whether a number belongs to your account, is registered for 10DLC or toll-free, or whether the country allows alphanumeric sender IDs (the United States and Canada do not). The provider rejects those with `category: "sender"`. A sender belongs to one provider account, so a second provider needs its own. See [Registration and consent](/providers/registration-and-consent).
 
+### `fromByAdapter`
+
+- Type: `Readonly<Record<string, SmsFrom>>`
+- Optional
+- A sender per adapter name. Each adapter sends from its own entry, then `from`, then its configured default. Entries for adapters the client does not have are ignored. Each entry is checked like `from`, for its adapter only. Part of the idempotency fingerprint when an entry applies.
+
+Use it with fallback, where one `from` rarely works on every provider:
+
+```ts
+import { sms } from "./sms";
+
+await sms.send({
+  to: "+14155550123",
+  body: "Your code is 123456.",
+  fromByAdapter: { twilio: { messagingService: "MG0123456789abcdef0123456789abcdef" }, telnyx: "+15005550007" },
+});
+```
+
 ### `body`
 
 - Type: `string`
@@ -186,7 +204,7 @@ type SendAttempt =
 
 ## Order of checks
 
-1. Local validation: recipient, body, field formats, `providerOptions` for every configured adapter, then the primary adapter's sender and capabilities. Failures throw before any request.
+1. Local validation: the input is an object, recipient, body, field formats, `providerOptions` for every configured adapter, then the primary adapter's sender and capabilities. Failures throw before any request. Malformed input from JavaScript or JSON, such as `null` or a string `mediaUrls`, throws `InvalidMessageError` rather than a `TypeError`.
 2. Abort check: an already-aborted `signal` throws `SendAbortedError`.
 3. Idempotency: replay, conflict, in-progress, or unknown, when a key and store are set.
 4. `beforeSend`.
@@ -198,7 +216,7 @@ type SendAttempt =
 | --- | --- | --- | --- |
 | `InvalidRecipientError` | `invalid_recipient` | true | `to` is not E.164 |
 | `InvalidSenderError` | `invalid_sender` | true | No sender, or a malformed one |
-| `InvalidMessageError` | `invalid_message` | true | Empty body without media, bad URL, date, or number field, a provider limit, a `providerOptions` value of the wrong type |
+| `InvalidMessageError` | `invalid_message` | true | The input is not an object, an empty body without media, a bad URL, date, number, or `mediaUrls` field, a non-string `idempotencyKey`, a provider limit, a `providerOptions` value of the wrong type |
 | `UnsupportedFieldError` | `unsupported_field` | true | The primary adapter cannot send a field or sender type, or a `providerOptions` key is unknown or names a parameter SMS SDK sets |
 | `PolicyRejectedError` | `policy_rejected` | true | `beforeSend` rejected |
 | `ProviderRejectedError` | `provider_rejected` | true | The provider proved non-acceptance |
