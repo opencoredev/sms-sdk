@@ -45,6 +45,7 @@ import {
   unknownForStatus,
   type FetchLike,
   freezeCapabilities,
+  freezeProviderOptionsSpec,
   freezeSender,
 } from "../core/http.js";
 
@@ -132,7 +133,7 @@ export const VONAGE_SUPPORT_NOTES: readonly string[] = Object.freeze([
  *
  * @see https://developer.vonage.com/en/api/messages
  */
-export const VONAGE_PROVIDER_OPTIONS = {
+export const VONAGE_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** `client_ref`: your reference, up to 100 characters, returned in every status webhook. */
     clientRef: { type: "string", wire: "client_ref", maxLength: 100 },
@@ -151,7 +152,7 @@ export const VONAGE_PROVIDER_OPTIONS = {
   },
   reserved: ["message_type", "channel", "to", "from", "text", "ttl", "webhook_url", "failover", "sms"],
   nestedPrefixes: ["sms."],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Vonage-specific send options: `providerOptions.vonage`. */
 export type VonageSendOptions = ProviderOptionsOf<typeof VONAGE_PROVIDER_OPTIONS>;

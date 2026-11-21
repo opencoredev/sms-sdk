@@ -24,6 +24,7 @@ import {
   exchange,
   foundMessage,
   freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -73,7 +74,7 @@ export const SINCH_SUPPORT_NOTES: readonly string[] = Object.freeze([
 ]);
 
 /** Sinch batch parameters accepted in `providerOptions.sinch`. Parameters the SDK sets are reserved. */
-export const SINCH_PROVIDER_OPTIONS = {
+export const SINCH_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** `delivery_report`: which delivery reports Sinch sends for this batch. */
     deliveryReport: {
@@ -87,7 +88,7 @@ export const SINCH_PROVIDER_OPTIONS = {
     maxNumberOfMessageParts: { type: "integer", wire: "max_number_of_message_parts", min: 1, max: 255 },
   },
   reserved: ["from", "to", "body", "send_at", "expire_at", "callback_url"],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Sinch-specific send options: `providerOptions.sinch`. */
 export type SinchSendOptions = ProviderOptionsOf<typeof SINCH_PROVIDER_OPTIONS>;

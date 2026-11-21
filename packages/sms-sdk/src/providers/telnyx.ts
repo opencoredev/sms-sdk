@@ -24,6 +24,7 @@ import {
   exchange,
   foundMessage,
   freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -76,7 +77,7 @@ export const TELNYX_CAPABILITIES: SmsCapabilities = freezeCapabilities({
  *
  * @see https://developers.telnyx.com/api/messaging/send-message
  */
-export const TELNYX_PROVIDER_OPTIONS = {
+export const TELNYX_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** `subject`: subject of a multimedia message. */
     subject: { type: "string", wire: "subject" },
@@ -90,7 +91,7 @@ export const TELNYX_PROVIDER_OPTIONS = {
     encoding: { type: "enum", wire: "encoding", values: ["auto", "gsm7", "ucs2"] },
   },
   reserved: ["to", "from", "messaging_profile_id", "text", "media_urls", "type", "webhook_url", "send_at"],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Telnyx-specific send options: `providerOptions.telnyx`. */
 export type TelnyxSendOptions = ProviderOptionsOf<typeof TELNYX_PROVIDER_OPTIONS>;

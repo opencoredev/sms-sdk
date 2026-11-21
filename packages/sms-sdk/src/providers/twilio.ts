@@ -25,6 +25,7 @@ import {
   exchange,
   foundMessage,
   freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -96,7 +97,7 @@ export const TWILIO_CAPABILITIES: SmsCapabilities = freezeCapabilities({
  *
  * @see https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource
  */
-export const TWILIO_PROVIDER_OPTIONS = {
+export const TWILIO_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** `ApplicationSid`: TwiML App whose status callback URL receives status updates. Ignored by Twilio when `webhookUrl` is set. */
     applicationSid: { type: "string", wire: "ApplicationSid", pattern: /^AP[0-9a-fA-F]{32}$/ },
@@ -148,7 +149,7 @@ export const TWILIO_PROVIDER_OPTIONS = {
     "ContentSid",
     "ContentVariables",
   ],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Twilio-specific send options: `providerOptions.twilio`. */
 export type TwilioSendOptions = ProviderOptionsOf<typeof TWILIO_PROVIDER_OPTIONS>;

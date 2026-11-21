@@ -744,5 +744,98 @@ describe("send: fromByAdapter", () => {
         signature: "abc",
       }),
     ).rejects.toThrow(ConfigurationError);
+
+    // 9. Exported *_PROVIDER_OPTIONS are deep-frozen and custom specs are snapshotted upfront
+    const { TWILIO_PROVIDER_OPTIONS } = await import("../../src/providers/twilio.js");
+    expect(Object.isFrozen(TWILIO_PROVIDER_OPTIONS)).toBe(true);
+    expect(Object.isFrozen(TWILIO_PROVIDER_OPTIONS.reserved)).toBe(true);
+    const mutableSpec = {
+      options: { tag: { type: "string" as const, wire: "tag" } },
+      reserved: ["to"],
+    };
+    const specClient = createSmsClient({
+      adapters: [memory({ name: "custom", providerOptions: mutableSpec })],
+    });
+    mutableSpec.reserved.length = 0;
+    expect(
+      specClient.validate({
+        to: "+14155550123",
+        body: "hi",
+        providerOptions: {
+          custom: { extra: { to: "+19990000000" } },
+        } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
+      }).supported,
+    ).toBe(false);
+
+    // 10. Class-instance capabilities and validityPeriod prototype getters are preserved
+    class Range {
+      get minSec() {
+        return 1;
+      }
+      get maxSec() {
+        return 10;
+      }
+    }
+    class ProtoCaps {
+      get sendText(): true {
+        return true;
+      }
+      get mms() {
+        return true;
+      }
+      get scheduling() {
+        return false;
+      }
+      get validityPeriod() {
+        return new Range();
+      }
+      get webhookUrlOverride() {
+        return false;
+      }
+      get inbound() {
+        return false;
+      }
+      get deliveryReceipts() {
+        return false;
+      }
+      get senderTypes() {
+        return ["long_code"] as const;
+      }
+      get nativeIdempotency() {
+        return false;
+      }
+    }
+    let nameReads = 0;
+    const protoClient = createSmsClient({
+      adapters: [
+        {
+          get name() {
+            nameReads += 1;
+            return "proto";
+          },
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return { kind: "accepted", providerId: "p1", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    expect(nameReads).toBe(1);
+    expect(protoClient.capabilities()[0]?.capabilities.mms).toBe(true);
+    expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 11 }).supported).toBe(false);
+    expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 5 }).supported).toBe(true);
+
+    // 11. memory() rejects null, revoked Proxy, and throwing option getters with ConfigurationError
+    expect(() => memory(null as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
+    expect(() => memory(revoked.proxy as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
+    expect(() =>
+      memory({
+        get name(): string {
+          throw new Error("mem-boom");
+        },
+      }),
+    ).toThrow(ConfigurationError);
   });
 });

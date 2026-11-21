@@ -12,7 +12,7 @@ import type {
   UnknownReason,
 } from "../core/adapters.js";
 import { ConfigurationError } from "../core/errors.js";
-import { freezeCapabilities, freezeSender } from "../core/http.js";
+import { freezeCapabilities, freezeSender, isRecord } from "../core/http.js";
 
 /** A scripted outcome, or a function that computes one per send. */
 export type MemoryOutcome =
@@ -84,22 +84,60 @@ const MEMORY_SUPPORT: AdapterSupport = Object.freeze({
  * ```
  */
 export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
-  const name = options.name ?? "memory";
-  const sent: MemorySentMessage[] = [];
-  const queue: MemoryOutcome[] = [...(options.outcomes ?? [])];
-  let counter = 0;
+  let name: string;
+  let queue: MemoryOutcome[];
   let defaultFrom: SmsFrom;
+  let capabilities: SmsCapabilities;
+  let providerOptions: ProviderOptionsSpec | undefined;
   try {
+    if (!isRecord(options)) {
+      throw new ConfigurationError("Memory adapter options must be an object.");
+    }
+    const rawName = options.name;
+    if (rawName !== undefined && (typeof rawName !== "string" || rawName.length === 0)) {
+      throw new ConfigurationError("Memory adapter name must be a non-empty string.");
+    }
+    name = rawName ?? "memory";
+    const rawOutcomes = options.outcomes;
+    if (rawOutcomes !== undefined && !Array.isArray(rawOutcomes)) {
+      throw new ConfigurationError("Memory adapter outcomes must be an array.");
+    }
+    queue = rawOutcomes === undefined ? [] : [...rawOutcomes];
+    const rawCaps = options.capabilities;
+    if (rawCaps !== undefined && !isRecord(rawCaps)) {
+      throw new ConfigurationError("Memory adapter capabilities must be an object.");
+    }
+    capabilities = freezeCapabilities({
+      sendText: rawCaps?.sendText ?? MEMORY_CAPABILITIES.sendText,
+      mms: rawCaps?.mms ?? MEMORY_CAPABILITIES.mms,
+      scheduling: rawCaps?.scheduling ?? MEMORY_CAPABILITIES.scheduling,
+      validityPeriod:
+        rawCaps && "validityPeriod" in rawCaps
+          ? (rawCaps.validityPeriod ?? null)
+          : MEMORY_CAPABILITIES.validityPeriod,
+      webhookUrlOverride: rawCaps?.webhookUrlOverride ?? MEMORY_CAPABILITIES.webhookUrlOverride,
+      inbound: rawCaps?.inbound ?? MEMORY_CAPABILITIES.inbound,
+      deliveryReceipts: rawCaps?.deliveryReceipts ?? MEMORY_CAPABILITIES.deliveryReceipts,
+      senderTypes: rawCaps?.senderTypes ?? MEMORY_CAPABILITIES.senderTypes,
+      nativeIdempotency: rawCaps?.nativeIdempotency ?? MEMORY_CAPABILITIES.nativeIdempotency,
+    });
+    const rawProviderOptions = options.providerOptions;
+    providerOptions = rawProviderOptions === undefined ? undefined : rawProviderOptions;
     defaultFrom = freezeSender(options.from ?? "+15005550006");
-  } catch {
-    throw new ConfigurationError("Memory adapter from option could not be read.");
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Memory adapter options could not be read.");
   }
+  const sent: MemorySentMessage[] = [];
+  let counter = 0;
 
   return {
     name,
-    capabilities: freezeCapabilities({ ...MEMORY_CAPABILITIES, ...options.capabilities }),
+    capabilities,
     support: MEMORY_SUPPORT,
-    ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }),
+    ...(providerOptions === undefined ? {} : { providerOptions }),
     defaultFrom,
     sent,
 

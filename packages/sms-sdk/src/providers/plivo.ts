@@ -24,6 +24,7 @@ import {
   exchange,
   foundMessage,
   freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -80,7 +81,7 @@ export const PLIVO_SUPPORT_NOTES: readonly string[] = Object.freeze([
  *
  * @see https://www.plivo.com/docs/messaging/api/message/send-a-message
  */
-export const PLIVO_PROVIDER_OPTIONS = {
+export const PLIVO_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** `log`: how Plivo logs the message. `"content_only"` and `"number_only"` log one of the two. Default `"true"`. */
     log: { type: "enum", wire: "log", values: ["true", "false", "content_only", "number_only"] },
@@ -88,7 +89,7 @@ export const PLIVO_PROVIDER_OPTIONS = {
     trackable: { type: "boolean", wire: "trackable" },
   },
   reserved: ["src", "powerpack_uuid", "dst", "text", "type", "media_urls", "url", "method", "message_expiry"],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Plivo-specific send options: `providerOptions.plivo`. */
 export type PlivoSendOptions = ProviderOptionsOf<typeof PLIVO_PROVIDER_OPTIONS>;

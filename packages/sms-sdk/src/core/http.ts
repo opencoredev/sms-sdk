@@ -186,15 +186,82 @@ export function freezeSender<T>(value: T): T {
   return Object.freeze(copy) as T;
 }
 
-/** Returns a deep-frozen copy of an adapter's capabilities object. */
-export function freezeCapabilities<T extends { readonly senderTypes: readonly unknown[]; readonly validityPeriod: { readonly minSec: number; readonly maxSec: number } | null }>(
-  capabilities: T,
-): T {
+/** Returns a deep-frozen copy of an adapter's capabilities object (preserving prototype getters). */
+export function freezeCapabilities<
+  T extends {
+    readonly sendText: boolean;
+    readonly mms: boolean;
+    readonly scheduling: boolean;
+    readonly validityPeriod: { readonly minSec: number; readonly maxSec: number } | null;
+    readonly webhookUrlOverride: boolean;
+    readonly inbound: boolean;
+    readonly deliveryReceipts: boolean;
+    readonly senderTypes: readonly unknown[];
+    readonly nativeIdempotency: boolean;
+  },
+>(capabilities: T): T {
+  const validity = capabilities.validityPeriod;
+  const senderTypes = capabilities.senderTypes;
   return Object.freeze({
-    ...capabilities,
-    senderTypes: Object.freeze([...capabilities.senderTypes]),
-    validityPeriod: capabilities.validityPeriod === null ? null : Object.freeze({ ...capabilities.validityPeriod }),
-  });
+    sendText: capabilities.sendText,
+    mms: capabilities.mms,
+    scheduling: capabilities.scheduling,
+    validityPeriod:
+      validity === null
+        ? null
+        : Object.freeze({
+            minSec: validity.minSec,
+            maxSec: validity.maxSec,
+          }),
+    webhookUrlOverride: capabilities.webhookUrlOverride,
+    inbound: capabilities.inbound,
+    deliveryReceipts: capabilities.deliveryReceipts,
+    senderTypes: Object.freeze([...senderTypes]),
+    nativeIdempotency: capabilities.nativeIdempotency,
+  }) as unknown as T;
+}
+
+const regexpSourceGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get;
+const regexpFlagsGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get;
+
+function cloneRegExp(pattern: RegExp): RegExp {
+  const source = regexpSourceGetter ? regexpSourceGetter.call(pattern) : pattern.source;
+  const flags = regexpFlagsGetter ? regexpFlagsGetter.call(pattern) : pattern.flags;
+  return new RegExp(source, flags);
+}
+
+/** Returns a deep-frozen snapshot of a providerOptions spec (options, enum values, RegExp patterns, reserved, nestedPrefixes). */
+export function freezeProviderOptionsSpec<const T>(spec: T): T {
+  const raw = spec as unknown as Record<string, unknown>;
+  const rawOptions = raw["options"] as Record<string, Record<string, unknown>>;
+  const frozenOptions: Record<string, unknown> = {};
+  for (const key of Object.keys(rawOptions)) {
+    const field = rawOptions[key]!;
+    const fieldCopy: Record<string, unknown> = {};
+    for (const prop of Object.keys(field)) {
+      const value = field[prop];
+      if (prop === "values" && Array.isArray(value)) {
+        fieldCopy[prop] = Object.freeze([...value]);
+      } else if (prop === "pattern" && value instanceof RegExp) {
+        fieldCopy[prop] = cloneRegExp(value);
+      } else {
+        fieldCopy[prop] = value;
+      }
+    }
+    frozenOptions[key] = Object.freeze(fieldCopy);
+  }
+  const copy: Record<string, unknown> = {
+    options: Object.freeze(frozenOptions),
+  };
+  const reserved = raw["reserved"];
+  if (Array.isArray(reserved)) {
+    copy["reserved"] = Object.freeze([...reserved]);
+  }
+  const nestedPrefixes = raw["nestedPrefixes"];
+  if (Array.isArray(nestedPrefixes)) {
+    copy["nestedPrefixes"] = Object.freeze([...nestedPrefixes]);
+  }
+  return Object.freeze(copy) as unknown as T;
 }
 
 /** Reads a non-empty string property. */

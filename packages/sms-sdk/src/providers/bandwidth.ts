@@ -24,6 +24,7 @@ import {
   exchange,
   foundMessage,
   freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -79,7 +80,7 @@ export const BANDWIDTH_SUPPORT_NOTES: readonly string[] = Object.freeze([
 ]);
 
 /** Bandwidth message parameters accepted in `providerOptions.bandwidth`. Parameters the SDK sets are reserved. */
-export const BANDWIDTH_PROVIDER_OPTIONS = {
+export const BANDWIDTH_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** Provider-side tracking tag, returned in callbacks. */
     tag: { type: "string", wire: "tag", maxLength: 1024 },
@@ -89,7 +90,7 @@ export const BANDWIDTH_PROVIDER_OPTIONS = {
   // `media` stays reserved although the adapter never sends it: it keeps
   // `extra.media` from turning an SMS-only send into MMS.
   reserved: ["from", "to", "text", "applicationId", "media", "expirationTime"],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Bandwidth-specific send options: `providerOptions.bandwidth`. */
 export type BandwidthSendOptions = ProviderOptionsOf<typeof BANDWIDTH_PROVIDER_OPTIONS>;
