@@ -61,6 +61,20 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   if (!Array.isArray(adapters) || adapters.length === 0) {
     throw new ConfigurationError("createSmsClient needs at least one adapter.");
   }
+  for (const adapter of adapters) {
+    if (
+      !isRecord(adapter) ||
+      typeof adapter["name"] !== "string" ||
+      adapter["name"].length === 0 ||
+      typeof adapter["send"] !== "function" ||
+      !isRecord(adapter["capabilities"])
+    ) {
+      throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
+    }
+  }
+  if (options.beforeSend !== undefined && typeof options.beforeSend !== "function") {
+    throw new ConfigurationError("beforeSend must be a function.");
+  }
   const names = adapters.map((adapter) => adapter.name);
   if (new Set(names).size !== names.length) {
     throw new ConfigurationError(`Adapter names must be unique; got ${names.join(", ")}.`);
@@ -146,12 +160,12 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     if (!isRecord(sendOptions)) {
       throw new ConfigurationError("send options must be an object.");
     }
+    const signal = requireOptionalSignal(sendOptions.signal, "send");
     if (!isRecord(input)) {
       throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
     }
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const candidates = buildCandidates(input);
-    const signal = requireOptionalSignal(sendOptions.signal, "send");
     if (signal?.aborted === true) {
       throw new SendAbortedError([], signal.reason);
     }
@@ -461,12 +475,7 @@ function requireOptionalSignal(value: AbortSignal | undefined, method: "send" | 
   if (value === undefined) {
     return undefined;
   }
-  if (
-    !isRecord(value) ||
-    typeof value["aborted"] !== "boolean" ||
-    typeof value["addEventListener"] !== "function" ||
-    typeof value["removeEventListener"] !== "function"
-  ) {
+  if (!(value instanceof AbortSignal) && Object.prototype.toString.call(value) !== "[object AbortSignal]") {
     throw new ConfigurationError(`${method} signal must be an AbortSignal.`);
   }
   return value;

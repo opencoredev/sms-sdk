@@ -75,8 +75,8 @@ export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise
   const rawBody = await readWebhookBody(options.request, "telnyx");
 
   if (!skip) {
-    if (!isRecord(options.credentials)) {
-      throw new ConfigurationError("Telnyx webhook credentials must be an object with publicKey.");
+    if (!isRecord(options.credentials) || typeof options.credentials.publicKey !== "string" || options.credentials.publicKey.length === 0) {
+      throw new ConfigurationError("Telnyx webhook credentials require a non-empty publicKey.");
     }
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,

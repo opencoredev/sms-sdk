@@ -291,6 +291,10 @@ Returns `Promise<boolean>`. `url` may include a query string, which is removed b
 
 Returns `Promise<WebhookVerification>`. `authorization` is the `Authorization` header value, or `null`. `VONAGE_DEFAULT_TOLERANCE_SEC` is `300`.
 
+### `verifySinchSignature({ webhookSecret, rawBody, signature, nonce, timestamp, toleranceSec?, now? })`
+
+Returns `Promise<WebhookVerification>`. `signature`, `nonce`, and `timestamp` are the `x-sinch-webhook-signature`, `x-sinch-webhook-signature-nonce`, and `x-sinch-webhook-signature-timestamp` header values, or `null`. `SINCH_DEFAULT_TOLERANCE_SEC` is `300`.
+
 ```ts
 import { verifyTelnyxSignature } from "@opencoredev/sms-sdk/webhooks";
 

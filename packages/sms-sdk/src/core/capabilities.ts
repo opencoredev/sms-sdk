@@ -289,7 +289,7 @@ export function canonicalFromByAdapter(
 /** The caller's `providerOptions` entry for `adapterName`, still unparsed. */
 function providerOptionsEntry(input: SmsSendInput, adapterName: string): unknown {
   const all: unknown = input.providerOptions;
-  return isRecord(all) ? all[adapterName] : undefined;
+  return isRecord(all) && Object.hasOwn(all, adapterName) ? all[adapterName] : undefined;
 }
 
 /** Converts a validation issue into the error `send()` throws for it. */

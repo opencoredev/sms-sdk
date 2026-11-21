@@ -32,6 +32,8 @@ import {
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
 } from "../core/http.js";
@@ -171,9 +173,6 @@ export function twilio(options: TwilioOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Twilio options must be an object.");
   }
-  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
-    throw new ConfigurationError("Twilio baseUrl must be a string.");
-  }
   if (typeof options.accountSid !== "string" || !ACCOUNT_SID_PATTERN.test(options.accountSid)) {
     throw new ConfigurationError("Twilio accountSid must be AC followed by 32 hex characters.");
   }
@@ -181,10 +180,10 @@ export function twilio(options: TwilioOptions): SmsAdapter {
     options.authToken !== undefined
       ? basicAuthorization(options.accountSid, requireSecret(options.authToken, "authToken"))
       : basicAuthorization(requireSecret(options.apiKeySid, "apiKeySid"), requireSecret(options.apiKeySecret, "apiKeySecret"));
-  const baseUrl = (options.baseUrl ?? "https://api.twilio.com").replace(/\/+$/, "");
+  const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.twilio.com", "Twilio");
   const messagesUrl = `${baseUrl}/2010-04-01/Accounts/${options.accountSid}/Messages`;
   const url = `${messagesUrl}.json`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = resolveFetcher(options.fetch, "Twilio");
 
   return {
     name: "twilio",

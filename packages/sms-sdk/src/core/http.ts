@@ -5,6 +5,37 @@ import { redactText } from "./redact.js";
 /** A `fetch`-compatible function. Adapters accept one for testing and custom runtimes. */
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/** Validates an adapter's optional `baseUrl`, defaulting when omitted. */
+export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: string): string {
+  if (baseUrl === undefined) {
+    return fallback;
+  }
+  if (typeof baseUrl !== "string" || baseUrl.length === 0) {
+    throw new ConfigurationError(`${provider} baseUrl must be a valid http or https URL.`);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new ConfigurationError(`${provider} baseUrl must be a valid http or https URL.`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ConfigurationError(`${provider} baseUrl must use http or https.`);
+  }
+  return baseUrl.replace(/\/+$/, "");
+}
+
+/** Validates an adapter's optional `fetch`, defaulting to the global `fetch`. */
+export function resolveFetcher(fetcher: unknown, provider: string): FetchLike {
+  if (fetcher === undefined) {
+    return (input, init) => fetch(input, init);
+  }
+  if (typeof fetcher !== "function") {
+    throw new ConfigurationError(`${provider} fetch must be a function.`);
+  }
+  return fetcher as FetchLike;
+}
+
 /** Largest provider response body read, in bytes. Provider JSON is a few kilobytes. */
 export const MAX_RESPONSE_BYTES = 1_048_576;
 

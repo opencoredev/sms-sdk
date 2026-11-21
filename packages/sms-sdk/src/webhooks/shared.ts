@@ -8,6 +8,9 @@ export const MAX_WEBHOOK_BYTES = MAX_RESPONSE_BYTES;
 
 /** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
 export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
+  if (!isRecord(request) || !isRecord(request.headers) || typeof request.headers.get !== "function") {
+    throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+  }
   const text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
   if (text === undefined) {
     throw new WebhookPayloadError(`The ${provider} webhook body exceeded ${MAX_WEBHOOK_BYTES} bytes.`, {
@@ -96,6 +99,18 @@ export function onlyEvent(provider: WebhookProvider, events: readonly SmsEvent[]
 export function resolveSignedUrl(request: Request, options: SignedUrlOptions): string {
   const requestUrl = new URL(request.url);
   if (options.publicUrl !== undefined) {
+    if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0) {
+      throw new ConfigurationError("publicUrl must be a valid http or https URL.");
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(options.publicUrl);
+    } catch {
+      throw new ConfigurationError("publicUrl must be a valid http or https URL.");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new ConfigurationError("publicUrl must use http or https.");
+    }
     return options.publicUrl.includes("?") ? options.publicUrl : `${options.publicUrl}${requestUrl.search}`;
   }
   if (options.trustProxy === true) {

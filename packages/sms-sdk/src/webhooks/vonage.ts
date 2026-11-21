@@ -87,8 +87,12 @@ export async function parseVonageWebhook(options: VonageWebhookOptions): Promise
   const rawBody = await readWebhookBody(options.request, "vonage");
 
   if (!skip) {
-    if (!isRecord(options.credentials)) {
-      throw new ConfigurationError("Vonage webhook credentials must be an object with signatureSecret.");
+    if (
+      !isRecord(options.credentials) ||
+      typeof options.credentials.signatureSecret !== "string" ||
+      options.credentials.signatureSecret.length === 0
+    ) {
+      throw new ConfigurationError("Vonage webhook credentials require a non-empty signatureSecret.");
     }
     const verification = await verifyVonageSignature({
       signatureSecret: options.credentials.signatureSecret,

@@ -31,6 +31,8 @@ import {
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
 } from "../core/http.js";
@@ -118,16 +120,13 @@ export function bandwidth(options: BandwidthOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Bandwidth options must be an object.");
   }
-  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
-    throw new ConfigurationError("Bandwidth baseUrl must be a string.");
-  }
   requireValue(options.userId, "userId");
   requireValue(options.apiToken, "apiToken");
   requireValue(options.apiSecret, "apiSecret");
   requireValue(options.applicationId, "applicationId");
-  const baseUrl = (options.baseUrl ?? "https://messaging.bandwidth.com").replace(/\/+$/, "");
+  const baseUrl = resolveBaseUrl(options.baseUrl, "https://messaging.bandwidth.com", "Bandwidth");
   const url = `${baseUrl}/api/v2/users/${encodeURIComponent(options.userId)}/messages`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = resolveFetcher(options.fetch, "Bandwidth");
   const authorization = basicAuthorization(options.apiToken, options.apiSecret);
 
   return {

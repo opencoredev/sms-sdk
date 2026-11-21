@@ -31,6 +31,8 @@ import {
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
 } from "../core/http.js";
@@ -117,14 +119,11 @@ export function sinch(options: SinchOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Sinch options must be an object.");
   }
-  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
-    throw new ConfigurationError("Sinch baseUrl must be a string.");
-  }
   const servicePlanId = requireValue(options.servicePlanId, "servicePlanId");
   const apiToken = requireValue(options.apiToken, "apiToken");
-  const baseUrl = (options.baseUrl ?? "https://sms.api.sinch.com").replace(/\/+$/, "");
+  const baseUrl = resolveBaseUrl(options.baseUrl, "https://sms.api.sinch.com", "Sinch");
   const url = `${baseUrl}/xms/v1/${encodeURIComponent(servicePlanId)}/batches`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = resolveFetcher(options.fetch, "Sinch");
   const authorization = `Bearer ${apiToken}`;
 
   return {

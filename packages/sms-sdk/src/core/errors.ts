@@ -351,6 +351,14 @@ export class MessageLookupError extends SmsError {
     this.providerName = options.providerName;
     this.providerId = options.providerId;
   }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      providerName: this.providerName,
+      reason: this.reason,
+    };
+  }
 }
 
 /** Why webhook verification failed. */
@@ -372,6 +380,14 @@ export class WebhookSignatureError extends SmsError {
     this.name = "WebhookSignatureError";
     this.reason = options.reason;
     this.providerName = options.provider;
+  }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      providerName: this.providerName,
+      reason: this.reason,
+    };
   }
 }
 

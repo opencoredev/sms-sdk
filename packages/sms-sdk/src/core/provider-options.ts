@@ -22,7 +22,8 @@ export function validateProviderOptions(adapters: readonly SmsAdapter[], provide
     return [invalid(undefined, "providerOptions must be an object keyed by adapter name.")];
   }
   return adapters.flatMap((adapter) => {
-    const parsed = parseProviderOptions(adapter, providerOptions[adapter.name]);
+    const entry = Object.hasOwn(providerOptions, adapter.name) ? providerOptions[adapter.name] : undefined;
+    const parsed = parseProviderOptions(adapter, entry);
     return parsed.kind === "issues" ? [...parsed.issues] : [];
   });
 }
@@ -32,7 +33,9 @@ export function adaptersWithProviderOptions(adapters: readonly SmsAdapter[], pro
   if (!isRecord(providerOptions)) {
     return [];
   }
-  return adapters.filter((adapter) => providerOptions[adapter.name] !== undefined).map((adapter) => adapter.name);
+  return adapters
+    .filter((adapter) => Object.hasOwn(providerOptions, adapter.name) && providerOptions[adapter.name] !== undefined)
+    .map((adapter) => adapter.name);
 }
 
 /**
@@ -133,7 +136,8 @@ export function canonicalProviderOptions(
   }
   const canonical: Record<string, Record<string, ProviderOptionValue>> = {};
   for (const adapter of adapters) {
-    const parsed = parseProviderOptions(adapter, providerOptions[adapter.name]);
+    const entry = Object.hasOwn(providerOptions, adapter.name) ? providerOptions[adapter.name] : undefined;
+    const parsed = parseProviderOptions(adapter, entry);
     if (parsed.kind === "ok" && parsed.fields.length > 0) {
       canonical[adapter.name] = Object.fromEntries(parsed.fields.map((field) => [field.wire, field.value]));
     }

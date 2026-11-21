@@ -31,6 +31,8 @@ import {
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
 } from "../core/http.js";
@@ -123,18 +125,15 @@ export function plivo(options: PlivoOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Plivo options must be an object.");
   }
-  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
-    throw new ConfigurationError("Plivo baseUrl must be a string.");
-  }
   if (typeof options.authId !== "string" || options.authId.length === 0) {
     throw new ConfigurationError("Plivo authId is required.");
   }
   if (typeof options.authToken !== "string" || options.authToken.length === 0) {
     throw new ConfigurationError("Plivo authToken is required.");
   }
-  const baseUrl = (options.baseUrl ?? "https://api.plivo.com").replace(/\/+$/, "");
+  const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.plivo.com", "Plivo");
   const url = `${baseUrl}/v1/Account/${encodeURIComponent(options.authId)}/Message/`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = resolveFetcher(options.fetch, "Plivo");
   const authorization = basicAuthorization(options.authId, options.authToken);
 
   return {

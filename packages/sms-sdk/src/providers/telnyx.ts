@@ -31,6 +31,8 @@ import {
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
 } from "../core/http.js";
@@ -125,15 +127,12 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Telnyx options must be an object.");
   }
-  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
-    throw new ConfigurationError("Telnyx baseUrl must be a string.");
-  }
   if (typeof options.apiKey !== "string" || options.apiKey.length === 0) {
     throw new ConfigurationError("Telnyx apiKey is required.");
   }
-  const baseUrl = (options.baseUrl ?? "https://api.telnyx.com").replace(/\/+$/, "");
+  const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.telnyx.com", "Telnyx");
   const url = `${baseUrl}/v2/messages`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = resolveFetcher(options.fetch, "Telnyx");
   const authorization = `Bearer ${options.apiKey}`;
 
   return {

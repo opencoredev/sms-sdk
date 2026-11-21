@@ -111,6 +111,9 @@ async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string)
       return;
     }
     case "hmac": {
+      if (typeof credentials.webhookSecret !== "string" || credentials.webhookSecret.length === 0) {
+        throw new ConfigurationError("Sinch HMAC webhook credentials require a non-empty webhookSecret.");
+      }
       const verification = await verifySinchSignature({
         webhookSecret: credentials.webhookSecret,
         rawBody,

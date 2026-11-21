@@ -87,6 +87,9 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
   const formParams = jsonMode ? [] : readFormParams(request, rawBody);
 
   if (!skip) {
+    if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
+      throw new ConfigurationError("Twilio webhook credentials require a non-empty authToken.");
+    }
     const signature = request.headers.get("x-twilio-signature");
     if (signature === null || signature.length === 0) {
       throw new WebhookSignatureError("Missing X-Twilio-Signature header.", { reason: "missing_signature", provider: "twilio" });
@@ -96,9 +99,6 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
         reason: "body_hash_mismatch",
         provider: "twilio",
       });
-    }
-    if (!isRecord(options.credentials)) {
-      throw new ConfigurationError("Twilio webhook credentials must be an object with authToken.");
     }
     const signedParams = request.method.toUpperCase() === "GET" ? [] : formParams;
     const valid = await verifyTwilioSignature({

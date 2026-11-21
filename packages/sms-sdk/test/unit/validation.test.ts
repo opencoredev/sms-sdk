@@ -470,5 +470,47 @@ describe("malformed runtime input", () => {
     expect(await rejection(parseSmsWebhook({ provider: "bogus" }))).toBeInstanceOf(ConfigurationError);
     // @ts-expect-error -- untyped JS callers can pass an unknown provider
     expect(await rejection(parseSmsWebhooks({ provider: "bogus" }))).toBeInstanceOf(ConfigurationError);
+
+    // Fake AbortSignal objects must be rejected with ConfigurationError
+    const fakeSignal = { aborted: false, addEventListener() {}, removeEventListener() {} };
+    // @ts-expect-error -- fake signal is not an AbortSignal
+    expect(await rejection(client.send({ to: "+14155550123", body: "hi" }, { signal: fakeSignal }))).toBeInstanceOf(
+      ConfigurationError,
+    );
+    // @ts-expect-error -- fake signal is not an AbortSignal
+    expect(await rejection(client.getMessage("id", { signal: fakeSignal }))).toBeInstanceOf(ConfigurationError);
+
+    // Malformed adapters, beforeSend, baseUrl, and fetch fail at construction time
+    // @ts-expect-error -- null adapter
+    expect(() => createSmsClient({ adapters: [null] })).toThrow(ConfigurationError);
+    // @ts-expect-error -- empty adapter
+    expect(() => createSmsClient({ adapters: [{}] })).toThrow(ConfigurationError);
+    // @ts-expect-error -- non-function beforeSend
+    expect(() => createSmsClient({ adapters: [memory()], beforeSend: 5 })).toThrow(ConfigurationError);
+    expect(() => twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", baseUrl: "not-a-url" })).toThrow(
+      ConfigurationError,
+    );
+    // @ts-expect-error -- non-function fetch
+    expect(() => twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", fetch: 5 })).toThrow(ConfigurationError);
+
+    // Missing or empty webhook secrets must throw ConfigurationError even on unsigned requests
+    const unsignedReq = () => new Request("https://example.com/hook", { method: "POST", body: "{}" });
+    for (const badOpts of [
+      { provider: "twilio", request: unsignedReq(), credentials: undefined },
+      { provider: "twilio", request: unsignedReq(), credentials: { authToken: "" } },
+      { provider: "plivo", request: unsignedReq(), credentials: undefined },
+      { provider: "plivo", request: unsignedReq(), credentials: { authToken: "" } },
+      { provider: "telnyx", request: unsignedReq(), credentials: { publicKey: "" } },
+      { provider: "vonage", request: unsignedReq(), credentials: { signatureSecret: "" } },
+      { provider: "sinch", request: unsignedReq(), credentials: { kind: "hmac", webhookSecret: "" } },
+      { provider: "twilio", credentials: { authToken: "tok" } },
+    ]) {
+      // @ts-expect-error -- testing invalid runtime webhook configurations
+      expect(await rejection(parseSmsWebhook(badOpts))).toBeInstanceOf(ConfigurationError);
+    }
+
+    // Object.hasOwn guard for prototype keys in providerOptions
+    const protoClient = createSmsClient({ adapters: [memory({ name: "toString" })] });
+    expect(protoClient.validate({ to: "+14155550123", body: "hi", providerOptions: {} }).supported).toBe(true);
   });
 });

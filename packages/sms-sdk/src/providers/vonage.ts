@@ -40,6 +40,8 @@ import {
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
 } from "../core/http.js";
@@ -188,12 +190,9 @@ export function vonage(options: VonageOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Vonage options must be an object.");
   }
-  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
-    throw new ConfigurationError("Vonage baseUrl must be a string.");
-  }
-  const baseUrl = (options.baseUrl ?? `https://${options.region ?? "api"}.nexmo.com`).replace(/\/+$/, "");
+  const baseUrl = resolveBaseUrl(options.baseUrl, `https://${options.region ?? "api"}.nexmo.com`, "Vonage");
   const url = `${baseUrl}/v1/messages`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const fetcher: FetchLike = resolveFetcher(options.fetch, "Vonage");
   const authorize = createAuthorizer(options);
   const capabilities = options.apiKey !== undefined ? VONAGE_BASIC_CAPABILITIES : VONAGE_JWT_CAPABILITIES;
   const reports = reportsAccess(options);

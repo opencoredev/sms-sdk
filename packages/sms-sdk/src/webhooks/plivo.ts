@@ -61,6 +61,9 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
   const rawBody = await readWebhookBody(request, "plivo");
 
   if (!skip) {
+    if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
+      throw new ConfigurationError("Plivo webhook credentials require a non-empty authToken.");
+    }
     const nonce = request.headers.get("x-plivo-signature-v2-nonce");
     const signatures = [request.headers.get("x-plivo-signature-v2"), request.headers.get("x-plivo-signature-ma-v2")].filter(
       (value): value is string => value !== null && value.length > 0,
@@ -70,9 +73,6 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
         reason: "missing_signature",
         provider: "plivo",
       });
-    }
-    if (!isRecord(options.credentials)) {
-      throw new ConfigurationError("Plivo webhook credentials must be an object with authToken.");
     }
     const url = resolveSignedUrl(request, options);
     let valid = false;

@@ -46,7 +46,7 @@ try {
 | `WebhookPayloadError` | `webhook_payload` | false | Respond 413 if `reason === "body_too_large"`, otherwise 400 and log. |
 | `MessageLookupError` | `message_lookup_failed` | false | Try the lookup again later. Never resend because of it. |
 
-`createSmsClient` and the adapter factories throw `ConfigurationError`. `parseSmsWebhook` and `parseSmsWebhooks` throw the two webhook errors. `getMessage()` throws `MessageLookupError`. `send()` throws the rest.
+`createSmsClient`, the adapter factories, `send()`, `getMessage()`, and the webhook parsers throw `ConfigurationError` for invalid setup or malformed call options. `parseSmsWebhook` and `parseSmsWebhooks` throw the two webhook errors. `getMessage()` throws `MessageLookupError`. `send()` throws the rest.
 
 ## `SmsError`
 
@@ -62,7 +62,7 @@ The base class. Every error has these fields.
 | `provider` | `ProviderErrorInfo \| undefined` | Redacted provider details: `{ provider, httpStatus?, code?, message?, requestId? }`. `message` has numbers masked and is at most 200 characters. |
 | `cause` | `unknown` | The original exception, when there was one. For debugging only. |
 
-`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider? }`. It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
+`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider?, providerName?, reason? }` (with `providerName` and `reason` included on `MessageLookupError`, `WebhookSignatureError`, and `WebhookPayloadError` when present). It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
 
 `isSmsError(value)` is a type guard for any SDK error.
 
