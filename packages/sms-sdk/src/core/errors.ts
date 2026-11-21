@@ -8,7 +8,7 @@ import type {
 } from "./adapters.js";
 import type { SendAttempt } from "./events.js";
 
-const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
+const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._-]+$/;
 const OPAQUE_UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPAQUE_HEX32_ID = /^[A-Za-z]{0,4}[0-9a-f]{32}$/i;
 const DIGIT_SPAN = /\d[\d._:-]*\d/g;

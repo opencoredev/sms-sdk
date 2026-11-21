@@ -586,23 +586,40 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         return false;
       };
 
-      const wrapSharedAbortError = (error: unknown, reason: unknown): unknown => {
-        if (error instanceof SendAbortedError) {
+      const makeAbortedAcceptError = (reason: unknown): HandoffUnknownError =>
+        new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
+          reason: "aborted",
+          attempts: entry.state.attempts.map((a) => ({ ...a })),
+          cause: reason,
+        });
+
+      const wrapSharedAbortError = (
+        error: unknown,
+        reason: unknown,
+        fallbackAttempts: readonly SendAttempt[] = entry.state.attempts.map((a) => ({ ...a })),
+      ): SmsError => {
+        if (error instanceof SendAbortedError || (error instanceof SmsError && error.retrySafe)) {
           return new SendAbortedError(
             error.attempts.map((a) => ({ ...a })),
             reason,
           );
         }
-        if (error instanceof HandoffUnknownError && error.reason === "aborted") {
-          return new HandoffUnknownError(error.message, {
+        return new HandoffUnknownError(
+          error instanceof HandoffUnknownError && error.reason === "aborted"
+            ? error.message
+            : "The send was aborted while waiting on an in-flight request.",
+          {
             reason: "aborted",
-            ...(error.providerName === undefined ? {} : { providerName: error.providerName }),
-            attempts: error.attempts.map((a) => ({ ...a })),
-            ...(error.provider === undefined ? {} : { provider: { ...error.provider } }),
+            ...(error instanceof HandoffUnknownError && error.providerName !== undefined
+              ? { providerName: error.providerName }
+              : {}),
+            attempts: error instanceof SmsError ? error.attempts.map((a) => ({ ...a })) : fallbackAttempts,
+            ...(error instanceof HandoffUnknownError && error.provider !== undefined
+              ? { provider: { ...error.provider } }
+              : {}),
             cause: reason,
-          });
-        }
-        return error;
+          },
+        );
       };
 
       const makeDetachedAbortError = (safeToAbort: boolean, attempts: readonly SendAttempt[], reason: unknown): SmsError => {
@@ -620,6 +637,9 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         entry.promise.then(
           (result) => {
             release(false);
+            if (abortReason !== undefined) {
+              throw makeAbortedAcceptError(abortReason.value);
+            }
             return cloneSendResult(result, replayed ?? result.replayed);
           },
           (error: unknown) => {
@@ -658,49 +678,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           }
           detached = true;
           // Defer by one microtask so synchronous same-tick aborts of all coalesced
-          // callers settle consistently from entry.promise (SendAbortedError pre-dispatch
-          // or during backoff, HandoffUnknownError if in-flight).
+          // callers settle consistently from entry.promise (SendAbortedError pre-dispatch,
+          // during backoff, or on a proven rejection; HandoffUnknownError otherwise).
           queueMicrotask(() => {
             if (entry.controller.signal.aborted) {
               entry.promise.then(
                 () => {
-                  reject(
-                    new HandoffUnknownError(
-                      "The send was aborted while waiting on an in-flight request.",
-                      {
-                        reason: "aborted",
-                        attempts: entry.state.attempts.map((a) => ({ ...a })),
-                        cause: signal.reason,
-                      },
-                    ),
-                  );
+                  reject(makeAbortedAcceptError(signal.reason));
                 },
                 (error: unknown) => {
-                  if (error instanceof SendAbortedError || (error instanceof SmsError && error.retrySafe)) {
-                    reject(
-                      new SendAbortedError(
-                        error.attempts.map((a) => ({ ...a })),
-                        signal.reason,
-                      ),
-                    );
-                    return;
-                  }
-                  reject(
-                    new HandoffUnknownError(
-                      "The send was aborted while waiting on an in-flight request.",
-                      {
-                        reason: "aborted",
-                        ...(error instanceof HandoffUnknownError && error.providerName !== undefined
-                          ? { providerName: error.providerName }
-                          : {}),
-                        attempts: error instanceof SmsError ? error.attempts.map((a) => ({ ...a })) : snapshotAttempts,
-                        ...(error instanceof HandoffUnknownError && error.provider !== undefined
-                          ? { provider: { ...error.provider } }
-                          : {}),
-                        cause: signal.reason,
-                      },
-                    ),
-                  );
+                  reject(wrapSharedAbortError(error, signal.reason, snapshotAttempts));
                 },
               );
               return;
@@ -719,6 +706,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             }
             cleanup();
             release(false);
+            if (abortedByMe) {
+              reject(makeAbortedAcceptError(signal.reason));
+              return;
+            }
             resolve(cloneSendResult(result, replayed ?? result.replayed));
           },
           (error: unknown) => {
@@ -1100,13 +1091,14 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     if (rawAdapter !== undefined && typeof rawAdapter !== "string") {
       throw new ConfigurationError("getMessage adapter must be a string.");
     }
-    const name = rawAdapter === undefined ? adapters[0]!.name : rawAdapter;
+    const name = rawAdapter === undefined ? adapters[0].name : rawAdapter;
+    const safeName = sanitizeDiagnosticToken(name, 64) ?? "unknown";
     const adapter = adapters.find((candidate) => candidate.name === name);
     if (adapter === undefined) {
-      throw new ConfigurationError(`getMessage: no adapter named "${name}" is configured.`);
+      throw new ConfigurationError(`getMessage: no adapter named "${safeName}" is configured.`);
     }
     if (adapter.getMessage === undefined) {
-      throw new ConfigurationError(`getMessage: the ${name} adapter cannot look up messages.`);
+      throw new ConfigurationError(`getMessage: the ${safeName} adapter cannot look up messages.`);
     }
     const outcome = await lookupOnce({ adapter, providerId, timeoutMs, signal });
     switch (outcome.kind) {

@@ -170,10 +170,62 @@ describe("redaction", () => {
     expect(parseRetryAfter("Wed, 01 Jan 2020 00:00:10 GMT", now)).toBe(10_000);
     expect(parseRetryAfter("Sat, 29 Feb 2020 00:00:00 GMT", now)).toBe(Date.UTC(2020, 1, 29) - now);
     expect(parseRetryAfter("Wednesday, 01-Jan-20 00:00:10 GMT", now)).toBe(10_000);
-    // RFC 9110 §5.6.7: 2-digit year > 50 years in future maps to previous century.
+    // RFC 9110 §5.6.7: exact timestamp 50-year cutoff (not year-only comparison).
     expect(parseRetryAfter("Sunday, 06-Nov-94 08:49:37 GMT", now)).toBe(0);
+    expect(parseRetryAfter("Thursday, 02-Jan-70 00:00:00 GMT", now)).toBe(0);
+    expect(parseRetryAfter("Wednesday, 01-Jan-70 00:00:00 GMT", now)).toBe(Date.UTC(2070, 0, 1) - now);
     expect(parseRetryAfter("Sunday, 06-Nov-69 08:49:37 GMT", now)).toBe(Date.UTC(2069, 10, 6, 8, 49, 37) - now);
     expect(parseRetryAfter("Wed Jan  1 00:00:10 2020", now)).toBe(10_000);
+  });
+
+  test("same-tick coalesced aborts settle symmetrically for all callers on proven rejection and acceptance", async () => {
+    const rejectAdapter = {
+      ...memory(),
+      name: "race-reject",
+      async send() {
+        queueMicrotask(() => {
+          ra.abort("a-race");
+          rb.abort("b-race");
+        });
+        return rejectedOutcome("request", { provider: "race-reject" });
+      },
+    };
+    const smsReject = createSmsClient({ adapters: [rejectAdapter] });
+    const ra = new AbortController();
+    const rb = new AbortController();
+    const [ea, eb] = await Promise.all([
+      smsReject.send({ to: "+14155550123", body: "hi", idempotencyKey: "same-tick-rej" }, { signal: ra.signal }).catch((e) => e),
+      smsReject.send({ to: "+14155550123", body: "hi", idempotencyKey: "same-tick-rej" }, { signal: rb.signal }).catch((e) => e),
+    ]);
+    expect(ea).toBeInstanceOf(SendAbortedError);
+    expect(eb).toBeInstanceOf(SendAbortedError);
+    expect(ea.cause).toBe("a-race");
+    expect(eb.cause).toBe("b-race");
+    expect(ea.attempts).toHaveLength(1);
+    expect(eb.attempts).toHaveLength(1);
+
+    const acceptAdapter = {
+      ...memory(),
+      name: "race-accept",
+      async send() {
+        queueMicrotask(() => {
+          aa.abort("a-acc");
+          ab.abort("b-acc");
+        });
+        return { kind: "accepted" as const, providerId: "msg-1", delivery: "queued" as const };
+      },
+    };
+    const smsAccept = createSmsClient({ adapters: [acceptAdapter] });
+    const aa = new AbortController();
+    const ab = new AbortController();
+    const [eAccA, eAccB] = await Promise.all([
+      smsAccept.send({ to: "+14155550123", body: "hi", idempotencyKey: "same-tick-acc" }, { signal: aa.signal }).catch((e) => e),
+      smsAccept.send({ to: "+14155550123", body: "hi", idempotencyKey: "same-tick-acc" }, { signal: ab.signal }).catch((e) => e),
+    ]);
+    expect(eAccA).toBeInstanceOf(HandoffUnknownError);
+    expect(eAccB).toBeInstanceOf(HandoffUnknownError);
+    expect(eAccA.cause).toBe("a-acc");
+    expect(eAccB.cause).toBe("b-acc");
   });
 
   test("single coalesced abort during retry backoff returns SendAbortedError with completed attempts", async () => {
@@ -313,5 +365,26 @@ describe("redaction", () => {
     expect(lookupErr.message).not.toContain(secretName);
     expect(JSON.stringify(lookupErr)).not.toContain(secretName);
     expect(lookupErr.toJSON().providerName).toBe("unknown");
+
+    // Validation & getMessage diagnostics also sanitize credential-shaped adapter names in messages.
+    const { getMessage: _omitGetMessage, ...baseMem } = memory();
+    const smsBadValidate = createSmsClient({
+      adapters: [
+        {
+          ...baseMem,
+          name: secretName,
+          validate: () => null as unknown as [],
+        },
+      ],
+    });
+    const valErr = await rejection(smsBadValidate.send({ to: "+14155550123", body: "hi" }));
+    expect(valErr).toBeInstanceOf(Error);
+    expect((valErr as Error).message).not.toContain(secretName);
+    expect(JSON.stringify(valErr)).not.toContain(secretName);
+
+    const getMsgErr = await rejection(smsBadValidate.getMessage("msg-1"));
+    expect(getMsgErr).toBeInstanceOf(Error);
+    expect((getMsgErr as Error).message).not.toContain(secretName);
+    expect(JSON.stringify(getMsgErr)).not.toContain(secretName);
   });
 });

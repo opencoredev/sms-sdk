@@ -398,45 +398,76 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
   let dateMs: number | undefined;
   const imf = IMF_FIXDATE.exec(trimmed);
   if (imf) {
-    dateMs = parseHttpDateParts(
-      Number(imf[3]),
-      imf[2]!,
-      Number(imf[1]),
-      Number(imf[4]),
-      Number(imf[5]),
-      Number(imf[6]),
-    );
+    const [, dayStr, monthName, yearStr, hourStr, minStr, secStr] = imf;
+    if (dayStr && monthName && yearStr && hourStr && minStr && secStr) {
+      dateMs = parseHttpDateParts(
+        Number(yearStr),
+        monthName,
+        Number(dayStr),
+        Number(hourStr),
+        Number(minStr),
+        Number(secStr),
+      );
+    }
   } else {
     const rfc850 = RFC850_DATE.exec(trimmed);
     if (rfc850) {
-      // RFC 9110 §5.6.7: interpret a two-digit year as the century within 50 years of now.
-      const currentYear = new Date(now).getUTCFullYear();
-      const baseCentury = Math.floor(currentYear / 100) * 100;
-      let year = baseCentury + Number(rfc850[3]);
-      if (year - currentYear > 50) {
-        year -= 100;
-      } else if (currentYear - year >= 50) {
-        year += 100;
+      const [, dayStr, monthName, year2Str, hourStr, minStr, secStr] = rfc850;
+      if (dayStr && monthName && year2Str && hourStr && minStr && secStr) {
+        // RFC 9110 §5.6.7: interpret a two-digit year as the century closest to now,
+        // moving timestamps more than 50 years in the future back by 100 years.
+        const nowDate = new Date(now);
+        const currentYear = nowDate.getUTCFullYear();
+        const baseCentury = Math.floor(currentYear / 100) * 100;
+        const day = Number(dayStr);
+        const hour = Number(hourStr);
+        const minute = Number(minStr);
+        const second = Number(secStr);
+        let year = baseCentury + Number(year2Str);
+        const plus50 = Date.UTC(
+          currentYear + 50,
+          nowDate.getUTCMonth(),
+          nowDate.getUTCDate(),
+          nowDate.getUTCHours(),
+          nowDate.getUTCMinutes(),
+          nowDate.getUTCSeconds(),
+          nowDate.getUTCMilliseconds(),
+        );
+        const minus50 = Date.UTC(
+          currentYear - 50,
+          nowDate.getUTCMonth(),
+          nowDate.getUTCDate(),
+          nowDate.getUTCHours(),
+          nowDate.getUTCMinutes(),
+          nowDate.getUTCSeconds(),
+          nowDate.getUTCMilliseconds(),
+        );
+        let candidate = parseHttpDateParts(year, monthName, day, hour, minute, second);
+        if (candidate !== undefined && candidate > plus50) {
+          year -= 100;
+          candidate = parseHttpDateParts(year, monthName, day, hour, minute, second);
+        } else if (candidate !== undefined && candidate < minus50) {
+          const nextCentury = parseHttpDateParts(year + 100, monthName, day, hour, minute, second);
+          if (nextCentury !== undefined && nextCentury <= plus50) {
+            candidate = nextCentury;
+          }
+        }
+        dateMs = candidate;
       }
-      dateMs = parseHttpDateParts(
-        year,
-        rfc850[2]!,
-        Number(rfc850[1]),
-        Number(rfc850[4]),
-        Number(rfc850[5]),
-        Number(rfc850[6]),
-      );
     } else {
       const asctime = ASCTIME_DATE.exec(trimmed);
       if (asctime) {
-        dateMs = parseHttpDateParts(
-          Number(asctime[6]),
-          asctime[1]!,
-          Number(asctime[2]!.trim()),
-          Number(asctime[3]),
-          Number(asctime[4]),
-          Number(asctime[5]),
-        );
+        const [, monthName, dayStr, hourStr, minStr, secStr, yearStr] = asctime;
+        if (monthName && dayStr && hourStr && minStr && secStr && yearStr) {
+          dateMs = parseHttpDateParts(
+            Number(yearStr),
+            monthName,
+            Number(dayStr.trim()),
+            Number(hourStr),
+            Number(minStr),
+            Number(secStr),
+          );
+        }
       }
     }
   }

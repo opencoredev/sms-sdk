@@ -1,4 +1,5 @@
 import type { ProviderOptionField, ProviderOptionValue, ProviderWireField, SmsAdapter, ValidationIssue } from "./adapters.js";
+import { sanitizeDiagnosticToken } from "./errors.js";
 import { isPlainObject, isRecord } from "./http.js";
 
 /** Outcome of parsing one adapter's `providerOptions` entry. */
@@ -54,12 +55,13 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
     return NO_FIELDS;
   }
   const provider = adapter.name;
+  const safeProvider = sanitizeDiagnosticToken(provider, 64) ?? "unknown";
   const spec = adapter.providerOptions;
   if (spec === undefined) {
-    return issues(unsupported(provider, `The ${provider} adapter accepts no providerOptions.`));
+    return issues(unsupported(provider, `The ${safeProvider} adapter accepts no providerOptions.`));
   }
   if (!isPlainObject(entry)) {
-    return issues(invalid(provider, `providerOptions.${provider} must be an object.`));
+    return issues(invalid(provider, `providerOptions.${safeProvider} must be an object.`));
   }
 
   const found: ValidationIssue[] = [];
@@ -75,7 +77,7 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
 
   for (const key of Object.keys(entry)) {
     if (key !== "extra" && !Object.hasOwn(spec.options, key)) {
-      found.push(unsupported(provider, `${provider} has no provider option "${key}".`));
+      found.push(unsupported(provider, `${safeProvider} has no provider option "${key}".`));
     }
   }
   for (const [option, field] of Object.entries(spec.options)) {
@@ -90,30 +92,30 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
     if (read.kind === "ok") {
       fields.push({ wire: field.wire, value: read.value });
     } else {
-      found.push(invalid(provider, `providerOptions.${provider}.${option} ${read.problem}.`));
+      found.push(invalid(provider, `providerOptions.${safeProvider}.${option} ${read.problem}.`));
     }
   }
 
   const extra = Object.hasOwn(entry, "extra") ? entry["extra"] : undefined;
   if (extra !== undefined) {
     if (!isPlainObject(extra)) {
-      found.push(invalid(provider, `providerOptions.${provider}.extra must be an object.`));
+      found.push(invalid(provider, `providerOptions.${safeProvider}.extra must be an object.`));
     } else {
       for (const [wire, value] of Object.entries(extra)) {
         const names = wireNames(wire.toLowerCase(), prefixes);
         const typed = names.map((name) => typedWires.get(name)).find((option) => option !== undefined);
         if (names.some((name) => name.length === 0)) {
-          found.push(invalid(provider, `providerOptions.${provider}.extra keys must be non-empty.`));
+          found.push(invalid(provider, `providerOptions.${safeProvider}.extra keys must be non-empty.`));
         } else if (names.some((name) => name === "__proto__")) {
-          found.push(unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}".`));
+          found.push(unsupported(provider, `providerOptions.${safeProvider}.extra cannot set "${wire}".`));
         } else if (names.some((name) => reserved.has(name))) {
           found.push(
-            unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}": the SDK sets it from the portable send fields.`),
+            unsupported(provider, `providerOptions.${safeProvider}.extra cannot set "${wire}": the SDK sets it from the portable send fields.`),
           );
         } else if (typed !== undefined) {
-          found.push(unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}"; use the typed option ${typed}.`));
+          found.push(unsupported(provider, `providerOptions.${safeProvider}.extra cannot set "${wire}"; use the typed option ${typed}.`));
         } else if (!isOptionValue(value)) {
-          found.push(invalid(provider, `providerOptions.${provider}.extra.${wire} must be a string, finite number, or boolean.`));
+          found.push(invalid(provider, `providerOptions.${safeProvider}.extra.${wire} must be a string, finite number, or boolean.`));
         } else {
           fields.push({ wire, value });
         }

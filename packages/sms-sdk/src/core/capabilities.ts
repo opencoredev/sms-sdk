@@ -14,6 +14,7 @@ import {
   InvalidMessageError,
   InvalidRecipientError,
   InvalidSenderError,
+  sanitizeDiagnosticToken,
   UnsupportedFieldError,
   type SmsError,
 } from "./errors.js";
@@ -212,6 +213,7 @@ export type AdapterCheck =
  */
 export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterCheck {
   const provider = adapter.name;
+  const safeProvider = sanitizeDiagnosticToken(provider, 64) ?? "unknown";
   const adapterSender = senderFor(input, provider);
   const rawFrom =
     adapterSender !== undefined ? adapterSender : input.from !== undefined ? input.from : adapter.defaultFrom;
@@ -220,7 +222,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
   if (resolution.kind === "missing") {
     return {
       kind: "issues",
-      issues: [{ code: "missing_sender", field: "from", provider, message: `No sender: pass from or configure one on the ${provider} adapter.` }],
+      issues: [{ code: "missing_sender", field: "from", provider, message: `No sender: pass from or configure one on the ${safeProvider} adapter.` }],
     };
   }
   if (resolution.kind === "invalid") {
@@ -233,29 +235,29 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
   const mediaUrls = mediaUrlsOf(input);
 
   if (!supportsSender(capabilities, sender)) {
-    issues.push(unsupported(provider, "from", `${provider} does not support ${sender.kind.replace("_", " ")} senders.`));
+    issues.push(unsupported(provider, "from", `${safeProvider} does not support ${sender.kind.replace("_", " ")} senders.`));
   }
   if (mediaUrls.length > 0 && !capabilities.mms) {
-    issues.push(unsupported(provider, "mediaUrls", `${provider} adapter does not support mediaUrls (MMS).`));
+    issues.push(unsupported(provider, "mediaUrls", `${safeProvider} adapter does not support mediaUrls (MMS).`));
   }
   if (input.sendAt !== undefined && !capabilities.scheduling) {
-    issues.push(unsupported(provider, "sendAt", `${provider} adapter does not support sendAt (scheduling).`));
+    issues.push(unsupported(provider, "sendAt", `${safeProvider} adapter does not support sendAt (scheduling).`));
   }
   if (input.validityPeriodSec !== undefined) {
     const range = capabilities.validityPeriod;
     if (range === null || range === undefined) {
-      issues.push(unsupported(provider, "validityPeriodSec", `${provider} adapter does not support validityPeriodSec.`));
+      issues.push(unsupported(provider, "validityPeriodSec", `${safeProvider} adapter does not support validityPeriodSec.`));
     } else if (input.validityPeriodSec < range.minSec || input.validityPeriodSec > range.maxSec) {
       issues.push({
         code: "invalid_field",
         field: "validityPeriodSec",
         provider,
-        message: `${provider} accepts validityPeriodSec from ${range.minSec} to ${range.maxSec}.`,
+        message: `${safeProvider} accepts validityPeriodSec from ${range.minSec} to ${range.maxSec}.`,
       });
     }
   }
   if (input.webhookUrl !== undefined && !capabilities.webhookUrlOverride) {
-    issues.push(unsupported(provider, "webhookUrl", `${provider} adapter does not support a per-message webhookUrl.`));
+    issues.push(unsupported(provider, "webhookUrl", `${safeProvider} adapter does not support a per-message webhookUrl.`));
   }
 
   const options = parseProviderOptions(adapter, providerOptionsEntry(input, provider));
@@ -291,7 +293,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
           code: "invalid_field",
           field: "body",
           provider,
-          message: `Adapter "${provider}" validate() returned a malformed issue list.`,
+          message: `Adapter "${safeProvider}" validate() returned a malformed issue list.`,
         });
       } else {
         for (const item of rawIssues) {
@@ -319,7 +321,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
             code: "invalid_field",
             field: "body",
             provider,
-            message: `Adapter "${provider}" validate() returned a malformed issue.`,
+            message: `Adapter "${safeProvider}" validate() returned a malformed issue.`,
           });
         }
       }
@@ -328,7 +330,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
         code: "invalid_field",
         field: "body",
         provider,
-        message: `Adapter "${provider}" validate() threw an unexpected error.`,
+        message: `Adapter "${safeProvider}" validate() threw an unexpected error.`,
       });
     }
   }
