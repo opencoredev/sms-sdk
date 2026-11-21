@@ -82,8 +82,8 @@ export class SmsError extends Error {
       code: this.code,
       message: this.message,
       retrySafe: this.retrySafe,
-      attempts: this.attempts,
-      ...(this.provider === undefined ? {} : { provider: this.provider }),
+      attempts: this.attempts.map((attempt) => ({ ...attempt })),
+      ...(this.provider === undefined ? {} : { provider: { ...this.provider } }),
     };
   }
 }

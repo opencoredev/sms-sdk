@@ -41,7 +41,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_TTL_SEC = 86_400;
 const DEFAULT_STALE_RESERVATION_SEC = 300;
 
-type InFlight = { readonly fingerprint: string; readonly promise: Promise<SmsSendResult> };
+type InFlight = { readonly fingerprint: Promise<string>; readonly promise: Promise<SmsSendResult> };
 
 type IdempotencyConfig = {
   readonly store: IdempotencyStore;
@@ -536,7 +536,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       return execute({ input, candidates, preview, signal, id: newId(), reservation: undefined });
     }
 
-    const fingerprint = await fingerprintMessage({
+    const fingerprintPromise = fingerprintMessage({
       to: input.to,
       from: input.from ?? null,
       body: input.body,
@@ -550,20 +550,26 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
     const running = inFlight.get(key);
     if (running !== undefined) {
-      if (running.fingerprint !== fingerprint) {
+      const [runningFingerprint, fingerprint] = await Promise.all([running.fingerprint, fingerprintPromise]);
+      if (runningFingerprint !== fingerprint) {
         throw new IdempotencyConflictError(key);
       }
       const result = await running.promise;
       return cloneSendResult(result, true);
     }
 
-    const promise = sendWithKey({ input, candidates, preview, signal, key, fingerprint });
-    inFlight.set(key, { fingerprint, promise });
+    const promise = fingerprintPromise.then((fingerprint) =>
+      sendWithKey({ input, candidates, preview, signal, key, fingerprint }),
+    );
+    const entry: InFlight = { fingerprint: fingerprintPromise, promise };
+    inFlight.set(key, entry);
     try {
       const result = await promise;
       return cloneSendResult(result, result.replayed);
     } finally {
-      inFlight.delete(key);
+      if (inFlight.get(key) === entry) {
+        inFlight.delete(key);
+      }
     }
   };
 

@@ -1544,5 +1544,92 @@ describe("send: fromByAdapter", () => {
     });
     expect(clReads).toBe(1);
     expect(grReads).toBe(1);
+
+    // 29. R25: coalesced fast sends without store share 1 call & isolate results; SmsError#toJSON clones attempts/provider; diagnostic tokens keep RQ+32-hex & drop colon/all-digit phone numbers; readBoundedText uses intrinsic byteLength
+    let fastCalls = 0;
+    const fastClient = createSmsClient({
+      adapters: [
+        {
+          name: "fast",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            fastCalls += 1;
+            return { kind: "accepted", providerId: "msg-fast", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    const [f1, f2, f3] = await Promise.all([
+      fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
+      fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
+      fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
+    ]);
+    expect(fastCalls).toBe(1);
+    expect(f1.replayed).toBe(false);
+    expect(f2.replayed).toBe(true);
+    expect(f3.replayed).toBe(true);
+    (f1.attemptedProviders as string[]).push("tampered");
+    (f1.attempts as unknown as Array<{ provider: string }>)[0]!.provider = "tampered";
+    expect(f2.attemptedProviders).toEqual(["fast"]);
+    expect(f2.attempts[0]!.provider).toBe("fast");
+
+    const { sanitizeProviderDetails, readBoundedText } = await import("../../src/core/http.js");
+    expect(
+      sanitizeProviderDetails(
+        { code: "415:555:0123", requestId: "RQ1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" },
+        "twilio",
+      ),
+    ).toEqual({
+      provider: "twilio",
+      requestId: "RQ1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+    });
+    expect(
+      sanitizeProviderDetails(
+        { code: "415.555.0123", requestId: "RQ14155550123000000000000000000000" },
+        "twilio",
+      ),
+    ).toEqual({ provider: "twilio" });
+    expect(
+      sanitizeProviderDetails(
+        { requestId: "14155550-1234-4123-8123-414155550123" },
+        "twilio",
+      ),
+    ).toEqual({ provider: "twilio" });
+
+    const spoofChunk = new Uint8Array(64);
+    Object.defineProperty(spoofChunk, "byteLength", { value: 1 });
+    let spoofDone = false;
+    const bounded = await readBoundedText(
+      {
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              async read() {
+                if (spoofDone) return { done: true, value: undefined };
+                spoofDone = true;
+                return { done: false, value: spoofChunk };
+              },
+              async cancel() {},
+            };
+          },
+        } as unknown as ReadableStream<Uint8Array>,
+      },
+      32,
+    );
+    expect(bounded).toBeUndefined();
+
+    const errJsonTest = new HandoffUnknownError("unknown", {
+      reason: "network",
+      provider: { provider: "p1", httpStatus: 500 },
+      attempts: [{ provider: "p1", attempt: 1, outcome: "unknown", reason: "network", durationMs: 1 }],
+    });
+    const j1 = errJsonTest.toJSON();
+    (j1.attempts as unknown as Array<{ provider: string }>)[0]!.provider = "mutated";
+    (j1.provider as { provider: string }).provider = "mutated";
+    expect(errJsonTest.toJSON().attempts[0]!.provider).toBe("p1");
+    expect(errJsonTest.toJSON().provider!.provider).toBe("p1");
   });
 });

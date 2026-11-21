@@ -95,6 +95,23 @@ export async function exchange(fetcher: FetchLike, url: string, init: HttpReques
   }
 }
 
+const getTypedArrayByteLength = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  "byteLength",
+)?.get;
+
+const getDataViewByteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")?.get;
+
+function intrinsicChunkByteLength(chunk: Uint8Array): number {
+  if (chunk instanceof DataView && getDataViewByteLength !== undefined) {
+    return Number(getDataViewByteLength.call(chunk));
+  }
+  if (getTypedArrayByteLength !== undefined) {
+    return Number(getTypedArrayByteLength.call(chunk));
+  }
+  return chunk.byteLength;
+}
+
 /** Reads a response or request body as UTF-8, or returns `undefined` (and cancels the stream) once it passes `maxBytes`. */
 export async function readBoundedText(
   source: { readonly headers: Headers; readonly body: ReadableStream<Uint8Array> | null },
@@ -121,7 +138,7 @@ export async function readBoundedText(
     if (done) {
       return text + decoder.decode();
     }
-    total += value.byteLength;
+    total += intrinsicChunkByteLength(value);
     if (total > maxBytes) {
       try {
         void Promise.resolve(reader.cancel?.()).catch(() => undefined);
@@ -341,9 +358,20 @@ export function basicAuthorization(username: string, password: string): string {
 }
 
 const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
-const OPAQUE_PROVIDER_ID =
-  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z]{0,4}[0-9a-f]{32})$/i;
-const DIGIT_SPAN = /\d[\d._-]*\d/g;
+const OPAQUE_UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPAQUE_HEX32_ID = /^[A-Za-z]{0,4}[0-9a-f]{32}$/i;
+const DIGIT_SPAN = /\d[\d._:-]*\d/g;
+
+function isOpaqueHexId(value: string): boolean {
+  if (OPAQUE_UUID_ID.test(value)) {
+    return /[a-f]/i.test(value);
+  }
+  if (OPAQUE_HEX32_ID.test(value)) {
+    const hexPart = value.slice(-32);
+    return /[a-f]/i.test(hexPart) && !/\d{10,}/.test(hexPart);
+  }
+  return false;
+}
 
 function containsPhoneLengthDigits(value: string): boolean {
   for (const match of value.matchAll(DIGIT_SPAN)) {
@@ -361,7 +389,7 @@ function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | un
     value.length === 0 ||
     value.length > maxLength ||
     !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
-    (!OPAQUE_PROVIDER_ID.test(value) && containsPhoneLengthDigits(value))
+    (!isOpaqueHexId(value) && containsPhoneLengthDigits(value))
   ) {
     return undefined;
   }
