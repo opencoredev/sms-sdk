@@ -158,4 +158,23 @@ describe("webhook body size limit", () => {
       parseSmsWebhooks({ provider: "bandwidth", request, credentials: { username: "u", password: "p" } }),
     ).rejects.toMatchObject({ code: "webhook_payload", reason: "body_too_large" });
   });
+
+  test("rejects oversized cloned requests without hanging on unread sibling branch", async () => {
+    const chunk = new Uint8Array(256 * 1024);
+    let emitted = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        emitted += chunk.byteLength;
+        controller.enqueue(chunk);
+        if (emitted > MAX_WEBHOOK_BYTES + chunk.byteLength * 2) {
+          controller.close();
+        }
+      },
+    });
+    const original = new Request("https://example.com/hook", { method: "POST", body: stream });
+    const cloned = original.clone();
+    await expect(
+      parseSmsWebhook({ provider: "twilio", request: cloned, credentials: { authToken: AUTH_TOKEN } }),
+    ).rejects.toMatchObject({ code: "webhook_payload", reason: "body_too_large" });
+  });
 });

@@ -569,7 +569,7 @@ Plivo signs neither the callback body nor a timestamp. Serve the endpoint over H
 | `queued` | `message.queued` |
 | `sent` | `message.sent` |
 | `delivered` | `message.delivered` |
-| `undelivered`, `failed` | `message.undelivered` |
+| `undelivered`, `failed`, `rejected` | `message.undelivered` |
 | `read`, others | `unrecognized` |
 | Inbound message | `message.received`, or a `recipient.*` event from STOP and HELP keywords (`source: "keyword"`) |
 
@@ -577,7 +577,7 @@ Plivo documents no filter signal, so no Plivo event is `message.filtered`, and i
 
 ## Look up a message
 
-`sms.getMessage(messageUuid, { adapter: "plivo" })` retrieves the message (`GET /v1/Account/{auth_id}/Message/{message_uuid}/`) and maps `message_state`: `queued`, `sent`, and `delivered` as named, `undelivered` and `failed` to `undelivered`, and `rejected` to `filtered`, with `error_code` as `errorCode`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
+`sms.getMessage(messageUuid, { adapter: "plivo" })` retrieves the message (`GET /v1/Account/{auth_id}/Message/{message_uuid}/`) and maps `message_state`: `queued`, `sent`, and `delivered` as named, and `undelivered`, `failed`, and `rejected` to `undelivered`, with non-placeholder `error_code` as `errorCode`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

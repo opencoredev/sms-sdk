@@ -75,7 +75,7 @@ export default defineConfig({
         "",
         "- `send()` resolves only when a provider accepted the message. It throws `ProviderRejectedError` when the provider refused it and `HandoffUnknownError` when the outcome is unknown; never resend after `HandoffUnknownError`.",
         "- Fallback to another provider is off until you set `fallback: \"on-known-rejection\"`.",
-        "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` verifies the request before reading it and returns one event shape for every provider. Use `parseSmsWebhooks()` for Bandwidth and Sinch, which can send several events per request.",
+        "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` enforces a 1 MiB body limit, verifies the request before parsing it, and returns one event shape for every provider. Use `parseSmsWebhooks()` for Bandwidth and Sinch, which can send several events per request.",
         "- `sms.getMessage(providerId, { adapter })` looks up a sent message's delivery status with the provider.",
         "- `memory()` from `@opencoredev/sms-sdk/testing` sends nothing, for tests.",
         "",

@@ -1,4 +1,5 @@
 import { ConfigurationError } from "./errors.js";
+import { isRecord } from "./http.js";
 import type { RetryOptions } from "./types.js";
 
 /** Highest accepted `retry.maxAttempts`. Retries only follow proven rate limits, so more is never useful. */
@@ -26,6 +27,9 @@ export const DEFAULT_RETRY: ResolvedRetryOptions = {
  * {@link MAX_RETRY_ATTEMPTS}, or a delay is not a finite number of at least 0.
  */
 export function resolveRetryOptions(options: RetryOptions | undefined): ResolvedRetryOptions {
+  if (options !== undefined && !isRecord(options)) {
+    throw new ConfigurationError("retry must be an object.");
+  }
   const maxAttempts = options?.maxAttempts === undefined ? DEFAULT_RETRY.maxAttempts : options.maxAttempts;
   if (!(Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= MAX_RETRY_ATTEMPTS)) {
     throw new ConfigurationError(`retry.maxAttempts must be an integer from 1 to ${MAX_RETRY_ATTEMPTS}.`);

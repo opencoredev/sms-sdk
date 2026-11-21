@@ -135,6 +135,7 @@ function plivoStatusType(status: string): MessageStatusType | undefined {
       return "message.delivered";
     case "undelivered":
     case "failed":
+    case "rejected":
       return "message.undelivered";
     default:
       return undefined;

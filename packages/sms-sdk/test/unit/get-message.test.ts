@@ -164,17 +164,17 @@ describe("provider status mapping", () => {
     await expect(sms.getMessage("b")).resolves.toEqual({ provider: "sinch", providerId: "b", delivery: "unknown" });
   });
 
-  test("a Plivo rejected message is filtered and keeps its error code", async () => {
+  test("a Plivo rejected message maps to undelivered and keeps its error code", async () => {
     const mock = mockFetch({ status: 200, body: { api_id: "a", message_uuid: "u", message_state: "rejected", error_code: "450" } });
     const sms = createSmsClient({ adapters: [plivo({ authId: "MA1", authToken: "t", fetch: mock.fetch })] });
-    await expect(sms.getMessage("u")).resolves.toMatchObject({ delivery: "filtered", errorCode: "450" });
+    await expect(sms.getMessage("u")).resolves.toMatchObject({ delivery: "undelivered", errorCode: "450" });
   });
 
-  test("Plivo lookup omits placeholder 000 error code", async () => {
-    const mock = mockFetch({ status: 200, body: { api_id: "a", message_uuid: "u", message_state: "delivered", error_code: "000" } });
+  test("Plivo lookup omits placeholder 000 error code even on failed status", async () => {
+    const mock = mockFetch({ status: 200, body: { api_id: "a", message_uuid: "u", message_state: "failed", error_code: "000" } });
     const sms = createSmsClient({ adapters: [plivo({ authId: "MA1", authToken: "t", fetch: mock.fetch })] });
     const result = await sms.getMessage("u");
-    expect(result).toMatchObject({ delivery: "delivered" });
+    expect(result).toMatchObject({ delivery: "undelivered" });
     expect(result?.errorCode).toBeUndefined();
   });
 

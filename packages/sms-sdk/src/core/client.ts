@@ -63,13 +63,23 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     throw new ConfigurationError(`Adapter names must be unique; got ${names.join(", ")}.`);
   }
   const timeoutMs = options.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs;
-  if (!(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0)) {
-    throw new ConfigurationError("timeoutMs must be a positive number.");
+  if (!(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2_147_483_647)) {
+    throw new ConfigurationError("timeoutMs must be a positive number up to 2147483647.");
   }
 
   const retry = resolveRetryOptions(options.retry);
   const fallback = options.fallback === "on-known-rejection";
   const hooks = options.hooks ?? {};
+  if (
+    options.idempotency !== undefined &&
+    (!isRecord(options.idempotency) ||
+      !isRecord(options.idempotency.store) ||
+      typeof options.idempotency.store.get !== "function" ||
+      typeof options.idempotency.store.reserve !== "function" ||
+      typeof options.idempotency.store.finalize !== "function")
+  ) {
+    throw new ConfigurationError("idempotency must be an object with a valid store.");
+  }
   const idempotency: IdempotencyConfig | undefined =
     options.idempotency === undefined
       ? undefined

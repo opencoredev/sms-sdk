@@ -500,11 +500,16 @@ describe("send: fromByAdapter", () => {
     expect(sms.validate(input).issues).toContainEqual(expect.objectContaining({ code: "invalid_field", field: "fromByAdapter" }));
   });
 
-  test("rejects null from, null config fields, and fractional idempotency seconds", () => {
+  test("rejects null from, null config fields, oversized timeoutMs, and fractional idempotency seconds", () => {
     const sms = createSmsClient({ adapters: [memory()] });
     const nullFrom: SmsSendInput = JSON.parse('{"to":"+14155550123","body":"hi","from":null}');
     expect(sms.validate(nullFrom).supported).toBe(false);
     expect(sms.validate(nullFrom).issues).toContainEqual(expect.objectContaining({ code: "invalid_sender", field: "from" }));
+
+    const nullFromWithByAdapter: SmsSendInput = JSON.parse(
+      '{"to":"+14155550123","body":"hi","from":null,"fromByAdapter":{"memory":"+15005550006"}}',
+    );
+    expect(sms.validate(nullFromWithByAdapter).supported).toBe(false);
 
     expect(() =>
       createSmsClient({
@@ -521,7 +526,31 @@ describe("send: fromByAdapter", () => {
     expect(() =>
       createSmsClient({
         adapters: [memory()],
+        idempotency: null as unknown as { store: ReturnType<typeof memoryIdempotencyStore> },
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        idempotency: {} as unknown as { store: ReturnType<typeof memoryIdempotencyStore> },
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
         timeoutMs: null as unknown as number,
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        timeoutMs: 2 ** 31,
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        retry: null as unknown as { maxAttempts: number },
       }),
     ).toThrow(ConfigurationError);
     expect(() =>

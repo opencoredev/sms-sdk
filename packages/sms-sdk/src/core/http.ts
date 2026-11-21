@@ -54,7 +54,7 @@ export async function readBoundedText(
 ): Promise<string | undefined> {
   const declared = Number(source.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
-    await source.body?.cancel().catch(() => undefined);
+    void source.body?.cancel().catch(() => undefined);
     return undefined;
   }
   if (source.body === null) {
@@ -71,7 +71,7 @@ export async function readBoundedText(
     }
     total += value.byteLength;
     if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
+      void reader.cancel().catch(() => undefined);
       return undefined;
     }
     text += decoder.decode(value, { stream: true });

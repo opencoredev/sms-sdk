@@ -60,7 +60,7 @@ export function skipVerification(options: Pick<WebhookCommonOptions, "unsafeSkip
   if (options.unsafeSkipVerification !== true) {
     return false;
   }
-  if (readNodeEnv()?.toLowerCase() === "production") {
+  if (readNodeEnv()?.trim().toLowerCase() === "production") {
     throw new ConfigurationError(
       "unsafeSkipVerification is refused when NODE_ENV is production. Verify webhooks with real credentials.",
     );

@@ -277,9 +277,8 @@ export function plivoDelivery(state: string | undefined): Delivery {
       return "delivered";
     case "undelivered":
     case "failed":
-      return "undelivered";
     case "rejected":
-      return "filtered";
+      return "undelivered";
     default:
       return "unknown";
   }

@@ -30,7 +30,7 @@ const sms = createSmsClient({
 });
 ```
 
-Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name`, or `timeoutMs` is not a positive number.
+Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name`, or `timeoutMs` is not a positive number up to `2147483647`.
 
 ## Options
 
@@ -67,7 +67,7 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 - Type: `{ store: IdempotencyStore; ttlSec?: number; staleReservationSec?: number }`
 - Optional
 - Off by default
-- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. After `staleReservationSec` (default `300`), an unfinished reservation counts as an unknown outcome. Both must be finite and greater than 0, or `createSmsClient` throws `ConfigurationError`: a `ttlSec` of 0 would expire an accepted record as it is written and let the same key send twice. See [Prevent duplicate sends](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
+- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. After `staleReservationSec` (default `300`), an unfinished reservation counts as an unknown outcome. Both must be whole numbers of seconds of at least 1, or `createSmsClient` throws `ConfigurationError`: a `ttlSec` of 0 would expire an accepted record as it is written and let the same key send twice. See [Prevent duplicate sends](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
 
 ### `beforeSend`
 

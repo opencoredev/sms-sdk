@@ -126,6 +126,13 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   } else if (mediaUrls.some((url) => !isHttpUrl(url))) {
     issues.push({ code: "invalid_field", field: "mediaUrls", message: "Every media URL must be an absolute http(s) URL." });
   }
+  if (input.from !== undefined && typeof input.from !== "string" && !isRecord(input.from)) {
+    issues.push({
+      code: "invalid_sender",
+      field: "from",
+      message: "Sender must be an E.164 string or a sender object.",
+    });
+  }
   if (input.fromByAdapter !== undefined) {
     if (!isRecord(input.fromByAdapter)) {
       issues.push({ code: "invalid_field", field: "fromByAdapter", message: "fromByAdapter must be an object keyed by adapter name." });

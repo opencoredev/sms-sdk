@@ -8,16 +8,16 @@ This page summarizes [`CHANGELOG.md`](https://github.com/opencoredev/sms-sdk/blo
 ## Unreleased
 
 - [`sms.getMessage(providerId, { adapter?, signal? })`](/reference/create-sms-client#smsgetmessageproviderid-options) looks a message up with the provider and returns its delivery, or `undefined` when the provider has no such message. Failures throw `MessageLookupError` (`retrySafe: false`). Every built-in adapter implements the new optional `SmsAdapter.getMessage`; Vonage reads the Reports API and needs `reportsCredentials` with JWT auth. `capabilities()` reports `messageLookup`.
-- [`parseSmsWebhooks()`](/reference/webhook-events#parsesmswebhooksoptions) returns every event in a request: each element of a Bandwidth callback and each Sinch `recipient_delivery_report` entry. `parseSmsWebhook()` now throws `WebhookPayloadError` for a multi-event payload instead of returning only the first Sinch report.
+- [`parseSmsWebhooks()`](/reference/webhook-events#parsesmswebhooksoptions) returns every event in a request: each element of a Bandwidth callback and each Sinch `recipient_delivery_report` entry. `parseSmsWebhook()` now throws `WebhookPayloadError` for a multi-event payload instead of returning only the first Sinch report. Bandwidth status callbacks include the recipient in `dedupeKey` (`bandwidth:{messageId}:{to}:{type}`).
 - [`fromByAdapter`](/reference/send#frombyadapter) on `send()` input sets a sender per adapter, for fallback chains.
 - Suppression lists: `SuppressionList`, `memorySuppressionList()`, `suppressionPolicy()` for `beforeSend`, and `applySuppressionEvent()` for STOP and START webhooks. See [STOP, HELP, and opt-outs](/receiving/opt-outs).
 - Keyword events (`recipient.opted_out`, `recipient.opted_in`, `recipient.help`) carry `mediaUrls`.
-- `createSmsClient` rejects `idempotency.ttlSec` and `staleReservationSec` that are not finite and positive. A `ttlSec` of 0 let a repeated key send twice. `retry.maxAttempts` must be an integer from 1 to 10, and retry delays finite and at least 0.
+- `createSmsClient` rejects `idempotency.ttlSec` and `staleReservationSec` that are not whole numbers of seconds of at least 1 (a `ttlSec` of 0 let a repeated key send twice), `timeoutMs` above `2147483647`, malformed `idempotency`/`retry` objects, `retry.maxAttempts` outside 1 to 10, and negative or non-finite retry delays.
 - `validate()` returns issues instead of throwing for malformed runtime input (a non-object message, a non-array `mediaUrls`, a non-string `idempotencyKey`), and `send()` throws `InvalidMessageError` for it.
-- `sinch()` throws `ConfigurationError` for missing options. Non-Latin-1 Basic credentials throw `ConfigurationError` instead of a `DOMException`.
+- `sinch()` throws `ConfigurationError` for missing options. Non-Latin-1 Basic credentials throw `ConfigurationError` instead of a `DOMException`. Sinch `Rejected` delivery status maps to `undelivered` unless the error code is `40003` (`filtered`).
 - `beforeSend` throwing now emits `onFailure`. An unexpected internal failure keeps the attempts already made.
 - `unsafeSkipVerification` throws `ConfigurationError` when `NODE_ENV` is `production`.
-- Provider responses are read up to 1 MiB; a larger body is an unknown outcome.
+- Provider responses and inbound webhook request bodies are read up to 1 MiB; an oversized provider response is an unknown outcome, and an oversized webhook body throws `WebhookPayloadError` (`reason: "body_too_large"`) before signature verification.
 - Every subpath export has a `default` condition beside `import`. The package stays ESM only.
 
 ## 0.1.1

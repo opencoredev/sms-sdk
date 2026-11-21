@@ -29,6 +29,9 @@ export async function POST(request: Request): Promise<Response> {
       return new Response("Invalid signature", { status: 401 });
     }
     if (error instanceof WebhookPayloadError) {
+      if (error.reason === "body_too_large") {
+        return new Response("Payload too large", { status: 413 });
+      }
       return new Response("Unexpected payload", { status: 400 });
     }
     throw error;
@@ -155,7 +158,7 @@ The other providers do not sign the URL, so these options exist only for Twilio 
 
 ## The raw body
 
-Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body once with `request.text()`. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
+Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body stream once up to 1 MiB. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
 
 ## Skipping verification in tests
 
