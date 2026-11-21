@@ -298,29 +298,36 @@ export type ValidationIssue = {
   readonly provider?: string;
 };
 
+/** Authoritative runtime list of {@link ValidationIssueCode} values. */
+export const VALIDATION_ISSUE_CODES = [
+  "invalid_recipient",
+  "invalid_sender",
+  "missing_sender",
+  "empty_body",
+  "unsupported_field",
+  "invalid_field",
+] as const;
+
 /** Stable identifiers for {@link ValidationIssue}. */
-export type ValidationIssueCode =
-  | "invalid_recipient"
-  | "invalid_sender"
-  | "missing_sender"
-  | "empty_body"
-  | "unsupported_field"
-  | "invalid_field";
+export type ValidationIssueCode = (typeof VALIDATION_ISSUE_CODES)[number];
+
+/** Authoritative runtime list of {@link ValidationField} values. */
+export const VALIDATION_FIELDS = [
+  "message",
+  "to",
+  "from",
+  "fromByAdapter",
+  "body",
+  "mediaUrls",
+  "sendAt",
+  "validityPeriodSec",
+  "webhookUrl",
+  "idempotencyKey",
+  "providerOptions",
+] as const;
 
 /** Input fields a {@link ValidationIssue} can point at. */
-export type ValidationField =
-  /** The message as a whole, such as when it is not an object. */
-  | "message"
-  | "to"
-  | "from"
-  | "fromByAdapter"
-  | "body"
-  | "mediaUrls"
-  | "sendAt"
-  | "validityPeriodSec"
-  | "webhookUrl"
-  | "idempotencyKey"
-  | "providerOptions";
+export type ValidationField = (typeof VALIDATION_FIELDS)[number];
 
 /**
  * The adapter contract. Implement it to add a provider; run

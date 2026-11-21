@@ -1864,6 +1864,7 @@ describe("send: fromByAdapter", () => {
     const [rBoth1, rBoth2] = await Promise.allSettled([pBoth1, pBoth2]);
     expect(adapterCalls).toBe(0);
     expect(rBoth1.status).toBe("rejected");
+    expect(rBoth1.status === "rejected" && rBoth1.reason).toBeInstanceOf(SendAbortedError);
     expect(rBoth2.status).toBe("rejected");
     expect(rBoth2.status === "rejected" && rBoth2.reason).toBeInstanceOf(SendAbortedError);
 
@@ -1973,5 +1974,93 @@ describe("send: fromByAdapter", () => {
     const { OPT_OUT_KEYWORDS, HELP_KEYWORDS } = await import("../../src/webhooks/events.js");
     expect(Object.isFrozen(OPT_OUT_KEYWORDS)).toBe(true);
     expect(Object.isFrozen(HELP_KEYWORDS)).toBe(true);
+
+    // R30: abort during delayed accepted-record replay rejects with SendAbortedError
+    const seedStore = memoryIdempotencyStore();
+    const seedClient = createSmsClient({ adapters: [memory()], idempotency: { store: seedStore } });
+    const seeded = await seedClient.send({ to: "+14155550123", body: "replay-me", idempotencyKey: "k-r30-replay" });
+    const seedRecord = await seedStore.get("k-r30-replay");
+    expect(seedRecord?.state).toBe("accepted");
+    let resolveAccepted!: (value: { kind: "existing"; record: { state: "accepted"; fingerprint: string; result: typeof seeded } }) => void;
+    let markAcceptedStarted!: () => void;
+    const acceptedStarted = new Promise<void>((resolve) => {
+      markAcceptedStarted = resolve;
+    });
+    const acReplay = new AbortController();
+    const replayClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: {
+        store: {
+          async get(k) {
+            return seedStore.get(k);
+          },
+          reserve() {
+            markAcceptedStarted();
+            return new Promise((resolve) => {
+              resolveAccepted = resolve;
+            });
+          },
+          async finalize() {
+            return { kind: "finalized" };
+          },
+        },
+      },
+    });
+    const pReplay = replayClient.send(
+      { to: "+14155550123", body: "replay-me", idempotencyKey: "k-r30-replay" },
+      { signal: acReplay.signal },
+    );
+    await acceptedStarted;
+    acReplay.abort(new Error("abort-during-accepted-replay"));
+    resolveAccepted({
+      kind: "existing",
+      record: { state: "accepted", fingerprint: seedRecord!.fingerprint, result: seeded },
+    });
+    const replayErr = await rejection(pReplay);
+    expect(replayErr).toBeInstanceOf(SendAbortedError);
+
+    // R30: adapter.validate() accepts valid field "message" without remapping to "body"
+    const msgFieldClient = createSmsClient({
+      adapters: [
+        {
+          name: "field-message",
+          capabilities: memory().capabilities,
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          validate() {
+            return [{ code: "invalid_field", field: "message", message: "whole-message issue" }];
+          },
+          async send() {
+            return { kind: "accepted", providerId: "x", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    const msgVal = msgFieldClient.validate({ to: "+14155550123", body: "hi" });
+    expect(msgVal.issues).toEqual([
+      { code: "invalid_field", field: "message", message: "whole-message issue", provider: "field-message" },
+    ]);
+
+    // R30: credential-shaped requestId is stripped from HandoffUnknownError#toJSON while safe requestId is kept
+    const credClient = createSmsClient({
+      adapters: [
+        {
+          name: "redaction",
+          capabilities: memory().capabilities,
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return {
+              kind: "unknown",
+              reason: "timeout",
+              details: { provider: "redaction", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
+            };
+          },
+        },
+      ],
+    });
+    const credErr = await rejection(credClient.send({ to: "+14155550123", body: "hi" }));
+    expect(credErr).toBeInstanceOf(HandoffUnknownError);
+    expect(JSON.stringify((credErr as HandoffUnknownError).toJSON())).not.toContain("sk-live-DO-NOT-LEAK-9z");
   });
 });

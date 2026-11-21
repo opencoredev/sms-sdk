@@ -177,6 +177,7 @@ export interface SmsClient {
   /**
    * Sends one logical message. Resolves only when a provider accepted it.
    *
+   * @throws {ConfigurationError} when `options` or `options.signal` is invalid, or `idempotency.store.reserve()` fails or returns a malformed value.
    * @throws {InvalidRecipientError | InvalidSenderError | InvalidMessageError | UnsupportedFieldError} before any request.
    * @throws {PolicyRejectedError} when `beforeSend` rejects.
    * @throws {ProviderRejectedError | ProviderAuthError | ProviderRateLimitedError} when the provider proved it did not accept.

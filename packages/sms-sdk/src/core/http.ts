@@ -362,6 +362,10 @@ const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
 const OPAQUE_UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPAQUE_HEX32_ID = /^[A-Za-z]{0,4}[0-9a-f]{32}$/i;
 const DIGIT_SPAN = /\d[\d._:-]*\d/g;
+const CREDENTIAL_TOKEN_PREFIX =
+  /^(?:(?:sk|pk|rk|whsec|ghp|gho|ghu|ghs|ghr|github_pat|glpat|xox[baprs]|sq0[a-z]{3})[_-]|(?:akia|asia)[0-9a-z]{12}|aiza[0-9a-z_-]{10}|eyj[a-z0-9_-]{6,}\.)/i;
+const CREDENTIAL_REQUEST_ID_MARKER =
+  /(?:^|[_.:-])(?:secret|token|password|passwd|pwd|apikey|api_key|api-key|bearer|basic|auth_token|access_key|private_key)(?:[_.:-]|$)/i;
 
 function isOpaqueHexId(value: string): boolean {
   if (OPAQUE_UUID_ID.test(value)) {
@@ -382,15 +386,19 @@ function containsPhoneLengthDigits(value: string): boolean {
   return false;
 }
 
-/** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, PII, or phone-length digit runs. */
-function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | undefined {
+/** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, credentials, PII, or phone-length digit runs. */
+function sanitizeDiagnosticToken(value: unknown, maxLength: number, isRequestId = false): string | undefined {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
     value.length > maxLength ||
     !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
+    CREDENTIAL_TOKEN_PREFIX.test(value) ||
     (!isOpaqueHexId(value) && containsPhoneLengthDigits(value))
   ) {
+    return undefined;
+  }
+  if (isRequestId && (value.includes(":") || CREDENTIAL_REQUEST_ID_MARKER.test(value))) {
     return undefined;
   }
   return value;
@@ -408,7 +416,7 @@ export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackPr
       ? rawStatus
       : undefined;
   const code = sanitizeDiagnosticToken(rawCode, 64);
-  const requestId = sanitizeDiagnosticToken(rawRequestId, 128);
+  const requestId = sanitizeDiagnosticToken(rawRequestId, 128, true);
   return {
     provider,
     ...(httpStatus === undefined ? {} : { httpStatus }),

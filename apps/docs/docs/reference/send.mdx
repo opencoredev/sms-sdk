@@ -27,7 +27,7 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 ### Parameters
 
 - `input: SmsSendInput`, the message. Fields below.
-- `options?: { signal?: AbortSignal }`. Aborting before any request, or during a rate-limit backoff, throws `SendAbortedError`. Aborting while a request is in flight (or while another caller keeps a coalesced same-key send active) throws `HandoffUnknownError` with `reason: "aborted"`.
+- `options?: { signal?: AbortSignal }`. Aborting before any request (including when all coalesced callers for the same key abort before any provider request begins), or during a rate-limit backoff, throws `SendAbortedError`. Aborting while a request is in flight (or while another caller keeps a coalesced same-key send active through dispatch) throws `HandoffUnknownError` with `reason: "aborted"`.
 
 ## `SmsSendInput`
 
@@ -216,6 +216,7 @@ type SendAttempt =
 
 | Error | `code` | `retrySafe` | When |
 | --- | --- | --- | --- |
+| `ConfigurationError` | `configuration` | true | `options` or `options.signal` is invalid, or `idempotency.store.reserve()` fails or returns a malformed value |
 | `InvalidRecipientError` | `invalid_recipient` | true | `to` is not E.164 |
 | `InvalidSenderError` | `invalid_sender` | true | No sender, or a malformed one |
 | `InvalidMessageError` | `invalid_message` | true | The input is not an object, an empty body without media, a bad URL, date, number, or `mediaUrls` field, a non-string `idempotencyKey`, a provider limit, a `providerOptions` value of the wrong type |

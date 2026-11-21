@@ -51,6 +51,7 @@ type InFlight = {
   readonly promise: Promise<SmsSendResult>;
   readonly controller: AbortController;
   waiters: number;
+  dispatched: boolean;
 };
 
 type IdempotencyConfig = {
@@ -617,13 +618,21 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             // authoritative SendAbortedError or HandoffUnknownError (including attempts).
             return;
           }
-          reject(
-            new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
-              reason: "aborted",
-              attempts: [],
-              cause: signal.reason,
-            }),
-          );
+          // Defer by one microtask so synchronous same-tick aborts of all coalesced
+          // callers settle as SendAbortedError when no provider request was dispatched.
+          queueMicrotask(() => {
+            if (entry.controller.signal.aborted && !entry.dispatched) {
+              reject(new SendAbortedError([], signal.reason));
+              return;
+            }
+            reject(
+              new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
+                reason: "aborted",
+                attempts: [],
+                cause: signal.reason,
+              }),
+            );
+          });
         };
         const cleanup = (): void => {
           signal.removeEventListener("abort", onAbort);
@@ -660,7 +669,17 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     };
     const promise = fingerprintMessage(fingerprintFields)
       .then((fingerprint) =>
-        sendWithKey({ input, candidates, preview, signal: controller.signal, key, fingerprint }),
+        sendWithKey({
+          input,
+          candidates,
+          preview,
+          signal: controller.signal,
+          key,
+          fingerprint,
+          onBeforeDispatch: () => {
+            entry.dispatched = true;
+          },
+        }),
       )
       .then(
         (result) => {
@@ -677,6 +696,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       promise,
       controller,
       waiters: 0,
+      dispatched: false,
     };
     inFlight.set(key, entry);
     void promise.catch(() => undefined);
@@ -719,6 +739,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly signal: AbortSignal | undefined;
     readonly key: string;
     readonly fingerprint: string;
+    readonly onBeforeDispatch?: () => void;
   }): Promise<SmsSendResult> => {
     if (args.signal?.aborted === true) {
       throw new SendAbortedError([], args.signal.reason);
@@ -747,6 +768,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         id: newId(),
         reservation: { config: idempotency, key: args.key, fingerprint: args.fingerprint, id: reserved.reservationId },
       });
+    }
+    const isSignalAborted = (s: AbortSignal | undefined): boolean => s?.aborted === true;
+    if (isSignalAborted(args.signal)) {
+      throw new SendAbortedError([], args.signal?.reason);
     }
     const record = reserved.record;
     if (record.fingerprint !== args.fingerprint) {
@@ -787,6 +812,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly reservation:
       | { readonly config: IdempotencyConfig; readonly key: string; readonly fingerprint: string; readonly id: string }
       | undefined;
+    readonly onBeforeDispatch?: () => void;
   }): Promise<SmsSendResult> => {
     const { input, preview, id, reservation } = args;
     const base: SmsHookEventBase = {
@@ -899,6 +925,11 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
     // Kept here as well as in the chain so an unexpected throw still reports
     // every request already made, which is what reconciliation needs.
+    const checkAborted = (s: AbortSignal | undefined): boolean => s?.aborted === true;
+    if (checkAborted(args.signal)) {
+      return fail(new SendAbortedError([], args.signal?.reason));
+    }
+    args.onBeforeDispatch?.();
     const attempts: SendAttempt[] = [];
     let chain: ChainResult;
     try {

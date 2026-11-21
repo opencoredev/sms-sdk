@@ -1,11 +1,13 @@
-import type {
-  AdapterMessage,
-  SenderType,
-  SmsAdapter,
-  SmsCapabilities,
-  SmsFrom,
-  SmsSender,
-  ValidationIssue,
+import {
+  VALIDATION_FIELDS,
+  VALIDATION_ISSUE_CODES,
+  type AdapterMessage,
+  type SenderType,
+  type SmsAdapter,
+  type SmsCapabilities,
+  type SmsFrom,
+  type SmsSender,
+  type ValidationIssue,
 } from "./adapters.js";
 import { isE164 } from "./e164.js";
 import {
@@ -348,27 +350,9 @@ function providerOptionsEntry(input: SmsSendInput, adapterName: string): unknown
   return isRecord(all) && Object.hasOwn(all, adapterName) ? all[adapterName] : undefined;
 }
 
-const VALID_ISSUE_CODES: ReadonlySet<string> = new Set([
-  "invalid_recipient",
-  "invalid_sender",
-  "missing_sender",
-  "empty_body",
-  "invalid_field",
-  "unsupported_field",
-]);
+const VALID_ISSUE_CODES: ReadonlySet<string> = new Set(VALIDATION_ISSUE_CODES);
 
-const VALID_ISSUE_FIELDS: ReadonlySet<string> = new Set([
-  "to",
-  "from",
-  "fromByAdapter",
-  "body",
-  "mediaUrls",
-  "sendAt",
-  "validityPeriodSec",
-  "webhookUrl",
-  "idempotencyKey",
-  "providerOptions",
-]);
+const VALID_ISSUE_FIELDS: ReadonlySet<string> = new Set(VALIDATION_FIELDS);
 
 /** Converts a validation issue into the error `send()` throws for it. */
 export function issueToError(issue: ValidationIssue): SmsError {
