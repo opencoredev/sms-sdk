@@ -293,4 +293,22 @@ describe("malformed runtime input", () => {
     const error = await rejection(sms.send(undefined));
     expect(error).toBeInstanceOf(InvalidMessageError);
   });
+
+  test.each([
+    ["from.messagingService is a number", '{"to":"+14155550123","body":"hi","from":{"messagingService":123}}'],
+    ["fromByAdapter.messagingService is a number", '{"to":"+14155550123","body":"hi","fromByAdapter":{"memory":{"messagingService":123}}}'],
+    ["from.senderId is null", '{"to":"+14155550123","body":"hi","from":{"senderId":null}}'],
+    ["fromByAdapter.senderId is null", '{"to":"+14155550123","body":"hi","fromByAdapter":{"memory":{"senderId":null}}}'],
+    ["from.shortCode is a number", '{"to":"+14155550123","body":"hi","from":{"shortCode":12345}}'],
+  ])("rejects malformed sender objects when %s without throwing TypeError", async (_name, json) => {
+    const adapter = memory();
+    const client = createSmsClient({ adapters: [adapter] });
+    const parsed = fromJson(json);
+    const result = client.validate(parsed);
+    expect(result.supported).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "invalid_sender", field: "from" }));
+    const error = await rejection(client.send(parsed));
+    expect(error).toBeInstanceOf(InvalidSenderError);
+    expect(adapter.sent).toHaveLength(0);
+  });
 });

@@ -243,12 +243,13 @@ export function interpretSinchLookup(providerId: string, status: number, text: s
     // Each send is a single-recipient batch, so the summary has at most one status.
     const first: unknown = statuses[0];
     const providerStatus = isRecord(first) ? readString(first, "status") : undefined;
+    const errorCode = isRecord(first) ? readCode(first, "code") : undefined;
     return foundMessage({
       provider: "sinch",
       providerId,
-      delivery: sinchDelivery(providerStatus),
+      delivery: sinchDelivery(providerStatus, errorCode),
       providerStatus,
-      errorCode: isRecord(first) ? readCode(first, "code") : undefined,
+      errorCode,
     });
   }
   if (status === 404) {
@@ -287,8 +288,12 @@ export function sinchRejectionCategory(status: number, code: string | undefined)
   }
 }
 
-/** Delivery value for a Sinch delivery status, such as `Delivered` or `Dispatched`. Case-insensitive. */
-export function sinchDelivery(status: string | undefined): Delivery {
+/**
+ * Delivery value for a Sinch delivery status, such as `Delivered` or `Dispatched`.
+ * Case-insensitive; matches Sinch webhook normalization where `Rejected` / `Filtered`
+ * maps to `filtered` only for error code `40003` and `undelivered` otherwise.
+ */
+export function sinchDelivery(status: string | undefined, code?: string | undefined): Delivery {
   switch (status?.toLowerCase()) {
     case "queued":
     case "pending":
@@ -306,7 +311,7 @@ export function sinchDelivery(status: string | undefined): Delivery {
       return "undelivered";
     case "filtered":
     case "rejected":
-      return "filtered";
+      return code === "40003" ? "filtered" : "undelivered";
     default:
       return "unknown";
   }

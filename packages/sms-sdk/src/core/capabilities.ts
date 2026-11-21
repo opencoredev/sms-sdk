@@ -47,7 +47,7 @@ export function resolveSender(from: SmsFrom | undefined): SenderResolution {
     return { kind: "invalid", message: "Sender must be an E.164 string or a sender object." };
   }
   if ("senderId" in from) {
-    return SENDER_ID_PATTERN.test(from.senderId)
+    return typeof from.senderId === "string" && SENDER_ID_PATTERN.test(from.senderId)
       ? { kind: "ok", sender: { kind: "alphanumeric", value: from.senderId } }
       : {
           kind: "invalid",
@@ -55,12 +55,12 @@ export function resolveSender(from: SmsFrom | undefined): SenderResolution {
         };
   }
   if ("shortCode" in from) {
-    return SHORT_CODE_PATTERN.test(from.shortCode)
+    return typeof from.shortCode === "string" && SHORT_CODE_PATTERN.test(from.shortCode)
       ? { kind: "ok", sender: { kind: "short_code", value: from.shortCode } }
       : { kind: "invalid", message: "Short codes are 3-8 digits." };
   }
   if ("messagingService" in from) {
-    return from.messagingService.trim().length > 0
+    return typeof from.messagingService === "string" && from.messagingService.trim().length > 0
       ? { kind: "ok", sender: { kind: "messaging_service", value: from.messagingService } }
       : { kind: "invalid", message: "Messaging service identifiers must be non-empty." };
   }

@@ -33,7 +33,14 @@ describe("Sinch adapter", () => {
     expect(interpretSinchResponse(429, "", new Headers())).toMatchObject({ kind: "unknown", reason: "unexpected_status" });
   });
 
-  test.each([["delivered", "delivered"], ["failed", "undelivered"], ["pending", "queued"], ["rejected", "filtered"]] as const)("maps %s delivery", (status, expected) => {
-    expect(sinchDelivery(status)).toBe(expected);
+  test.each([
+    ["delivered", undefined, "delivered"],
+    ["failed", undefined, "undelivered"],
+    ["pending", undefined, "queued"],
+    ["rejected", "40003", "filtered"],
+    ["rejected", "40004", "undelivered"],
+    ["rejected", undefined, "undelivered"],
+  ] as const)("maps %s (code %s) delivery", (status, code, expected) => {
+    expect(sinchDelivery(status, code)).toBe(expected);
   });
 });
