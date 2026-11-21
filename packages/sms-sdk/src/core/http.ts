@@ -341,7 +341,18 @@ export function basicAuthorization(username: string, password: string): string {
 }
 
 const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
-const PHONE_LENGTH_DIGITS = /\d{8,}/;
+const OPAQUE_PROVIDER_ID =
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z]{0,4}[0-9a-f]{32})$/i;
+const DIGIT_SPAN = /\d[\d._-]*\d/g;
+
+function containsPhoneLengthDigits(value: string): boolean {
+  for (const match of value.matchAll(DIGIT_SPAN)) {
+    if (match[0].replace(/\D/g, "").length >= 8) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, PII, or phone-length digit runs. */
 function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | undefined {
@@ -350,7 +361,7 @@ function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | un
     value.length === 0 ||
     value.length > maxLength ||
     !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
-    PHONE_LENGTH_DIGITS.test(value)
+    (!OPAQUE_PROVIDER_ID.test(value) && containsPhoneLengthDigits(value))
   ) {
     return undefined;
   }

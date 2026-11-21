@@ -1389,10 +1389,160 @@ describe("send: fromByAdapter", () => {
     expect((noCancelErr as { reason?: string }).reason).toBe("body_too_large");
 
     // 27. Suppression helpers validate malformed inputs with ConfigurationError
-    const { memorySuppressionList, applySuppressionEvent } = await import("../../src/core/suppression.js");
+    const { memorySuppressionList, suppressionPolicy, applySuppressionEvent } = await import(
+      "../../src/core/suppression.js"
+    );
     expect(() => memorySuppressionList(123 as unknown as Iterable<string>)).toThrow(ConfigurationError);
+    expect(() => suppressionPolicy(null as unknown as never)).toThrow(ConfigurationError);
     await expect(applySuppressionEvent(memorySuppressionList(), null as unknown as never)).rejects.toBeInstanceOf(
       ConfigurationError,
     );
+    await expect(
+      applySuppressionEvent(
+        {
+          get add() {
+            throw new Error("boom");
+          },
+          remove() {},
+          has() {
+            return false;
+          },
+        } as unknown as never,
+        { type: "recipient.opted_out", from: "+14155550123" },
+      ),
+    ).rejects.toBeInstanceOf(ConfigurationError);
+
+    // 28. Diagnostic tokens keep opaque UUID/Twilio RQ IDs while dropping punctuated phone numbers; reserve() preserves cause; coalesced results are isolated; stored attempts reject HandoffUnknown-only reasons; webhook reads content-length & getReader once
+    const diagClient = createSmsClient({
+      adapters: [
+        {
+          name: "diag",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return {
+              kind: "rejected",
+              category: "request",
+              details: {
+                provider: "diag",
+                code: "to:1-415-555-0123",
+                requestId: "3f2c1b7a-9d4e-4c1a-8b2f-202611210735",
+              },
+            };
+          },
+        },
+      ],
+    });
+    const diagErr = (await rejection(diagClient.send({ to: "+14155550123", body: "hi" }))) as {
+      provider?: { code?: string; requestId?: string };
+    };
+    expect(diagErr.provider?.code).toBeUndefined();
+    expect(diagErr.provider?.requestId).toBe("3f2c1b7a-9d4e-4c1a-8b2f-202611210735");
+
+    const dbErr = new Error("redis down");
+    const causeResClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: {
+        store: {
+          async get() {
+            return null;
+          },
+          async reserve() {
+            throw dbErr;
+          },
+          async finalize() {
+            return { kind: "finalized" };
+          },
+        },
+      },
+    });
+    const causeResErr = (await rejection(
+      causeResClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-cause" }),
+    )) as Error;
+    expect(causeResErr).toBeInstanceOf(ConfigurationError);
+    expect(causeResErr.cause).toBe(dbErr);
+
+    const badAttemptReasonClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: {
+        store: {
+          async get() {
+            return null;
+          },
+          async reserve({ fingerprint }) {
+            return {
+              kind: "existing",
+              record: {
+                state: "accepted",
+                fingerprint,
+                result: {
+                  id: "sms_1",
+                  provider: "memory",
+                  providerId: "p1",
+                  handoff: "accepted",
+                  delivery: "queued",
+                  encoding: "gsm7",
+                  segments: 1,
+                  attemptedProviders: ["memory"],
+                  attempts: [
+                    { provider: "memory", attempt: 1, outcome: "unknown", reason: "stale_reservation", durationMs: 5 },
+                  ],
+                  replayed: false,
+                },
+              },
+            } as unknown as never;
+          },
+          async finalize() {
+            return { kind: "finalized" };
+          },
+        },
+      },
+    });
+    await expect(
+      badAttemptReasonClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-reason" }),
+    ).rejects.toBeInstanceOf(ConfigurationError);
+
+    let clReads = 0;
+    let grReads = 0;
+    const whPayload = new TextEncoder().encode(
+      JSON.stringify([{ type: "message-delivered", message: { id: "m1", from: "+15005550006", to: ["+14155550123"] } }]),
+    );
+    let whSent = false;
+    const { parseSmsWebhooks } = await import("../../src/webhooks/index.js");
+    await parseSmsWebhooks({
+      provider: "bandwidth",
+      credentials: { username: "u", password: "p" },
+      request: {
+        url: "https://example.com/wh",
+        method: "POST",
+        bodyUsed: false,
+        headers: {
+          get(n: string) {
+            if (n.toLowerCase() === "content-length") {
+              clReads += 1;
+              return String(whPayload.byteLength);
+            }
+            if (n.toLowerCase() === "authorization") return `Basic ${btoa("u:p")}`;
+            return null;
+          },
+        },
+        body: {
+          locked: false,
+          get getReader() {
+            grReads += 1;
+            return () => ({
+              async read() {
+                if (whSent) return { done: true, value: undefined };
+                whSent = true;
+                return { done: false, value: whPayload };
+              },
+            });
+          },
+        },
+      } as unknown as Request,
+    });
+    expect(clReads).toBe(1);
+    expect(grReads).toBe(1);
   });
 });

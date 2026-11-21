@@ -90,8 +90,8 @@ export class SmsError extends Error {
 
 /** Client or adapter options are invalid. Nothing was sent. `retrySafe: true`. */
 export class ConfigurationError extends SmsError {
-  constructor(message: string) {
-    super(message, { code: "configuration", retrySafe: true });
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, { code: "configuration", retrySafe: true, cause: options?.cause });
     this.name = "ConfigurationError";
   }
 }

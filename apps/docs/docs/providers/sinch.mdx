@@ -59,7 +59,7 @@ Sinch sends from a long code, a toll-free number, a short code, or an alphanumer
 | --- | --- |
 | MMS (`mediaUrls`) | No |
 | Scheduling (`sendAt`) | Yes, sent as `send_at` |
-| Validity period (`validityPeriodSec`) | 1 to 2,592,000 seconds, sent as `expire_at` counted from the moment of the request |
+| Validity period (`validityPeriodSec`) | 1 to 2,592,000 seconds, sent as `expire_at` counted from `sendAt` when scheduled, or from the moment of the request otherwise |
 | Per-message `webhookUrl` | Yes, sent as `callback_url` |
 | Empty body | Not allowed |
 | Native idempotency | No. Use an [idempotency store](/sending/idempotency). |

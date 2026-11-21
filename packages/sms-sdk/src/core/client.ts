@@ -21,7 +21,7 @@ import {
 } from "./errors.js";
 import { emitHook, type SendAttempt, type SmsHookEventBase } from "./events.js";
 import { freezeCapabilities, freezeProviderOptionsSpec, freezeSender, isPlainObject, isRecord, sanitizeProviderDetails } from "./http.js";
-import { DELIVERIES, runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
+import { DELIVERIES, UNKNOWN_REASONS, runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
 import { lookupOnce } from "./lookup.js";
@@ -554,13 +554,14 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         throw new IdempotencyConflictError(key);
       }
       const result = await running.promise;
-      return { ...result, replayed: true };
+      return cloneSendResult(result, true);
     }
 
     const promise = sendWithKey({ input, candidates, preview, signal, key, fingerprint });
     inFlight.set(key, { fingerprint, promise });
     try {
-      return await promise;
+      const result = await promise;
+      return cloneSendResult(result, result.replayed);
     } finally {
       inFlight.delete(key);
     }
@@ -615,7 +616,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       if (error instanceof SmsError) {
         throw error;
       }
-      throw new ConfigurationError("idempotency.store.reserve() could not complete. Nothing was sent by this call.");
+      throw new ConfigurationError(
+        "idempotency.store.reserve() could not complete. Nothing was sent by this call.",
+        { cause: error },
+      );
     }
     const reserved = snapshotReserveResult(rawReserved);
     if (reserved.kind === "reserved") {
@@ -813,14 +817,18 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       attempts: chain.attempts,
       replayed: false,
     };
-    await finalize({ state: "accepted", fingerprint: reservation?.fingerprint ?? "", result });
+    await finalize({
+      state: "accepted",
+      fingerprint: reservation?.fingerprint ?? "",
+      result: cloneSendResult(result, false),
+    });
     emitHook(hooks.onAccepted, {
       ...base,
       provider: result.provider,
       providerId: result.providerId,
       attempts: result.attempts.map((attempt) => ({ ...attempt })),
     });
-    return result;
+    return cloneSendResult(result, false);
   };
 
   const getMessage = async (
@@ -978,7 +986,7 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
           !Number.isSafeInteger(segments) ||
           segments < 0 ||
           attemptedProviders === undefined ||
-          !attemptedProviders.every((name) => typeof name === "string") ||
+          !attemptedProviders.every((name) => typeof name === "string" && name.length > 0) ||
           !Array.isArray(attempts) ||
           typeof replayed !== "boolean"
         ) {
@@ -1036,6 +1044,15 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
   }
 }
 
+function cloneSendResult(result: SmsSendResult, replayed: boolean): SmsSendResult {
+  return {
+    ...result,
+    attemptedProviders: [...result.attemptedProviders],
+    attempts: result.attempts.map((attempt) => ({ ...attempt })),
+    replayed,
+  };
+}
+
 const STORED_REJECTION_CATEGORIES: ReadonlySet<unknown> = new Set([
   "auth",
   "rate_limited",
@@ -1044,18 +1061,6 @@ const STORED_REJECTION_CATEGORIES: ReadonlySet<unknown> = new Set([
   "recipient",
   "compliance",
   "request",
-]);
-
-const STORED_UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
-  "network",
-  "timeout",
-  "aborted",
-  "malformed_response",
-  "server_error",
-  "unexpected_status",
-  "adapter_exception",
-  "stale_reservation",
-  "replayed_unknown",
 ]);
 
 /** Copies and validates persisted attempt entries at the store boundary. */
@@ -1103,7 +1108,7 @@ function snapshotStoredAttempts(raw: unknown[]): readonly SendAttempt[] {
       const http = details.httpStatus === undefined ? {} : { httpStatus: details.httpStatus };
       if (outcome === "unknown") {
         const reason = entry["reason"];
-        if (!STORED_UNKNOWN_REASONS.has(reason)) return invalid();
+        if (!UNKNOWN_REASONS.has(reason)) return invalid();
         return Object.freeze({
           ...base,
           outcome,

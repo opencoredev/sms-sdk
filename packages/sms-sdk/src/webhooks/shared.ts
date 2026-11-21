@@ -27,6 +27,8 @@ export async function readWebhookRequest(request: Request, provider: WebhookProv
   let body: ReadableStream<Uint8Array> | null;
   let bodyUsed: boolean;
   let bodyLocked = false;
+  let contentLength: string | null = null;
+  let bodyGetReader: ReadableStream<Uint8Array>["getReader"] | undefined;
   try {
     if (!isRecord(request)) {
       throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
@@ -36,19 +38,22 @@ export async function readWebhookRequest(request: Request, provider: WebhookProv
     method = request.method;
     body = request.body;
     bodyUsed = request.bodyUsed;
+    const rawGetReader = body !== null && isRecord(body) ? body.getReader : undefined;
     if (
       !isRecord(headers) ||
       typeof headers.get !== "function" ||
       typeof url !== "string" ||
       typeof method !== "string" ||
-      (body !== null && (!isRecord(body) || typeof body.getReader !== "function"))
+      (body !== null && typeof rawGetReader !== "function")
     ) {
       throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
     }
+    bodyGetReader = rawGetReader as ReadableStream<Uint8Array>["getReader"] | undefined;
     const probe = headers.get("content-length");
     if (probe !== null && typeof probe !== "string") {
       throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
     }
+    contentLength = probe;
     if (body !== null) {
       const locked =
         body instanceof ReadableStream && readableStreamLockedGetter !== undefined
@@ -65,9 +70,19 @@ export async function readWebhookRequest(request: Request, provider: WebhookProv
   if (bodyUsed === true || bodyLocked) {
     throw new ConfigurationError(`The ${provider} webhook request body is locked or has already been read.`);
   }
+  const singleReadSource = {
+    headers: { get: () => contentLength } as unknown as Headers,
+    body:
+      body === null
+        ? null
+        : ({
+            getReader: () => bodyGetReader!.call(body),
+            cancel: () => body.cancel?.(),
+          } as unknown as ReadableStream<Uint8Array>),
+  };
   let text: string | undefined;
   try {
-    text = await readBoundedText({ headers, body }, MAX_WEBHOOK_BYTES);
+    text = await readBoundedText(singleReadSource, MAX_WEBHOOK_BYTES);
   } catch (cause) {
     throw new WebhookPayloadError(`The ${provider} webhook body could not be read.`, {
       provider,

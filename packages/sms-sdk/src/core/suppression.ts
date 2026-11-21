@@ -73,8 +73,24 @@ export function memorySuppressionList(initial: Iterable<string> = []): MemorySup
  * To combine it with other checks, call it from your own `beforeSend`.
  */
 export function suppressionPolicy(list: SuppressionList): (context: BeforeSendContext) => Promise<PolicyDecision> {
+  let hasFn: SuppressionList["has"];
+  try {
+    if (!isRecord(list)) {
+      throw new ConfigurationError("suppressionPolicy() requires a valid SuppressionList.");
+    }
+    const rawHas = list["has"];
+    if (typeof rawHas !== "function") {
+      throw new ConfigurationError("suppressionPolicy() requires a valid SuppressionList.");
+    }
+    hasFn = (rawHas as SuppressionList["has"]).bind(list);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("suppressionPolicy() requires a valid SuppressionList.");
+  }
   return async (context) =>
-    (await list.has(context.message.to)) ? { kind: "reject", reason: "recipient suppressed" } : { kind: "allow" };
+    (await hasFn(context.message.to)) ? { kind: "reject", reason: "recipient suppressed" } : { kind: "allow" };
 }
 
 /** The webhook event fields {@link applySuppressionEvent} reads. Every `SmsEvent` fits. */
@@ -89,7 +105,23 @@ export async function applySuppressionEvent(
   list: SuppressionList,
   event: SuppressionEventInput,
 ): Promise<"added" | "removed" | "ignored"> {
-  if (!isRecord(list) || typeof list.add !== "function" || typeof list.remove !== "function") {
+  let addFn: SuppressionList["add"];
+  let removeFn: SuppressionList["remove"];
+  try {
+    if (!isRecord(list)) {
+      throw new ConfigurationError("applySuppressionEvent() requires a valid SuppressionList.");
+    }
+    const rawAdd = list["add"];
+    const rawRemove = list["remove"];
+    if (typeof rawAdd !== "function" || typeof rawRemove !== "function") {
+      throw new ConfigurationError("applySuppressionEvent() requires a valid SuppressionList.");
+    }
+    addFn = (rawAdd as SuppressionList["add"]).bind(list);
+    removeFn = (rawRemove as SuppressionList["remove"]).bind(list);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
     throw new ConfigurationError("applySuppressionEvent() requires a valid SuppressionList.");
   }
   let from: unknown;
@@ -111,10 +143,10 @@ export async function applySuppressionEvent(
   }
   switch (type) {
     case "recipient.opted_out":
-      await list.add(from);
+      await addFn(from);
       return "added";
     case "recipient.opted_in":
-      await list.remove(from);
+      await removeFn(from);
       return "removed";
     default:
       return "ignored";
