@@ -29,8 +29,11 @@ export async function computePlivoSignatureV2(input: {
   readonly url: string;
   readonly nonce: string;
 }): Promise<string> {
-  if (typeof input.authToken !== "string" || input.authToken.length === 0) {
+  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
     throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+  }
+  if (typeof input.nonce !== "string") {
+    throw new ConfigurationError("Plivo signature verification requires a string nonce.");
   }
   return toBase64(await hmac("SHA-256", input.authToken, plivoBaseUrl(input.url) + input.nonce));
 }
@@ -42,8 +45,11 @@ export async function verifyPlivoSignatureV2(input: {
   readonly nonce: string;
   readonly signature: string;
 }): Promise<boolean> {
-  if (typeof input.authToken !== "string" || input.authToken.length === 0) {
+  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
     throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+  }
+  if (typeof input.signature !== "string") {
+    throw new ConfigurationError("Plivo signature verification requires a string signature.");
   }
   const expected = await computePlivoSignatureV2(input);
   return timingSafeEqual(expected, input.signature);
@@ -163,12 +169,18 @@ function plivoMediaUrls(fields: Record<string, string>): string[] {
   return urls;
 }
 
-function plivoBaseUrl(url: string): string {
+function plivoBaseUrl(url: unknown): string {
+  if (typeof url !== "string" || url.length === 0) {
+    throw new ConfigurationError("Plivo signature verification requires a valid URL.");
+  }
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     throw new ConfigurationError("Plivo signature verification requires a valid URL.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ConfigurationError("Plivo signature verification requires an http or https URL.");
   }
   return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
 }

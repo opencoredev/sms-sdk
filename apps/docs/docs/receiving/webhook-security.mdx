@@ -50,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
 | `malformed_signature` | The signature, token, or timestamp cannot be decoded. |
 | `invalid_credentials` | The credential you passed is malformed, such as a Telnyx public key that is not 32 bytes of base64. |
 
-`WebhookPayloadError` means either the request body exceeded the 1 MiB limit (`error.reason === "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413) or the request was authentic but lacks required fields (respond with 400).
+`WebhookPayloadError` means the request body exceeded the 1 MiB limit (`error.reason === "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), the request body stream failed or aborted while reading (`error.reason === "body_unreadable"`; respond with 400), or the request was authentic but lacks required fields (respond with 400).
 
 ## How each provider signs
 

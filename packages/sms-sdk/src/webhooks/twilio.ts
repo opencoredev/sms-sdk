@@ -30,8 +30,12 @@ export async function computeTwilioSignature(input: {
   readonly url: string;
   readonly params: ReadonlyArray<readonly [string, string]>;
 }): Promise<string> {
-  if (typeof input.authToken !== "string" || input.authToken.length === 0) {
+  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
     throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
+  }
+  validateTwilioUrl(input.url);
+  if (!Array.isArray(input.params)) {
+    throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
   }
   const grouped = new Map<string, string[]>();
   for (const [key, value] of input.params) {
@@ -56,8 +60,14 @@ export async function verifyTwilioSignature(input: {
   readonly params: ReadonlyArray<readonly [string, string]>;
   readonly signature: string;
 }): Promise<boolean> {
-  if (typeof input.authToken !== "string" || input.authToken.length === 0) {
+  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
     throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
+  }
+  if (!Array.isArray(input.params)) {
+    throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
+  }
+  if (typeof input.signature !== "string") {
+    throw new ConfigurationError("Twilio signature verification requires a string signature.");
   }
   for (const url of urlVariants(input.url)) {
     const expected = await computeTwilioSignature({ authToken: input.authToken, url, params: input.params });
@@ -219,24 +229,38 @@ function jsonParams(rawBody: string): Array<[string, string]> {
   );
 }
 
-function urlVariants(url: string): string[] {
+function validateTwilioUrl(url: unknown): URL {
+  if (typeof url !== "string" || url.length === 0) {
+    throw new ConfigurationError("Twilio signature verification requires a valid URL.");
+  }
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     throw new ConfigurationError("Twilio signature verification requires a valid URL.");
   }
-  const defaultPort = parsed.protocol === "https:" ? "443" : parsed.protocol === "http:" ? "80" : undefined;
-  if (defaultPort === undefined) {
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ConfigurationError("Twilio signature verification requires an http or https URL.");
+  }
+  return parsed;
+}
+
+function urlVariants(url: string): string[] {
+  const parsed = validateTwilioUrl(url);
+  const defaultPort = parsed.protocol === "https:" ? "443" : "80";
+  const match = url.match(/^([a-z]+:\/\/(?:\[[^\]]+\]|[^/?#:]+))(?::(\d+))?(?=[/?#]|$)/i);
+  if (match === null) {
     return [url];
   }
-  const explicitPort = url.match(/^[a-z]+:\/\/[^/?#]*:(\d+)/i)?.[1];
+  const [, originNoPort, explicitPort] = match;
+  if (originNoPort === undefined) {
+    return [url];
+  }
   if (explicitPort === undefined) {
-    const withPort = url.replace(/^([a-z]+:\/\/[^/?#]+)/i, `$1:${defaultPort}`);
-    return [url, withPort];
+    return [url, `${originNoPort}:${defaultPort}${url.slice(originNoPort.length)}`];
   }
   if (explicitPort === defaultPort) {
-    return [url, url.replace(`:${defaultPort}`, "")];
+    return [url, `${originNoPort}${url.slice(match[0].length)}`];
   }
   return [url];
 }

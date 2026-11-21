@@ -61,7 +61,7 @@ Per-provider options:
 ### Throws
 
 - `WebhookSignatureError` (`code: "webhook_signature"`) when the request is not authentic. `reason` is `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, or `invalid_credentials`. Respond 401 or 403.
-- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of losing all but one.
+- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), the request body stream fails or aborts while reading (`reason: "body_unreadable"`; respond 400), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of losing all but one.
 - `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, `request` is missing, malformed, or has a locked body, `provider` is unsupported, `publicUrl` is invalid or non-http(s), `now` is not a function, `credentials` are missing or malformed (including empty Basic or HMAC secrets, an unknown Sinch `kind`, or Basic credentials containing characters outside Latin-1), or `toleranceSec` is negative, `NaN`, non-finite, or not a number.
 
 ## `parseSmsWebhooks(options)`
@@ -271,7 +271,7 @@ Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out"
 
 ## Verify helpers
 
-These check a signature without parsing, for example in middleware. They throw `ConfigurationError` when the secret/key is empty or `toleranceSec` is invalid.
+These check a signature without parsing, for example in middleware. They throw `ConfigurationError` when the secret/key is empty, `toleranceSec` is invalid, or (for Twilio and Plivo) `url` is invalid or non-http(s).
 
 ### `verifyTwilioSignature({ authToken, url, params, signature })`
 

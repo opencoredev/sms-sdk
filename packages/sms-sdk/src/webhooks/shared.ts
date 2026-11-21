@@ -6,6 +6,11 @@ import type { SmsEvent, WebhookProvider } from "./events.js";
 /** Largest inbound webhook body read before verification, in bytes (1 MiB). */
 export const MAX_WEBHOOK_BYTES = MAX_RESPONSE_BYTES;
 
+const readableStreamLockedGetter =
+  typeof ReadableStream === "function"
+    ? Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    : undefined;
+
 /** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
 export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
   let headers: Headers;
@@ -34,7 +39,11 @@ export async function readWebhookBody(request: Request, provider: WebhookProvide
     }
     headers.get("content-length");
     if (body !== null) {
-      bodyLocked = body.locked === true;
+      const locked =
+        body instanceof ReadableStream && readableStreamLockedGetter !== undefined
+          ? readableStreamLockedGetter.call(body)
+          : body.locked;
+      bodyLocked = locked === true;
     }
   } catch (error) {
     if (error instanceof ConfigurationError) {
@@ -47,7 +56,7 @@ export async function readWebhookBody(request: Request, provider: WebhookProvide
   }
   let text: string | undefined;
   try {
-    text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
+    text = await readBoundedText({ headers, body }, MAX_WEBHOOK_BYTES);
   } catch (cause) {
     throw new WebhookPayloadError(`The ${provider} webhook body could not be read.`, {
       provider,
@@ -167,7 +176,11 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new ConfigurationError("publicUrl must use http or https.");
     }
-    if (parsed.username.length > 0 || parsed.password.length > 0) {
+    if (
+      parsed.username.length > 0 ||
+      parsed.password.length > 0 ||
+      /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(options.publicUrl)
+    ) {
       throw new ConfigurationError("publicUrl must not include credentials.");
     }
     if (parsed.search === "" && options.publicUrl.includes("?")) {
@@ -184,7 +197,7 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
         provider: provider ?? "webhook",
       });
     }
-    if (/[\\/?#@\s]/.test(host)) {
+    if (/[\\/?#@\s\p{Cc}\p{Cf}\p{Z}]/u.test(host) || host === "." || host === "..") {
       throw new WebhookSignatureError("Invalid forwarded host header.", {
         reason: "invalid_signature",
         provider: provider ?? "webhook",

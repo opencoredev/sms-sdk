@@ -25,7 +25,11 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ConfigurationError(`${provider} baseUrl must use http or https.`);
   }
-  if (parsed.username.length > 0 || parsed.password.length > 0) {
+  if (
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(baseUrl)
+  ) {
     throw new ConfigurationError(`${provider} baseUrl must not include credentials.`);
   }
   if (parsed.search.length > 0 || parsed.hash.length > 0) {

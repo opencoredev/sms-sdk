@@ -23,6 +23,8 @@ import { telnyx } from "../../src/providers/telnyx.js";
 import { twilio } from "../../src/providers/twilio.js";
 import { vonage } from "../../src/providers/vonage.js";
 import {
+  computePlivoSignatureV2,
+  computeTwilioSignature,
   parseSmsWebhook,
   verifyPlivoSignatureV2,
   verifySinchSignature,
@@ -1048,5 +1050,171 @@ describe("malformed runtime input", () => {
       providerOptions: { a: { extra: JSON.parse('{"__proto__":"x"}') } } as NonNullable<SmsSendInput["providerOptions"]>,
     });
     expect(result.issues.length).toBeGreaterThan(0);
+  });
+
+  test("snapshots send input against post-validation mutation, validates signature helper URLs/IPv6, clones regexes, and hardens spoofed streams", async () => {
+    // 1. Post-validation mutation of mediaUrls, sendAt, or getters cannot bypass validation
+    let receivedMedia: readonly string[] = [];
+    let receivedSendAt: Date | undefined;
+    let receivedTo = "";
+    const base = memory({ name: "a" });
+    const spy = {
+      ...base,
+      capabilities: { ...base.capabilities, mms: true, scheduling: true },
+      send: async (msg: Parameters<typeof base.send>[0], ctx: Parameters<typeof base.send>[1]) => {
+        receivedMedia = msg.mediaUrls;
+        receivedSendAt = msg.sendAt;
+        receivedTo = msg.to;
+        return base.send(msg, ctx);
+      },
+    };
+    const sms = createSmsClient({
+      adapters: [spy],
+      beforeSend: ({ message }) => {
+        message.sendAt?.setTime(Number.NaN);
+        return { kind: "allow" };
+      },
+    });
+    const mediaUrls = ["https://example.com/ok.png"];
+    const sendAt = new Date(Date.now() + 600_000);
+    const originalTime = sendAt.getTime();
+    let toReads = 0;
+    const tricky = {
+      get to() {
+        toReads += 1;
+        return (toReads === 1 ? "+14155550123" : "not-a-number") as "+14155550123";
+      },
+      body: "hi",
+      mediaUrls,
+      sendAt,
+    } satisfies SmsSendInput;
+    const p = sms.send(tricky);
+    mediaUrls.push("javascript:alert(1)");
+    sendAt.setTime(Number.NaN);
+    await p;
+    expect(receivedMedia).toEqual(["https://example.com/ok.png"]);
+    expect(receivedSendAt?.getTime()).toBe(originalTime);
+    expect(receivedTo).toBe("+14155550123");
+
+    // 2. computeTwilioSignature / verifyTwilioSignature / Plivo helpers reject invalid & non-http(s) URLs and handle IPv6
+    for (const badUrl of ["not-a-url", "", "ftp://example.com/hook", "file:///etc/passwd"]) {
+      expect(await rejection(computeTwilioSignature({ authToken: "tok", url: badUrl, params: [] }))).toBeInstanceOf(
+        ConfigurationError,
+      );
+      expect(
+        await rejection(verifyTwilioSignature({ authToken: "tok", url: badUrl, params: [], signature: "x" })),
+      ).toBeInstanceOf(ConfigurationError);
+      expect(await rejection(computePlivoSignatureV2({ authToken: "tok", url: badUrl, nonce: "1" }))).toBeInstanceOf(
+        ConfigurationError,
+      );
+      expect(
+        await rejection(verifyPlivoSignatureV2({ authToken: "tok", url: badUrl, nonce: "1", signature: "x" })),
+      ).toBeInstanceOf(ConfigurationError);
+    }
+    const ipv6Sig = await computeTwilioSignature({
+      authToken: "tok",
+      url: "https://[::1]:443/hook",
+      params: [["a", "1"]],
+    });
+    expect(
+      await verifyTwilioSignature({
+        authToken: "tok",
+        url: "https://[::1]/hook",
+        params: [["a", "1"]],
+        signature: ipv6Sig,
+      }),
+    ).toBe(true);
+
+    // 3. Empty userinfo (@) rejected in baseUrl and publicUrl; trustProxy rejects \p{Cf} and "." / ".."
+    expect(() => twilio({ accountSid: TWILIO_SID, authToken: "tok", baseUrl: "https://@example.com" })).toThrow(
+      ConfigurationError,
+    );
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: new Request("https://example.com/hook", { method: "POST", body: "" }),
+          publicUrl: "https://@example.com/hook",
+          credentials: { authToken: "tok" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+    for (const badHost of ["evil.com\u200B", ".", ".."]) {
+      const hdrs = new Map([
+        ["x-forwarded-proto", "https"],
+        ["x-forwarded-host", badHost],
+      ]);
+      expect(
+        await rejection(
+          parseSmsWebhook({
+            provider: "twilio",
+            request: {
+              url: "https://example.com/hook",
+              method: "POST",
+              headers: { get: (k: string) => hdrs.get(k.toLowerCase()) ?? null },
+              body: null,
+              bodyUsed: false,
+            } as unknown as Request,
+            trustProxy: true,
+            credentials: { authToken: "tok" },
+          }),
+        ),
+      ).toBeInstanceOf(WebhookSignatureError);
+    }
+
+    // 4. Prototype-spoofed ReadableStream with own locked: false throws ConfigurationError
+    const fakeStream = Object.create(ReadableStream.prototype);
+    Object.defineProperty(fakeStream, "locked", { value: false, configurable: true });
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: {
+            url: "https://example.com/hook",
+            method: "POST",
+            headers: new Headers(),
+            body: fakeStream,
+            bodyUsed: false,
+          } as unknown as Request,
+          credentials: { authToken: "tok" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // 5. Stateful /g regex in providerOptions works repeatedly across sends
+    const regexClient = createSmsClient({
+      adapters: [
+        {
+          ...base,
+          providerOptions: {
+            options: { tag: { type: "string", wire: "tag", pattern: /^ok$/g } },
+            reserved: [],
+          },
+        },
+      ],
+    });
+    await regexClient.send({
+      to: "+14155550123",
+      body: "1",
+      providerOptions: { a: { tag: "ok" } } as NonNullable<SmsSendInput["providerOptions"]>,
+    });
+    await regexClient.send({
+      to: "+14155550123",
+      body: "2",
+      providerOptions: { a: { tag: "ok" } } as NonNullable<SmsSendInput["providerOptions"]>,
+    });
+
+    // 6. Throwing options Proxy throws ConfigurationError
+    expect(
+      await rejection(
+        parseSmsWebhook(
+          new Proxy({} as never, {
+            get() {
+              throw new Error("proxy boom");
+            },
+          }),
+        ),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
   });
 });

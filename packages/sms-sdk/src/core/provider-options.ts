@@ -183,8 +183,11 @@ function readValue(field: ProviderOptionField, value: unknown): ValueRead {
       if (field.maxLength !== undefined && value.length > field.maxLength) {
         return bad(`must be at most ${field.maxLength} characters`);
       }
-      if (field.pattern !== undefined && !field.pattern.test(value)) {
-        return bad(`must match ${field.pattern.source}`);
+      if (field.pattern !== undefined) {
+        const pattern = new RegExp(field.pattern.source, field.pattern.flags);
+        if (!pattern.test(value)) {
+          return bad(`must match ${field.pattern.source}`);
+        }
       }
       return { kind: "ok", value };
     case "integer":

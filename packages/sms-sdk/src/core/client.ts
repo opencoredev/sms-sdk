@@ -197,8 +197,79 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   const inFlight = new Map<string, InFlight>();
   const configuredAdapters = new Set(adapters.map((adapter) => adapter.name));
 
-  const validate = (input: SmsSendInput): SmsValidationResult => {
-    if (!isRecord(input)) {
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+function freezeShallowRecord(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    defineOwn(copy, key, value[key]);
+  }
+  return Object.freeze(copy);
+}
+
+function freezeProviderOptions(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const entry = value[key];
+    if (isRecord(entry)) {
+      const entryCopy: Record<string, unknown> = {};
+      for (const optKey of Object.keys(entry)) {
+        const optVal = entry[optKey];
+        defineOwn(entryCopy, optKey, optKey === "extra" ? freezeShallowRecord(optVal) : optVal);
+      }
+      defineOwn(copy, key, Object.freeze(entryCopy));
+    } else {
+      defineOwn(copy, key, entry);
+    }
+  }
+  return Object.freeze(copy);
+}
+
+function snapshotSendInput(raw: SmsSendInput): SmsSendInput {
+  const source = raw as unknown as Record<string, unknown>;
+  const mediaUrls = source["mediaUrls"];
+  const sendAt = source["sendAt"];
+  const snapshot: Record<string, unknown> = {
+    to: source["to"],
+    body: source["body"],
+  };
+  if (source["from"] !== undefined) {
+    snapshot["from"] = source["from"];
+  }
+  if (source["fromByAdapter"] !== undefined) {
+    snapshot["fromByAdapter"] = freezeShallowRecord(source["fromByAdapter"]);
+  }
+  if (mediaUrls !== undefined) {
+    snapshot["mediaUrls"] = Array.isArray(mediaUrls) ? Object.freeze([...mediaUrls]) : mediaUrls;
+  }
+  if (sendAt !== undefined) {
+    snapshot["sendAt"] = sendAt instanceof Date ? new Date(sendAt.getTime()) : sendAt;
+  }
+  if (source["validityPeriodSec"] !== undefined) {
+    snapshot["validityPeriodSec"] = source["validityPeriodSec"];
+  }
+  if (source["webhookUrl"] !== undefined) {
+    snapshot["webhookUrl"] = source["webhookUrl"];
+  }
+  if (source["idempotencyKey"] !== undefined) {
+    snapshot["idempotencyKey"] = source["idempotencyKey"];
+  }
+  if (source["providerOptions"] !== undefined) {
+    snapshot["providerOptions"] = freezeProviderOptions(source["providerOptions"]);
+  }
+  return Object.freeze(snapshot) as unknown as SmsSendInput;
+}
+
+  const validate = (rawInput: SmsSendInput): SmsValidationResult => {
+    if (!isRecord(rawInput)) {
       return {
         ...estimateSegments(""),
         supported: false,
@@ -207,6 +278,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         providerOptionsFor: [],
       };
     }
+    const input = snapshotSendInput(rawInput);
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const messageIssues = [
       ...validateMessage(input, configuredAdapters),
@@ -237,14 +309,15 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     };
   };
 
-  const send = async (input: SmsSendInput, sendOptions: SmsSendOptions = {}): Promise<SmsSendResult> => {
+  const send = async (rawInput: SmsSendInput, sendOptions: SmsSendOptions = {}): Promise<SmsSendResult> => {
     if (!isRecord(sendOptions)) {
       throw new ConfigurationError("send options must be an object.");
     }
     const signal = requireOptionalSignal(sendOptions.signal, "send");
-    if (!isRecord(input)) {
+    if (!isRecord(rawInput)) {
       throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
     }
+    const input = snapshotSendInput(rawInput);
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const candidates = buildCandidates(input);
     if (signal?.aborted === true) {
@@ -416,7 +489,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       let kind: unknown;
       let reason: unknown;
       try {
-        const decision: unknown = await options.beforeSend({ id, message: input, encoding: preview.encoding, segments: preview.segments });
+        const policyMessage: SmsSendInput =
+          input.sendAt instanceof Date
+            ? Object.freeze({ ...input, sendAt: new Date(input.sendAt.getTime()) })
+            : input;
+        const decision: unknown = await options.beforeSend({
+          id,
+          message: policyMessage,
+          encoding: preview.encoding,
+          segments: preview.segments,
+        });
         if (isRecord(decision)) {
           isObj = true;
           kind = decision["kind"];
