@@ -39,43 +39,53 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./twilio": {
       "types": "./dist/providers/twilio.d.ts",
-      "import": "./dist/providers/twilio.js"
+      "import": "./dist/providers/twilio.js",
+      "default": "./dist/providers/twilio.js"
     },
     "./telnyx": {
       "types": "./dist/providers/telnyx.d.ts",
-      "import": "./dist/providers/telnyx.js"
+      "import": "./dist/providers/telnyx.js",
+      "default": "./dist/providers/telnyx.js"
     },
     "./plivo": {
       "types": "./dist/providers/plivo.d.ts",
-      "import": "./dist/providers/plivo.js"
+      "import": "./dist/providers/plivo.js",
+      "default": "./dist/providers/plivo.js"
     },
     "./vonage": {
       "types": "./dist/providers/vonage.d.ts",
-      "import": "./dist/providers/vonage.js"
+      "import": "./dist/providers/vonage.js",
+      "default": "./dist/providers/vonage.js"
     },
     "./bandwidth": {
       "types": "./dist/providers/bandwidth.d.ts",
-      "import": "./dist/providers/bandwidth.js"
+      "import": "./dist/providers/bandwidth.js",
+      "default": "./dist/providers/bandwidth.js"
     },
     "./sinch": {
       "types": "./dist/providers/sinch.d.ts",
-      "import": "./dist/providers/sinch.js"
+      "import": "./dist/providers/sinch.js",
+      "default": "./dist/providers/sinch.js"
     },
     "./webhooks": {
       "types": "./dist/webhooks/index.d.ts",
-      "import": "./dist/webhooks/index.js"
+      "import": "./dist/webhooks/index.js",
+      "default": "./dist/webhooks/index.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
-      "import": "./dist/testing/index.js"
+      "import": "./dist/testing/index.js",
+      "default": "./dist/testing/index.js"
     },
     "./encoding": {
       "types": "./dist/core/encoding.d.ts",
-      "import": "./dist/core/encoding.js"
+      "import": "./dist/core/encoding.js",
+      "default": "./dist/core/encoding.js"
     },
     "./package.json": "./package.json"
   },
@@ -89,6 +99,7 @@
     "prepack": "bun run build"
   },
   "devDependencies": {
+    "@sms-sdk/config": "workspace:*",
     "@types/bun": "^1.3.4",
     "@types/node": "^25.9.4",
     "typescript": "^5.8.3"

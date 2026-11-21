@@ -160,7 +160,7 @@ Here Twilio replaces the curly quotes with plain ones. Typed options, the `extra
 
 ## Cancel a send
 
-Pass an `AbortSignal` to stop waiting. If no request had started, `send()` throws `SendAbortedError` and it is safe to send later. If the request was in flight, it throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
+Pass an `AbortSignal` to stop waiting. If no request had started (and no other coalesced caller is keeping the same-key send active), `send()` throws `SendAbortedError` and it is safe to send later. If the request was in flight or another caller keeps the coalesced send active, it throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
 
 ```ts
 import { sms } from "./sms";

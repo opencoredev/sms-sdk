@@ -674,6 +674,10 @@ The handler in [Build it with SMS SDK](#1-create-the-client-and-handlers) is the
 
 `OptOutType` appears when Advanced Opt-Out is on for the Messaging Service. `dedupeKey` is `twilio:{MessageSid}:{status}` for status updates and `twilio:{MessageSid}:received` for inbound messages.
 
+## Look up a message
+
+`sms.getMessage(sid, { adapter: "twilio" })` fetches the Message resource (`GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`) and maps its `status` the same way as a status webhook (mapping error `30007` to `filtered`), with `error_code` as `errorCode` for a failed message. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
+
 ## Limitations
 
 - Scheduling needs a Messaging Service sender. To schedule from a plain number, use Telnyx.

@@ -94,13 +94,15 @@ await sms.send({
 
 Bandwidth posts delivery and inbound events to the callback URL on your messaging application. Set callback credentials on that application, then pass the same values to the parser. The credentials are required.
 
+A Bandwidth callback body is an array and can hold more than one event, so read it with `parseSmsWebhooks`, which returns every event in order. `parseSmsWebhook` returns a single event and throws `WebhookPayloadError` for a multi-event callback rather than drop events.
+
 ```ts
-import { parseSmsWebhook, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
+import { parseSmsWebhooks, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
 import { db } from "./db";
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const event = await parseSmsWebhook({
+    const events = await parseSmsWebhooks({
       provider: "bandwidth",
       request,
       credentials: {
@@ -108,8 +110,10 @@ export async function POST(request: Request): Promise<Response> {
         password: process.env.BANDWIDTH_CALLBACK_PASSWORD ?? "",
       },
     });
-    if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
-      console.log(event.type);
+    for (const event of events) {
+      if (await db.webhookEvents.insertIfNew(event.dedupeKey)) {
+        console.log(event.type);
+      }
     }
     return new Response(null, { status: 204 });
   } catch (error) {
@@ -129,7 +133,11 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 | `message-failed` | `message.undelivered` |
 | anything else | `unrecognized` |
 
-`dedupeKey` is `bandwidth:{messageId}:{type}`.
+`dedupeKey` is `bandwidth:{messageId}:{to}:{type}` for status events when `to` is present (and `bandwidth:{messageId}:{type}` for inbound or summary events).
+
+## Look up a message
+
+`sms.getMessage(providerId, { adapter: "bandwidth" })` reads the List Messages endpoint (`GET /api/v2/users/{accountId}/messages?messageId={id}`) and maps `messageStatus`: `ACCEPTED`, `QUEUED`, and `SENDING` are `queued`, `SENT` is `sent`, `DELIVERED` is `delivered`, and `FAILED` and `UNDELIVERED` are `undelivered`. It returns `undefined` when Bandwidth has no message with that ID. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

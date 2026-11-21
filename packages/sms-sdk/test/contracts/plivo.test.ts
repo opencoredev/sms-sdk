@@ -56,6 +56,19 @@ const plivoFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 202, body: { message: "message(s) queued", message_uuid: [] } },
   serverError: { status: 500, body: { api_id: "a4", error: "server error" } },
+  lookup: {
+    providerId: UUID,
+    request: {
+      url: `https://api.plivo.com/v1/Account/${AUTH_ID}/Message/${UUID}/`,
+      headers: { authorization: `Basic ${btoa(`${AUTH_ID}:${AUTH_TOKEN}`)}`, accept: "application/json" },
+    },
+    found: {
+      response: { status: 200, body: { api_id: "a5", message_uuid: UUID, message_state: "delivered", error_code: "000", to_number: "14155550123" } },
+      delivery: "delivered",
+      providerStatus: "delivered",
+    },
+    notFound: { status: 404, body: { api_id: "a6", error: "not found" } },
+  },
   webhooks: {
     parse: (request) => parseSmsWebhook({ provider: "plivo", request, credentials: { authToken: AUTH_TOKEN } }),
     cases: [

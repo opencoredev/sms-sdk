@@ -43,9 +43,10 @@ try {
 | `IdempotencyConflictError` | `idempotency_conflict` | false | Use a new key for a different message. |
 | `IdempotencyInProgressError` | `idempotency_in_progress` | true | Retry later. You get the other call's result. |
 | `WebhookSignatureError` | `webhook_signature` | false | Respond 401 or 403. Do not process the request. |
-| `WebhookPayloadError` | `webhook_payload` | false | Respond 400 and log. The request was authentic but incomplete. |
+| `WebhookPayloadError` | `webhook_payload` | false | Respond 413 if `reason === "body_too_large"`, otherwise 400 and log. |
+| `MessageLookupError` | `message_lookup_failed` | false | Try the lookup again later. Never resend because of it. |
 
-`createSmsClient` and the adapter factories throw `ConfigurationError`. `parseSmsWebhook` throws the two webhook errors. `send()` throws the rest.
+`createSmsClient`, the adapter factories, `send()`, `getMessage()`, and the webhook parsers throw `ConfigurationError` for invalid setup or malformed call options. `parseSmsWebhook` and `parseSmsWebhooks` throw the two webhook errors. `getMessage()` throws `MessageLookupError`. `send()` throws the rest.
 
 ## `SmsError`
 
@@ -58,10 +59,10 @@ The base class. Every error has these fields.
 | `message` | `string` | Human-readable explanation. Phone numbers are masked. |
 | `retrySafe` | `boolean` | See above. |
 | `attempts` | `readonly SendAttempt[]` | Provider requests made before the error, oldest first. Empty when nothing was sent. |
-| `provider` | `ProviderErrorInfo \| undefined` | Redacted provider details: `{ provider, httpStatus?, code?, message?, requestId? }`. `message` has numbers masked and is at most 200 characters. |
+| `provider` | `ProviderErrorInfo \| undefined` | Structural provider diagnostics: `{ provider, httpStatus?, code?, requestId? }`. Free-form provider response text is omitted so echoed bodies, credentials, or PII never leak into logs. |
 | `cause` | `unknown` | The original exception, when there was one. For debugging only. |
 
-`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider? }`. It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
+`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider?, providerName?, reason? }` (with `providerName` and `reason` included on `HandoffUnknownError`, `MessageLookupError`, `WebhookSignatureError`, and `WebhookPayloadError` when present). Serialized `providerName` and `provider.provider` values are sanitized to compact structural tokens (falling back to `"unknown"` for free-form or credential-shaped adapter names) while the in-memory `error.providerName` preserves the registered adapter name. It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
 
 `isSmsError(value)` is a type guard for any SDK error.
 
@@ -70,7 +71,9 @@ The base class. Every error has these fields.
 ### `ConfigurationError`
 
 - `code`: `configuration`. `retrySafe`: true.
-- Thrown by `createSmsClient` for no adapters, duplicate adapter names, or a non-positive `timeoutMs`, and by adapter factories for malformed credentials (a Twilio Account SID that is not `AC` plus 32 hex, an empty API key, a Vonage private key that is not a PEM).
+- Thrown by `createSmsClient` for missing options, no adapters, malformed adapters, duplicate adapter names, an invalid `fallback`, `hooks`, or `beforeSend`, a `timeoutMs` that is not a positive number up to `2147483647`, an `idempotency.ttlSec` or `staleReservationSec` that is not a whole number of seconds of at least 1, a malformed `idempotency` or `retry` option, or `retry` values out of range (`maxAttempts` outside 1 to 10, or a delay outside 0 to `2147483647`).
+- Thrown by adapter factories for missing or malformed options, an invalid or non-http(s) `baseUrl` (including credentials, query/fragment, or whitespace/control characters), an invalid Vonage `region`, a non-function `fetch`, or malformed or missing credentials (a Twilio Account SID that is not `AC` plus 32 hex, a missing or empty API key, a Vonage private key or `reportsCredentials` that is invalid, Basic credentials with characters outside Latin-1).
+- Thrown by `send()` for non-object options, a non-`AbortSignal` `signal`, or an `idempotency.store.reserve()` failure or malformed result, by `getMessage()` for an empty or dot-segment (`"."`, `".."`) `providerId`, non-object options, a non-`AbortSignal` `signal`, or an adapter that is not configured or cannot look messages up, by `memory()`/`memory().enqueue()` and suppression helpers (`memorySuppressionList`, `suppressionPolicy`, `applySuppressionEvent`) for malformed inputs, and by the webhook parsers and verify helpers for a missing/malformed/locked `request`, an unsupported provider, an invalid `publicUrl`, a non-function `now`, missing or malformed credentials (including empty Basic or HMAC secrets or an unknown Sinch credential `kind`), an invalid `toleranceSec` (negative, `NaN`, non-finite, or non-number), or `unsafeSkipVerification` while `NODE_ENV` is `"production"`.
 - Fix the configuration. Nothing was sent.
 
 ## Local validation
@@ -107,7 +110,7 @@ The base class. Every error has these fields.
 ### `PolicyRejectedError`
 
 - `code`: `policy_rejected`. `retrySafe`: true. Extra field: `reason: string`.
-- Your `beforeSend` returned `{ kind: "reject", reason }`. Nothing was sent and fallback never runs.
+- Your `beforeSend` returned `{ kind: "reject", reason }` or a malformed/unrecognized decision (failing closed). Nothing was sent and fallback never runs.
 - `message` is always "Send blocked by the beforeSend policy." Your `reason` may name a person or number, so it stays on `error.reason` only. It is not in `message`, `toJSON()`, hook payloads, or the idempotency store.
 - Respect the decision. An error thrown inside `beforeSend` is not wrapped in this class. It propagates as is.
 
@@ -118,7 +121,7 @@ The provider answered and proved it did not create the message. Sending the same
 ### `ProviderRejectedError`
 
 - `code`: `provider_rejected`. `retrySafe`: true.
-- Extra fields: `category: RejectionCategory`, `providerName: string`, `fallbackEligible: boolean`, and `provider` with the provider's HTTP status, error code, message, and request ID.
+- Extra fields: `category: RejectionCategory`, `providerName: string`, `fallbackEligible: boolean`, and `provider` with the provider's HTTP status, error code, and request ID.
 - What to do depends on `category`.
 
 | `category` | Falls back | Typical cause | What to do |
@@ -178,15 +181,15 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 ### `SendAbortedError`
 
 - `code`: `aborted`. `retrySafe`: true.
-- Your `signal` aborted before any request was sent, or while waiting to retry after a proven rate-limit rejection.
-- Send again when ready. An abort during a request throws `HandoffUnknownError` instead.
+- Your `signal` aborted before any request was sent, while waiting to retry after a proven rate-limit rejection, or on an `idempotencyKey` send whose underlying attempt proved the provider rejected the message.
+- Send again when ready. An in-flight abort whose provider outcome is accepted or unknown throws `HandoffUnknownError` instead.
 
 ## Idempotency
 
 ### `IdempotencyConflictError`
 
 - `code`: `idempotency_conflict`. `retrySafe`: false. Extra field: `idempotencyKey: string`.
-- The key was already used with a different `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or `providerOptions`. Nothing was sent.
+- The key was already used with a different `to`, `from`, `fromByAdapter`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or `providerOptions`. Nothing was sent.
 - Use a new key for a new message, such as a version suffix (`:v2`). Retrying with the same key and payload will keep failing.
 
 ### `IdempotencyInProgressError`
@@ -205,10 +208,17 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 
 ### `WebhookPayloadError`
 
-- `code`: `webhook_payload`. `retrySafe`: false. Extra field: `providerName: string`.
-- The signature was valid, but the payload is not valid JSON or lacks a required field such as `MessageSid`.
-- Respond with 400, log the provider and request, and report it if it looks like a new provider format.
+- `code`: `webhook_payload`. `retrySafe`: false. Extra fields: `providerName: string`, `reason?: "body_too_large" | "body_unreadable"`.
+- Either the request body exceeded the 1 MiB limit (`reason: "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), the request body stream failed or aborted while reading (`reason: "body_unreadable"`; respond with 400), or the signature was valid but the payload is not valid JSON or lacks a required field such as `MessageSid` (respond with 400, log the provider and request, and report it if it looks like a new provider format).
+
+## Message lookup
+
+### `MessageLookupError`
+
+- `code`: `message_lookup_failed`. `retrySafe`: false. Extra fields: `reason: LookupFailureReason`, `providerName: string`, `providerId: string`, and `provider` with the redacted response details when there was one.
+- `reason` is `network`, `timeout`, `aborted`, `malformed_response`, `server_error`, `unexpected_status`, `adapter_exception`, or, from a provider 4xx, `auth`, `rate_limited`, or `request`.
+- `getMessage()` could not read the provider's record. That says nothing about whether the message was sent, so it is never a reason to send again. Calling `getMessage()` again later is safe. Fix credentials for `auth`.
 
 ## Types
 
-`SmsErrorCode`, `SerializedSmsError`, `HandoffUnknownReason`, `WebhookFailureReason`, `RejectionCategory`, `UnknownReason`, and `ProviderErrorInfo` are exported as types from `@opencoredev/sms-sdk`. `WebhookSignatureError`, `WebhookPayloadError`, and `WebhookFailureReason` are also exported from `@opencoredev/sms-sdk/webhooks`.
+`SmsErrorCode`, `SerializedSmsError`, `HandoffUnknownReason`, `WebhookFailureReason`, `RejectionCategory`, `UnknownReason`, `LookupFailureReason`, and `ProviderErrorInfo` are exported as types from `@opencoredev/sms-sdk`. `WebhookSignatureError`, `WebhookPayloadError`, `ConfigurationError`, and `WebhookFailureReason` are also exported from `@opencoredev/sms-sdk/webhooks`.

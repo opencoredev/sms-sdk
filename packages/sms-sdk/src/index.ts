@@ -2,8 +2,8 @@
  * SMS SDK: one typed send API over the built-in SMS providers.
  *
  * Adapters live in subpaths (`@opencoredev/sms-sdk/twilio`, `/telnyx`,
- * `/plivo`, `/vonage`), webhooks in `/webhooks`, test helpers in `/testing`,
- * and segment math in `/encoding`.
+ * `/plivo`, `/vonage`, `/bandwidth`, `/sinch`), webhooks in `/webhooks`, test
+ * helpers in `/testing`, and segment math in `/encoding`.
  *
  * @packageDocumentation
  */
@@ -13,6 +13,14 @@ export { isE164, maskPhoneNumber, type E164 } from "./core/e164.js";
 export { estimateSegments, isGsm7, type SegmentPreview } from "./core/encoding.js";
 export { resolveSender, supportsSender, type SenderResolution } from "./core/capabilities.js";
 export { memoryIdempotencyStore } from "./core/idempotency.js";
+export {
+  applySuppressionEvent,
+  memorySuppressionList,
+  suppressionPolicy,
+  type MemorySuppressionList,
+  type SuppressionEventInput,
+  type SuppressionList,
+} from "./core/suppression.js";
 export { redactText } from "./core/redact.js";
 export {
   AllProvidersRejectedError,
@@ -25,6 +33,7 @@ export {
   InvalidSenderError,
   isFallbackEligible,
   isSmsError,
+  MessageLookupError,
   PolicyRejectedError,
   ProviderAuthError,
   ProviderRateLimitedError,
@@ -42,6 +51,9 @@ export type {
   AdapterSupport,
   Delivery,
   Handoff,
+  LookupContext,
+  LookupFailureReason,
+  MessageLookupOutcome,
   ProviderErrorInfo,
   ProviderExtra,
   ProviderOptionField,
@@ -56,6 +68,7 @@ export type {
   SmsCapabilities,
   SmsEncoding,
   SmsFrom,
+  SmsMessageStatus,
   SmsSender,
   UnknownReason,
   ValidationField,
@@ -92,6 +105,7 @@ export type {
   SmsAdapterInfo,
   SmsClient,
   SmsClientOptions,
+  SmsGetMessageOptions,
   SmsSendInput,
   SmsSendOptions,
   SmsSendResult,

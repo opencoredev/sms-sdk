@@ -4,9 +4,11 @@
  * @packageDocumentation
  */
 
+import { ConfigurationError } from "../core/errors.js";
+import { isRecord } from "../core/http.js";
 import type { SmsEvent } from "./events.js";
-import { parseBandwidthWebhook, type BandwidthWebhookOptions } from "./bandwidth.js";
-import { parseSinchWebhook, type SinchWebhookOptions } from "./sinch.js";
+import { parseBandwidthWebhook, parseBandwidthWebhooks, type BandwidthWebhookOptions } from "./bandwidth.js";
+import { parseSinchWebhook, parseSinchWebhooks, type SinchWebhookOptions } from "./sinch.js";
 import { parsePlivoWebhook, type PlivoWebhookOptions } from "./plivo.js";
 import { parseTelnyxWebhook, type TelnyxWebhookOptions } from "./telnyx.js";
 import { parseTwilioWebhook, type TwilioWebhookOptions } from "./twilio.js";
@@ -21,32 +23,82 @@ export type ParseSmsWebhookOptions =
   | ({ readonly provider: "bandwidth" } & BandwidthWebhookOptions)
   | ({ readonly provider: "sinch" } & SinchWebhookOptions);
 
+function readWebhookProvider(options: unknown): unknown {
+  try {
+    if (!isRecord(options)) {
+      throw new ConfigurationError("Webhook options must be an object with a supported provider.");
+    }
+    return options["provider"];
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Webhook options must be an object with a supported provider.");
+  }
+}
 
 /**
  * Reads the raw request body once, verifies the provider's signature, then
  * returns a normalized {@link SmsEvent}. Nothing is interpreted before
  * verification succeeds.
  *
+ * Bandwidth callbacks and Sinch delivery reports can carry several events in
+ * one request. This function throws `WebhookPayloadError` for those instead of
+ * dropping events; use {@link parseSmsWebhooks} to read every event.
+ *
  * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
- * @throws {WebhookPayloadError} when an authentic payload lacks required fields.
+ * @throws {WebhookPayloadError} when the body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification) or an authentic payload lacks required fields or carries several events.
+ * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
 export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<SmsEvent> {
-  switch (options.provider) {
+  const provider = readWebhookProvider(options);
+  switch (provider) {
     case "twilio":
-      return parseTwilioWebhook(options);
+      return parseTwilioWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "twilio" }>);
     case "telnyx":
-      return parseTelnyxWebhook(options);
+      return parseTelnyxWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "telnyx" }>);
     case "plivo":
-      return parsePlivoWebhook(options);
+      return parsePlivoWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "plivo" }>);
     case "vonage":
-      return parseVonageWebhook(options);
+      return parseVonageWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "vonage" }>);
     case "bandwidth":
-      return parseBandwidthWebhook(options);
+      return parseBandwidthWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "bandwidth" }>);
     case "sinch":
-      return parseSinchWebhook(options);
+      return parseSinchWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "sinch" }>);
     default: {
-      const _exhaustive: never = options;
-      return _exhaustive;
+      throw new ConfigurationError("Unsupported SMS webhook provider.");
+    }
+  }
+}
+
+/**
+ * Like {@link parseSmsWebhook}, but returns every event the request carries,
+ * in payload order. A Bandwidth callback yields one event per array element
+ * and a Sinch delivery report one per `recipient_delivery_report` entry; every
+ * other provider sends one event per request, so the array has one element.
+ * Deduplicate each event by its own `dedupeKey`.
+ *
+ * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
+ * @throws {WebhookPayloadError} when the body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification) or an authentic payload lacks required fields.
+ * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
+ */
+export async function parseSmsWebhooks(options: ParseSmsWebhookOptions): Promise<SmsEvent[]> {
+  const provider = readWebhookProvider(options);
+  switch (provider) {
+    case "bandwidth":
+      return parseBandwidthWebhooks(options as Extract<ParseSmsWebhookOptions, { provider: "bandwidth" }>);
+    case "sinch":
+      return parseSinchWebhooks(options as Extract<ParseSmsWebhookOptions, { provider: "sinch" }>);
+    case "twilio":
+      return [await parseTwilioWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "twilio" }>)];
+    case "telnyx":
+      return [await parseTelnyxWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "telnyx" }>)];
+    case "plivo":
+      return [await parsePlivoWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "plivo" }>)];
+    case "vonage":
+      return [await parseVonageWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "vonage" }>)];
+    default: {
+      throw new ConfigurationError("Unsupported SMS webhook provider.");
     }
   }
 }
@@ -66,8 +118,21 @@ export {
   type WebhookProvider,
 } from "./events.js";
 export type { SignedUrlOptions, WebhookCommonOptions } from "./shared.js";
-export { parseBandwidthWebhook, type BandwidthWebhookCredentials, type BandwidthWebhookOptions } from "./bandwidth.js";
-export { parseSinchWebhook, SINCH_DEFAULT_TOLERANCE_SEC, verifySinchSignature, type SinchWebhookCredentials, type SinchWebhookOptions } from "./sinch.js";
+export {
+  parseBandwidthWebhook,
+  parseBandwidthWebhooks,
+  type BandwidthWebhookCredentials,
+  type BandwidthWebhookOptions,
+} from "./bandwidth.js";
+export {
+  parseSinchWebhook,
+  parseSinchWebhooks,
+  SINCH_DEFAULT_TOLERANCE_SEC,
+  verifySinchSignature,
+  type SinchWebhookCredentials,
+  type SinchWebhookOptions,
+  type SinchWebhookVerification,
+} from "./sinch.js";
 export {
   computeTwilioSignature,
   parseTwilioWebhook,
@@ -93,4 +158,4 @@ export {
   verifyVonageSignature,
   type VonageWebhookOptions,
 } from "./vonage.js";
-export { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
+export { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";

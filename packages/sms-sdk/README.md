@@ -4,7 +4,7 @@
 
 One TypeScript SDK for SMS providers. Send through Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch with one `send()` call, fail over only when a provider proves it rejected the message, and verify webhooks through one normalized API.
 
-Zero runtime dependencies. ESM. Node 20+ and Bun. Server-side only.
+Zero runtime dependencies. ESM only (use `import`; there is no CommonJS build). Node 20+ and Bun. Server-side only.
 
 ```bash
 npm install @opencoredev/sms-sdk
@@ -127,6 +127,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 ```
+
+Bandwidth callbacks and Sinch delivery reports can carry several events per request; read those with `parseSmsWebhooks()`, which returns every event. `parseSmsWebhook()` throws `WebhookPayloadError` for a multi-event payload instead of dropping events.
 
 The parser reads the raw body once and verifies the signature before reading any field. Events are normalized to `message.received`, `message.queued`/`sent`/`delivered`/`undelivered`/`filtered`, `recipient.opted_out`/`opted_in`/`help`, or `unrecognized`. STOP and HELP come from provider signals first (Twilio Advanced Opt-Out) and otherwise from whole-message keyword matching, marked `source: "keyword"`. The SDK never replies automatically.
 

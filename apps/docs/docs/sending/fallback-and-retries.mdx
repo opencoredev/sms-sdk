@@ -41,7 +41,7 @@ console.log(result.provider, result.attemptedProviders); // "telnyx" ["twilio", 
 
 Twilio sends first. If Twilio refuses for a reason tied to that account, such as bad credentials or an unregistered sender, Telnyx sends next. Without `fallback`, only the first adapter is used.
 
-Each adapter sends from its own `from`. With fallback, leave `from` off the message unless every adapter can send from that exact sender.
+Each adapter sends from its own `from`. With fallback, leave `from` off the message unless every adapter can send from that exact sender. To pick the sender per message, set [`fromByAdapter`](/reference/send#frombyadapter) instead, such as `{ twilio: "+15005550006", telnyx: "+15005550007" }`; each adapter uses its own entry.
 
 ## Which rejections fall back
 

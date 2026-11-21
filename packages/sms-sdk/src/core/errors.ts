@@ -1,5 +1,225 @@
-import type { ProviderErrorInfo, RejectionCategory, UnknownReason, ValidationField } from "./adapters.js";
+import type {
+  Delivery,
+  LookupFailureReason,
+  ProviderErrorInfo,
+  RejectionCategory,
+  UnknownReason,
+  ValidationField,
+} from "./adapters.js";
 import type { SendAttempt } from "./events.js";
+
+const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._-]+$/;
+const OPAQUE_UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPAQUE_HEX32_ID = /^[A-Za-z]{0,4}[0-9a-f]{32}$/i;
+const DIGIT_SPAN = /\d[\d._:-]*\d/g;
+const CREDENTIAL_TOKEN_PREFIX =
+  /^(?:(?:sk|pk|rk|whsec|ghp|gho|ghu|ghs|ghr|github_pat|glpat|xox[baprs]|sq0[a-z]{3})[_-]|(?:akia|asia)[0-9a-z]{12}|aiza[0-9a-z_-]{10}|eyj[a-z0-9_-]{6,}\.)/i;
+const CREDENTIAL_REQUEST_ID_MARKER =
+  /(?:^|[_.:-])(?:secret|token|password|passwd|pwd|apikey|api_key|api-key|bearer|basic|auth_token|access_key|private_key)(?:[_.:-]|$)/i;
+
+// Require at least one hex letter [a-f] so phone-padded all-decimal IDs (e.g. RQ14155550123000...)
+// are still dropped as potential PII rather than echoed in diagnostic error metadata.
+function isOpaqueHexId(value: string): boolean {
+  if (OPAQUE_UUID_ID.test(value)) {
+    return /[a-f]/i.test(value);
+  }
+  if (OPAQUE_HEX32_ID.test(value)) {
+    return /[a-f]/i.test(value.slice(-32));
+  }
+  return false;
+}
+
+function containsPhoneLengthDigits(value: string): boolean {
+  for (const match of value.matchAll(DIGIT_SPAN)) {
+    if (match[0].replace(/\D/g, "").length >= 8) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, credentials, PII, or phone-length digit runs. */
+export function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | undefined {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength ||
+    !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
+    CREDENTIAL_TOKEN_PREFIX.test(value) ||
+    value.includes(":") ||
+    CREDENTIAL_REQUEST_ID_MARKER.test(value) ||
+    (!isOpaqueHexId(value) && containsPhoneLengthDigits(value))
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function safeReadProperty(obj: Record<string, unknown>, key: string): unknown {
+  try {
+    return obj[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Copies only structural provider details, reading each field once. Free-form `message` and unvalidated strings are dropped. */
+export function sanitizeProviderDetails(
+  raw: Record<string, unknown>,
+  fallbackProvider: string,
+  sanitizeProviderName = false,
+): ProviderErrorInfo {
+  const rawStatus = safeReadProperty(raw, "httpStatus");
+  const rawCode = safeReadProperty(raw, "code");
+  const rawRequestId = safeReadProperty(raw, "requestId");
+  // The client knows which adapter answered; preserve its name in memory, and sanitize for JSON logs.
+  const provider = sanitizeProviderName
+    ? (sanitizeDiagnosticToken(fallbackProvider, 64) ?? "unknown")
+    : fallbackProvider;
+  const httpStatus =
+    typeof rawStatus === "number" && Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599
+      ? rawStatus
+      : undefined;
+  const code = sanitizeDiagnosticToken(rawCode, 64);
+  const requestId = sanitizeDiagnosticToken(rawRequestId, 128);
+  return {
+    provider,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+    ...(code === undefined ? {} : { code }),
+    ...(requestId === undefined ? {} : { requestId }),
+  };
+}
+
+const DELIVERY_MAP = {
+  unknown: true,
+  queued: true,
+  sent: true,
+  delivered: true,
+  undelivered: true,
+  filtered: true,
+} as const satisfies Record<Delivery, true>;
+
+const REJECTION_CATEGORY_MAP = {
+  auth: true,
+  rate_limited: true,
+  recipient: true,
+  sender: true,
+  account: true,
+  compliance: true,
+  request: true,
+} as const satisfies Record<RejectionCategory, true>;
+
+const UNKNOWN_REASON_MAP = {
+  network: true,
+  timeout: true,
+  aborted: true,
+  malformed_response: true,
+  server_error: true,
+  unexpected_status: true,
+  adapter_exception: true,
+} as const satisfies Record<UnknownReason, true>;
+
+const VALID_DELIVERIES = new Set<string>(Object.keys(DELIVERY_MAP));
+const VALID_REJECTION_CATEGORIES = new Set<string>(Object.keys(REJECTION_CATEGORY_MAP));
+const VALID_UNKNOWN_REASONS = new Set<string>(Object.keys(UNKNOWN_REASON_MAP));
+
+function sanitizeAttemptForJson(attempt: unknown): SendAttempt | undefined {
+  try {
+    if (attempt === null || typeof attempt !== "object" || Array.isArray(attempt)) {
+      return undefined;
+    }
+    const raw = attempt as Record<string, unknown>;
+    const rawProvider = safeReadProperty(raw, "provider");
+    const rawAttemptNum = safeReadProperty(raw, "attempt");
+    const rawOutcome = safeReadProperty(raw, "outcome");
+    const rawDuration = safeReadProperty(raw, "durationMs");
+
+    const provider = sanitizeDiagnosticToken(rawProvider, 64) ?? "unknown";
+    const attemptNum =
+      typeof rawAttemptNum === "number" && Number.isFinite(rawAttemptNum) ? rawAttemptNum : 0;
+    const durationMs =
+      typeof rawDuration === "number" && Number.isFinite(rawDuration) ? rawDuration : 0;
+
+    if (rawOutcome === "accepted") {
+      const rawProviderId = safeReadProperty(raw, "providerId");
+      const rawDelivery = safeReadProperty(raw, "delivery");
+      const providerId = sanitizeDiagnosticToken(rawProviderId, 128) ?? "[redacted]";
+      const delivery =
+        typeof rawDelivery === "string" && VALID_DELIVERIES.has(rawDelivery)
+          ? (rawDelivery as Delivery)
+          : "unknown";
+      return {
+        provider,
+        attempt: attemptNum,
+        outcome: "accepted",
+        providerId,
+        delivery,
+        durationMs,
+      };
+    }
+
+    if (rawOutcome === "rejected") {
+      const rawCategory = safeReadProperty(raw, "category");
+      const rawHttpStatus = safeReadProperty(raw, "httpStatus");
+      const rawProviderCode = safeReadProperty(raw, "providerCode");
+      const rawRetryAfterMs = safeReadProperty(raw, "retryAfterMs");
+      const category =
+        typeof rawCategory === "string" && VALID_REJECTION_CATEGORIES.has(rawCategory)
+          ? (rawCategory as RejectionCategory)
+          : "request";
+      const httpStatus =
+        typeof rawHttpStatus === "number" &&
+        Number.isInteger(rawHttpStatus) &&
+        rawHttpStatus >= 100 &&
+        rawHttpStatus <= 599
+          ? rawHttpStatus
+          : undefined;
+      const providerCode = sanitizeDiagnosticToken(rawProviderCode, 64);
+      const retryAfterMs =
+        typeof rawRetryAfterMs === "number" && Number.isFinite(rawRetryAfterMs) && rawRetryAfterMs >= 0
+          ? rawRetryAfterMs
+          : undefined;
+      return {
+        provider,
+        attempt: attemptNum,
+        outcome: "rejected",
+        category,
+        ...(httpStatus === undefined ? {} : { httpStatus }),
+        ...(providerCode === undefined ? {} : { providerCode }),
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+        durationMs,
+      };
+    }
+
+    if (rawOutcome === "unknown") {
+      const rawReason = safeReadProperty(raw, "reason");
+      const rawHttpStatus = safeReadProperty(raw, "httpStatus");
+      const reason =
+        typeof rawReason === "string" && VALID_UNKNOWN_REASONS.has(rawReason)
+          ? (rawReason as UnknownReason)
+          : "adapter_exception";
+      const httpStatus =
+        typeof rawHttpStatus === "number" &&
+        Number.isInteger(rawHttpStatus) &&
+        rawHttpStatus >= 100 &&
+        rawHttpStatus <= 599
+          ? rawHttpStatus
+          : undefined;
+      return {
+        provider,
+        attempt: attemptNum,
+        outcome: "unknown",
+        reason,
+        ...(httpStatus === undefined ? {} : { httpStatus }),
+        durationMs,
+      };
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Stable machine-readable error codes. One per error class. */
 export type SmsErrorCode =
@@ -18,7 +238,8 @@ export type SmsErrorCode =
   | "idempotency_conflict"
   | "idempotency_in_progress"
   | "webhook_signature"
-  | "webhook_payload";
+  | "webhook_payload"
+  | "message_lookup_failed";
 
 /** JSON shape produced by `SmsError#toJSON()`. Contains no secrets, bodies, or full numbers. */
 export type SerializedSmsError = {
@@ -28,6 +249,8 @@ export type SerializedSmsError = {
   readonly retrySafe: boolean;
   readonly attempts: readonly SendAttempt[];
   readonly provider?: ProviderErrorInfo;
+  readonly providerName?: string;
+  readonly reason?: string;
 };
 
 type SmsErrorOptions = {
@@ -68,21 +291,49 @@ export class SmsError extends Error {
 
   /** Redacted, log-safe representation. */
   toJSON(): SerializedSmsError {
+    const safeAttempts: SendAttempt[] = [];
+    try {
+      const rawAttempts = this.attempts;
+      if (Array.isArray(rawAttempts)) {
+        for (const item of rawAttempts) {
+          const sanitized = sanitizeAttemptForJson(item);
+          if (sanitized !== undefined) {
+            safeAttempts.push(sanitized);
+          }
+        }
+      }
+    } catch {
+      // Malformed or revoked attempts array: omit unreadable entries.
+    }
+
+    let safeProvider: ProviderErrorInfo | undefined;
+    try {
+      const rawProvider = this.provider;
+      if (rawProvider !== null && typeof rawProvider === "object" && !Array.isArray(rawProvider)) {
+        const record = rawProvider as unknown as Record<string, unknown>;
+        const rawName = safeReadProperty(record, "provider");
+        const fallbackName = typeof rawName === "string" ? rawName : "unknown";
+        safeProvider = sanitizeProviderDetails(record, fallbackName, true);
+      }
+    } catch {
+      safeProvider = undefined;
+    }
+
     return {
       name: this.name,
       code: this.code,
       message: this.message,
       retrySafe: this.retrySafe,
-      attempts: this.attempts,
-      ...(this.provider === undefined ? {} : { provider: this.provider }),
+      attempts: safeAttempts,
+      ...(safeProvider === undefined ? {} : { provider: safeProvider }),
     };
   }
 }
 
 /** Client or adapter options are invalid. Nothing was sent. `retrySafe: true`. */
 export class ConfigurationError extends SmsError {
-  constructor(message: string) {
-    super(message, { code: "configuration", retrySafe: true });
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, { code: "configuration", retrySafe: true, cause: options?.cause });
     this.name = "ConfigurationError";
   }
 }
@@ -208,7 +459,7 @@ export class AllProvidersRejectedError extends SmsError {
   readonly errors: readonly ProviderRejectedError[];
 
   constructor(errors: readonly ProviderRejectedError[], attempts: readonly SendAttempt[]) {
-    const names = errors.map((error) => error.providerName).join(", ");
+    const names = errors.map((error) => sanitizeDiagnosticToken(error.providerName, 64) ?? "unknown").join(", ");
     super(`Every attempted provider rejected the message (${names}).`, {
       code: "all_providers_rejected",
       retrySafe: true,
@@ -254,6 +505,16 @@ export class HandoffUnknownError extends SmsError {
     this.name = "HandoffUnknownError";
     this.reason = options.reason;
     this.providerName = options.providerName;
+  }
+
+  override toJSON(): SerializedSmsError {
+    const safeProviderName =
+      this.providerName === undefined ? undefined : (sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown");
+    return {
+      ...super.toJSON(),
+      reason: this.reason,
+      ...(safeProviderName === undefined ? {} : { providerName: safeProviderName }),
+    };
   }
 }
 
@@ -310,6 +571,48 @@ export class IdempotencyInProgressError extends SmsError {
   }
 }
 
+/**
+ * `getMessage` could not read the provider's record of a message: a network
+ * error, timeout, 5xx, malformed response, or a provider 4xx such as bad
+ * credentials. `reason` says which.
+ *
+ * `retrySafe: false`: a failed lookup proves nothing about whether the message
+ * was sent, so it is never a reason to resend. Calling `getMessage` again is safe.
+ */
+export class MessageLookupError extends SmsError {
+  readonly reason: LookupFailureReason;
+  readonly providerName: string;
+  readonly providerId: string;
+
+  constructor(options: {
+    readonly reason: LookupFailureReason;
+    readonly providerName: string;
+    readonly providerId: string;
+    readonly provider?: ProviderErrorInfo;
+    readonly cause?: unknown;
+  }) {
+    const safeProviderName = sanitizeDiagnosticToken(options.providerName, 64) ?? "unknown";
+    super(`The ${safeProviderName} message lookup failed (${options.reason.replace("_", " ")})`, {
+      code: "message_lookup_failed",
+      retrySafe: false,
+      ...(options.provider === undefined ? {} : { provider: options.provider }),
+      cause: options.cause,
+    });
+    this.name = "MessageLookupError";
+    this.reason = options.reason;
+    this.providerName = options.providerName;
+    this.providerId = options.providerId;
+  }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      providerName: sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown",
+      reason: this.reason,
+    };
+  }
+}
+
 /** Why webhook verification failed. */
 export type WebhookFailureReason =
   | "missing_signature"
@@ -330,16 +633,45 @@ export class WebhookSignatureError extends SmsError {
     this.reason = options.reason;
     this.providerName = options.provider;
   }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      providerName: sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown",
+      reason: this.reason,
+    };
+  }
 }
 
-/** The webhook was authentic but its payload is missing required fields. */
+/**
+ * The webhook body exceeded the 1 MiB limit (`reason: "body_too_large"`),
+ * could not be read (`reason: "body_unreadable"`), or an authentic payload is
+ * missing required fields.
+ */
 export class WebhookPayloadError extends SmsError {
   readonly providerName: string;
+  readonly reason: "body_too_large" | "body_unreadable" | undefined;
 
-  constructor(message: string, options: { readonly provider: string }) {
-    super(message, { code: "webhook_payload", retrySafe: false });
+  constructor(
+    message: string,
+    options: { readonly provider: string; readonly reason?: "body_too_large" | "body_unreadable"; readonly cause?: unknown },
+  ) {
+    super(message, {
+      code: "webhook_payload",
+      retrySafe: false,
+      ...(options.cause === undefined ? {} : { cause: options.cause }),
+    });
     this.name = "WebhookPayloadError";
     this.providerName = options.provider;
+    this.reason = options.reason;
+  }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      providerName: sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown",
+      ...(this.reason === undefined ? {} : { reason: this.reason }),
+    };
   }
 }
 

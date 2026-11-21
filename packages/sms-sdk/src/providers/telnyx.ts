@@ -9,6 +9,7 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  MessageLookupOutcome,
   ProviderOptionValue,
   ProviderOptionsOf,
   ProviderOptionsSpec,
@@ -21,14 +22,22 @@ import type {
 import { ConfigurationError } from "../core/errors.js";
 import {
   exchange,
+  foundMessage,
+  freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 /** Options for {@link telnyx}. */
@@ -49,7 +58,7 @@ export type TelnyxOptions = {
 };
 
 /** Static capabilities of the Telnyx adapter. */
-export const TELNYX_CAPABILITIES: SmsCapabilities = {
+export const TELNYX_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: true,
@@ -59,16 +68,9 @@ export const TELNYX_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
-/**
- * Telnyx `POST /v2/messages` parameters accepted in `providerOptions.telnyx`,
- * from the Send a message reference. Parameters the SDK sets from portable
- * fields or adapter options are reserved.
- *
- * @see https://developers.telnyx.com/api/messaging/send-message
- */
-export const TELNYX_PROVIDER_OPTIONS = {
+const TELNYX_SPEC_SOURCE = {
   options: {
     /** `subject`: subject of a multimedia message. */
     subject: { type: "string", wire: "subject" },
@@ -83,6 +85,15 @@ export const TELNYX_PROVIDER_OPTIONS = {
   },
   reserved: ["to", "from", "messaging_profile_id", "text", "media_urls", "type", "webhook_url", "send_at"],
 } as const satisfies ProviderOptionsSpec;
+
+/**
+ * Telnyx `POST /v2/messages` parameters accepted in `providerOptions.telnyx`,
+ * from the Send a message reference. Parameters the SDK sets from portable
+ * fields or adapter options are reserved.
+ *
+ * @see https://developers.telnyx.com/api/messaging/send-message
+ */
+export const TELNYX_PROVIDER_OPTIONS = freezeProviderOptionsSpec(TELNYX_SPEC_SOURCE);
 
 /** Telnyx-specific send options: `providerOptions.telnyx`. */
 export type TelnyxSendOptions = ProviderOptionsOf<typeof TELNYX_PROVIDER_OPTIONS>;
@@ -112,28 +123,50 @@ export type TelnyxMessageRequest = {
  *
  * Sends JSON to `POST /v2/messages` with `Authorization: Bearer <apiKey>`.
  * A `{ messagingService }` sender is sent as `messaging_profile_id` with no
- * `from`, which uses the profile's number pool.
+ * `from`, which uses the profile's number pool. `getMessage` fetches
+ * `GET /v2/messages/{id}`.
  *
  * @throws {ConfigurationError} when `apiKey` is empty.
  */
 export function telnyx(options: TelnyxOptions): SmsAdapter {
-  if (typeof options.apiKey !== "string" || options.apiKey.length === 0) {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Telnyx options must be an object.");
+  }
+  let rawApiKey: unknown;
+  let messagingProfileId: string | undefined;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    rawApiKey = options.apiKey;
+    messagingProfileId = options.messagingProfileId;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Telnyx options could not be read.");
+  }
+  if (typeof rawApiKey !== "string" || rawApiKey.length === 0) {
     throw new ConfigurationError("Telnyx apiKey is required.");
   }
-  const baseUrl = (options.baseUrl ?? "https://api.telnyx.com").replace(/\/+$/, "");
+  if (messagingProfileId !== undefined && typeof messagingProfileId !== "string") {
+    throw new ConfigurationError("Telnyx messagingProfileId must be a string.");
+  }
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://api.telnyx.com", "Telnyx");
   const url = `${baseUrl}/v2/messages`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
-  const authorization = `Bearer ${options.apiKey}`;
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Telnyx");
+  const authorization = `Bearer ${rawApiKey}`;
 
   return {
     name: "telnyx",
     capabilities: TELNYX_CAPABILITIES,
     support: { status: "supported", notes: [] },
-    providerOptions: TELNYX_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    // A private copy: Object.freeze cannot stop RegExp.prototype.compile on exported patterns.
+    providerOptions: freezeProviderOptionsSpec(TELNYX_SPEC_SOURCE),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {
-      return validateTelnyxMessage(message, options.messagingProfileId);
+      return validateTelnyxMessage(message, messagingProfileId);
     },
 
     async send(message, context) {
@@ -144,13 +177,25 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(buildTelnyxRequest(message, options.messagingProfileId)),
+        body: JSON.stringify(buildTelnyxRequest(message, messagingProfileId)),
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretTelnyxResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${url}/${encodeURIComponent(providerId)}`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretTelnyxLookup(providerId, response.status, response.text, response.headers);
     },
   };
 }
@@ -238,6 +283,39 @@ export function interpretTelnyxResponse(status: number, text: string, headers: H
   return unknownForStatus("telnyx", status, requestId);
 }
 
+/** Maps a Telnyx message retrieve response to a lookup outcome. A 404 is `not_found`. */
+export function interpretTelnyxLookup(providerId: string, status: number, text: string, headers: Headers): MessageLookupOutcome {
+  const requestId = headers.get("x-request-id");
+  const body = parseJson(text);
+  if (status >= 200 && status < 300) {
+    const data = isRecord(body) && isRecord(body["data"]) ? body["data"] : undefined;
+    if (data === undefined || readString(data, "id") === undefined) {
+      return malformedLookup("telnyx", status, requestId);
+    }
+    const providerStatus = firstRecipientStatus(data);
+    const firstError = firstTelnyxError(data);
+    const errorCode = firstError === undefined ? undefined : readCode(firstError, "code");
+    return foundMessage({
+      provider: "telnyx",
+      providerId,
+      delivery: telnyxDelivery(providerStatus, errorCode),
+      providerStatus,
+      errorCode,
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  const firstError = firstTelnyxError(body);
+  return lookupFailureForStatus({
+    provider: "telnyx",
+    status,
+    requestId,
+    code: firstError === undefined ? undefined : readCode(firstError, "code"),
+    message: firstError === undefined ? undefined : (readString(firstError, "detail") ?? readString(firstError, "title")),
+  });
+}
+
 /**
  * Rejection category for a Telnyx 4xx, from the error codes in Telnyx's
  * published error catalog. Unlisted codes are `request`. Only codes 10011 and
@@ -289,8 +367,10 @@ export function telnyxRejectionCategory(status: number, code: string | undefined
   return "request";
 }
 
-/** Delivery value for a Telnyx recipient `status`. */
-export function telnyxDelivery(status: string | undefined): Delivery {
+const TELNYX_FILTERED_CODES = new Set(["40002", "40003", "40322"]);
+
+/** Delivery value for a Telnyx recipient `status`, mapping carrier-filter codes to `filtered`. */
+export function telnyxDelivery(status: string | undefined, errorCode?: string): Delivery {
   switch (status) {
     case "queued":
     case "sending":
@@ -303,7 +383,7 @@ export function telnyxDelivery(status: string | undefined): Delivery {
     case "sending_failed":
     case "delivery_failed":
     case "expired":
-      return "undelivered";
+      return errorCode !== undefined && TELNYX_FILTERED_CODES.has(errorCode) ? "filtered" : "undelivered";
     default:
       return "unknown";
   }

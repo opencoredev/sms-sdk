@@ -1,4 +1,9 @@
+import { ConfigurationError } from "./errors.js";
+import { isRecord } from "./http.js";
 import type { RetryOptions } from "./types.js";
+
+/** Highest accepted `retry.maxAttempts`. Retries only follow proven rate limits, so more is never useful. */
+export const MAX_RETRY_ATTEMPTS = 10;
 
 /** {@link RetryOptions} with defaults applied. */
 export type ResolvedRetryOptions = {
@@ -14,12 +19,37 @@ export const DEFAULT_RETRY: ResolvedRetryOptions = {
   maxDelayMs: 10_000,
 };
 
-/** Applies defaults and clamps values to sane bounds. */
+/**
+ * Applies defaults and checks bounds. A `maxDelayMs` below `baseDelayMs` is
+ * raised to `baseDelayMs`.
+ *
+ * @throws {ConfigurationError} when `maxAttempts` is not an integer from 1 to
+ * {@link MAX_RETRY_ATTEMPTS}, or a delay is not a finite number of at least 0.
+ */
 export function resolveRetryOptions(options: RetryOptions | undefined): ResolvedRetryOptions {
-  const maxAttempts = Math.max(1, Math.floor(options?.maxAttempts ?? DEFAULT_RETRY.maxAttempts));
-  const baseDelayMs = Math.max(0, options?.baseDelayMs ?? DEFAULT_RETRY.baseDelayMs);
-  const maxDelayMs = Math.max(baseDelayMs, options?.maxDelayMs ?? DEFAULT_RETRY.maxDelayMs);
+  if (options !== undefined && !isRecord(options)) {
+    throw new ConfigurationError("retry must be an object.");
+  }
+  const maxAttempts = options?.maxAttempts === undefined ? DEFAULT_RETRY.maxAttempts : options.maxAttempts;
+  if (!(Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= MAX_RETRY_ATTEMPTS)) {
+    throw new ConfigurationError(`retry.maxAttempts must be an integer from 1 to ${MAX_RETRY_ATTEMPTS}.`);
+  }
+  const baseDelayMs = requireDelay(
+    options?.baseDelayMs === undefined ? DEFAULT_RETRY.baseDelayMs : options.baseDelayMs,
+    "baseDelayMs",
+  );
+  const maxDelayMs = Math.max(
+    baseDelayMs,
+    requireDelay(options?.maxDelayMs === undefined ? DEFAULT_RETRY.maxDelayMs : options.maxDelayMs, "maxDelayMs"),
+  );
   return { maxAttempts, baseDelayMs, maxDelayMs };
+}
+
+function requireDelay(value: number, name: "baseDelayMs" | "maxDelayMs"): number {
+  if (!(typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 2_147_483_647)) {
+    throw new ConfigurationError(`retry.${name} must be a finite number of milliseconds from 0 to 2147483647.`);
+  }
+  return value;
 }
 
 /** What to do after a rate-limited rejection. */

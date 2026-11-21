@@ -30,7 +30,7 @@ const sms = createSmsClient({
 });
 ```
 
-Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name`, or `timeoutMs` is not a positive number.
+Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name`, or `timeoutMs` is not a positive number up to `2147483647`.
 
 ## Options
 
@@ -53,6 +53,7 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 - Optional
 - Defaults to `{ maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 10000 }`
 - Retries on the same adapter, only after a `rate_limited` rejection. `maxAttempts` counts the first request, so `1` turns retries off. Backoff is exponential with full jitter. A provider `Retry-After` of at most `maxDelayMs` is used as the delay. A longer one stops retrying that adapter.
+- `maxAttempts` must be an integer from 1 to 10. `baseDelayMs` and `maxDelayMs` must be finite numbers from 0 to `2147483647`; a `maxDelayMs` below `baseDelayMs` is raised to it. Anything else throws `ConfigurationError`.
 
 ### `timeoutMs`
 
@@ -66,13 +67,13 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 - Type: `{ store: IdempotencyStore; ttlSec?: number; staleReservationSec?: number }`
 - Optional
 - Off by default
-- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. After `staleReservationSec` (default `300`), an unfinished reservation counts as an unknown outcome. See [Prevent duplicate sends](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
+- Enables `idempotencyKey` deduplication through `store`. `ttlSec` (default `86400`) is how long accepted and rejected records are kept. After `staleReservationSec` (default `300`), an unfinished reservation counts as an unknown outcome. Both must be whole numbers of seconds of at least 1, or `createSmsClient` throws `ConfigurationError`: a `ttlSec` of 0 would expire an accepted record as it is written and let the same key send twice. See [Prevent duplicate sends](/sending/idempotency) and [Idempotency store](/reference/idempotency-store).
 
 ### `beforeSend`
 
 - Type: `(context: BeforeSendContext) => PolicyDecision | Promise<PolicyDecision>`
 - Optional
-- Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, the error propagates and nothing is sent. See [Block and log sends](/advanced/policy-and-hooks).
+- Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, the error propagates, nothing is sent, and `onFailure` receives a `policy_rejected` event. For a suppression list, `suppressionPolicy(list)` builds this function; see [STOP, HELP, and opt-outs](/receiving/opt-outs). See [Block and log sends](/advanced/policy-and-hooks).
 
 ### `hooks`
 
@@ -86,7 +87,34 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 | --- | --- | --- |
 | `send(input, options?)` | `Promise<SmsSendResult>` | [send()](/reference/send) |
 | `validate(input)` | `SmsValidationResult` | [validate()](/reference/validate) |
+| `getMessage(providerId, options?)` | `Promise<SmsMessageStatus \| undefined>` | below |
 | `capabilities()` | `readonly SmsAdapterInfo[]` | below |
+
+### `sms.getMessage(providerId, options?)`
+
+Asks one adapter for the provider's current record of a message, by the provider's message ID: `SmsSendResult.providerId`, or a webhook event's `providerId`. It never sends. Use it to check delivery when a status webhook is late or lost.
+
+```ts
+import { sms } from "./sms";
+
+const result = await sms.send({ to: "+14155550123", body: "Your code is 123456." });
+const status = await sms.getMessage(result.providerId, { adapter: result.provider });
+if (status === undefined) {
+  console.log("the provider has no message with this ID yet");
+} else {
+  console.log(status.delivery, status.providerStatus, status.errorCode);
+}
+```
+
+- `options.adapter`: the adapter to ask, by name. Defaults to the primary adapter. Pass `result.provider` when fallback may have sent through another one.
+- `options.signal`: cancels the lookup. The client's `timeoutMs` applies too.
+- Returns `{ provider, providerId, delivery, providerStatus?, errorCode? }`, or `undefined` when the provider has no message with that ID. `errorCode` is set only when `delivery` is `undelivered` or `filtered`.
+- Throws `MessageLookupError` when the provider could not answer (network, timeout, 5xx, malformed response, or a 4xx such as bad credentials; see `reason`). It has `retrySafe: false`: a failed lookup says nothing about whether the message went out, so never resend because of one. Calling `getMessage` again is safe.
+- Throws `ConfigurationError` for an empty `providerId`, an adapter name that is not configured, or an adapter without `getMessage`.
+
+Every built-in adapter implements it; the endpoint each one calls is on its [provider page](/providers/overview). A Vonage adapter with JWT auth needs `reportsCredentials`.
+
+`getMessage` does not reconcile a `HandoffUnknownError` on its own: an unknown outcome has no provider ID to look up. See [Reconcile an unknown outcome](/sending/idempotency#reconcile-an-unknown-outcome).
 
 ### `sms.capabilities()`
 
@@ -100,7 +128,7 @@ for (const adapter of sms.capabilities()) {
 }
 ```
 
-Each entry is `{ name, capabilities: SmsCapabilities, support: AdapterSupport, defaultFrom: SmsFrom | undefined }`. See [Adapter contract](/reference/adapter-contract) for the field types.
+Each entry is `{ name, capabilities: SmsCapabilities, support: AdapterSupport, defaultFrom: SmsFrom | undefined, messageLookup: boolean }`. `messageLookup` is true when the adapter implements `getMessage`. See [Adapter contract](/reference/adapter-contract) for the field types.
 
 ## Types
 
@@ -132,7 +160,23 @@ type SmsAttemptEvent = SmsHookEventBase & { readonly attempt: SendAttempt };
 type SmsAcceptedEvent = SmsHookEventBase & { readonly provider: string; readonly providerId: string; readonly attempts: readonly SendAttempt[] };
 type SmsFailureEvent = SmsHookEventBase & { readonly errorCode: string; readonly retrySafe: boolean; readonly attempts: readonly SendAttempt[] };
 
-type SmsAdapterInfo = { readonly name: string; readonly capabilities: SmsCapabilities; readonly support: AdapterSupport; readonly defaultFrom: SmsFrom | undefined };
+type SmsAdapterInfo = {
+  readonly name: string;
+  readonly capabilities: SmsCapabilities;
+  readonly support: AdapterSupport;
+  readonly defaultFrom: SmsFrom | undefined;
+  readonly messageLookup: boolean;
+};
+
+type SmsGetMessageOptions = { readonly adapter?: string; readonly signal?: AbortSignal };
+
+type SmsMessageStatus = {
+  readonly provider: string;
+  readonly providerId: string;
+  readonly delivery: Delivery;
+  readonly providerStatus?: string;
+  readonly errorCode?: string;
+};
 ```
 
 All of these are exported as types from `@opencoredev/sms-sdk`.

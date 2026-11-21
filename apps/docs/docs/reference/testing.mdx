@@ -122,6 +122,7 @@ Runs every case and returns `Promise<ContractReport>`: `{ adapter: string; passe
 | `rateLimited` | `{ response; retryAfterMs? }` | A rate-limit response and the `retryAfterMs` it must produce. |
 | `malformedSuccess` | `MockResponse` | A 2xx that does not prove acceptance. |
 | `serverError` | `MockResponse` | A 5xx. |
+| `lookup?` | `{ providerId; request: { url; headers }; found: { response; delivery; providerStatus; errorCode? }; notFound: MockResponse }` | Optional `getMessage` checks, for adapters that implement it. `request` is the exact GET the adapter must make for `providerId`. |
 | `webhooks?` | `{ parse; cases: WebhookContractCase[]; tampered }` | Optional webhook checks. `parse(request)` returns an event, each case is `{ name, request: () => Promise<Request>, expected }`, and `tampered()` returns a request that must throw `WebhookSignatureError`. |
 
 ### Checks
@@ -133,6 +134,7 @@ Runs every case and returns `Promise<ContractReport>`: `{ adapter: string; passe
 - The rate limit produces `retryAfterMs`.
 - A network error, in-flight abort, malformed 2xx, non-JSON 2xx, and 5xx all map to `unknown`.
 - Undeclared capabilities throw `UnsupportedFieldError` before any request.
+- With `lookup`: the adapter makes the exact GET with the abort signal, normalizes `found`, maps `notFound` to `not_found`, and maps a network error, non-JSON 2xx, 5xx, and 401 to `failed` with the matching reason.
 - The webhook cases pass, when given.
 
 ## Types

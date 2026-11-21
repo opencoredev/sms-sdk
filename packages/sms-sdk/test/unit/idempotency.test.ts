@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSmsClient } from "../../src/core/client.js";
 import {
+  ConfigurationError,
   HandoffUnknownError,
   IdempotencyConflictError,
   IdempotencyInProgressError,
@@ -117,11 +118,18 @@ describe("idempotent replay", () => {
   });
 
   test("an unknown outcome replays as unknown and never resends", async () => {
-    const store = memoryIdempotencyStore();
+    let clockOffsetMs = 0;
+    const base = memoryIdempotencyStore();
+    const store = {
+      get: (key: string) => base.get(key),
+      reserve: (input: Parameters<typeof base.reserve>[0]) => base.reserve({ ...input, now: input.now + clockOffsetMs }),
+      finalize: (input: Parameters<typeof base.finalize>[0]) =>
+        base.finalize({ ...input, now: input.now + clockOffsetMs }),
+    };
     const adapter = memory({ outcomes: [unknownOutcome("timeout")] });
-    const sms = createSmsClient({ adapters: [adapter], idempotency: { store, ttlSec: 0 } });
+    const sms = createSmsClient({ adapters: [adapter], idempotency: { store, ttlSec: 1 } });
     await expect(sms.send(message)).rejects.toBeInstanceOf(HandoffUnknownError);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    clockOffsetMs = 5_000;
     const replay = await rejection(sms.send(message));
     expect(replay).toBeInstanceOf(HandoffUnknownError);
     expect(replay).toMatchObject({ reason: "replayed_unknown", retrySafe: false });
@@ -239,5 +247,69 @@ describe("memoryIdempotencyStore contract", () => {
     ]) {
       expect(await fingerprintMessage({ ...base, ...change })).not.toBe(reference);
     }
+  });
+});
+
+describe("idempotency configuration", () => {
+  test.each([
+    ["ttlSec", 0],
+    ["ttlSec", -1],
+    ["ttlSec", Number.NaN],
+    ["ttlSec", Number.POSITIVE_INFINITY],
+    ["staleReservationSec", 0],
+    ["staleReservationSec", Number.NaN],
+  ] as const)("rejects %s: %p", (field, value) => {
+    expect(() =>
+      createSmsClient({ adapters: [memory()], idempotency: { store: memoryIdempotencyStore(), [field]: value } }),
+    ).toThrow(ConfigurationError);
+  });
+
+  test("a valid TTL sends a repeated key exactly once", async () => {
+    const adapter = memory();
+    const sms = createSmsClient({ adapters: [adapter], idempotency: { store: memoryIdempotencyStore(), ttlSec: 60 } });
+    const first = await sms.send(message);
+    const second = await sms.send(message);
+    expect(adapter.sent).toHaveLength(1);
+    expect(second).toMatchObject({ id: first.id, providerId: first.providerId, replayed: true });
+  });
+});
+
+describe("fingerprint with fromByAdapter", () => {
+  const fields = {
+    to: "+14155550123",
+    from: null,
+    body: "hi",
+    mediaUrls: [],
+    sendAt: null,
+    validityPeriodSec: null,
+    webhookUrl: null,
+  } as const;
+
+  test("is unchanged for messages without it", async () => {
+    expect(await fingerprintMessage({ ...fields, fromByAdapter: undefined })).toBe(await fingerprintMessage(fields));
+  });
+
+  test("changes with it and cannot be confused with providerOptions", async () => {
+    const asSender = await fingerprintMessage({ ...fields, fromByAdapter: { twilio: "+15005550006" } });
+    const asOptions = await fingerprintMessage({ ...fields, providerOptions: { twilio: "+15005550006" } });
+    expect(asSender).not.toBe(await fingerprintMessage(fields));
+    expect(asSender).not.toBe(asOptions);
+  });
+
+  test("a different per-adapter sender under the same key is a conflict", async () => {
+    const sms = createSmsClient({ adapters: [memory({ name: "a" })], idempotency: { store: memoryIdempotencyStore() } });
+    await sms.send({ ...message, fromByAdapter: { a: "+15005550001" } });
+    await expect(sms.send({ ...message, fromByAdapter: { a: "+15005550002" } })).rejects.toBeInstanceOf(IdempotencyConflictError);
+    await expect(sms.send({ ...message, fromByAdapter: { a: "+15005550001", other: "+15005550009" } })).resolves.toMatchObject({
+      replayed: true,
+    });
+  });
+
+  test("rejects null entries in fromByAdapter during validation instead of skewing fingerprints", async () => {
+    const sms = createSmsClient({ adapters: [memory({ name: "a" })], idempotency: { store: memoryIdempotencyStore() } });
+    const bad = { ...message, fromByAdapter: { a: null } } as unknown as typeof message;
+    const validation = sms.validate(bad);
+    expect(validation.supported).toBe(false);
+    expect(validation.issues.some((issue) => issue.field === "fromByAdapter")).toBe(true);
   });
 });

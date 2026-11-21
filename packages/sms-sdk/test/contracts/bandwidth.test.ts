@@ -19,6 +19,20 @@ const fixtures: AdapterContractFixtures = {
   rateLimited: { response: { status: 429, body: { errorCode: "429", description: "slow down" }, headers: { "retry-after": "2" } }, retryAfterMs: 2_000 },
   malformedSuccess: { status: 202, body: {} },
   serverError: { status: 500, body: { description: "server error" } },
+  lookup: {
+    providerId: id,
+    request: {
+      url: `https://messaging.bandwidth.com/api/v2/users/u1/messages?messageId=${id}`,
+      headers: { authorization: `Basic ${btoa("token:secret")}`, accept: "application/json" },
+    },
+    found: {
+      response: { status: 200, body: { totalCount: 1, messages: [{ messageId: id, messageStatus: "FAILED", errorCode: 4720 }] } },
+      delivery: "undelivered",
+      providerStatus: "FAILED",
+      errorCode: "4720",
+    },
+    notFound: { status: 200, body: { totalCount: 0, messages: [] } },
+  },
   webhooks: {
     parse: (request) => parseSmsWebhook({ provider: "bandwidth", request, credentials: { username: "hook", password: "secret" } }),
     cases: [

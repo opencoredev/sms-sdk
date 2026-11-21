@@ -94,7 +94,7 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
       entries.delete(key);
       return null;
     }
-    return entry.record;
+    return structuredClone(entry.record);
   };
 
   return {
@@ -125,7 +125,7 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
       }
 
       const expiresAt = record.state === "unknown" ? null : now + ttlSec * 1000;
-      entries.set(key, { record, expiresAt });
+      entries.set(key, { record: structuredClone(record), expiresAt });
       return { kind: "finalized" };
     },
 
@@ -147,8 +147,10 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
  * present, so sends without it keep the fingerprint earlier versions stored.
  * The client passes the canonical form from `canonicalProviderOptions`, so
  * options with no effect on any configured adapter are left out.
+ * `fromByAdapter` follows the same rule: only when present, after a
+ * `providerOptions` slot (`null` when absent) so the two cannot be confused.
  */
-export async function fingerprintMessage(fields: {
+export type FingerprintFields = {
   readonly to: string;
   readonly from: unknown;
   readonly body: string;
@@ -157,7 +159,11 @@ export async function fingerprintMessage(fields: {
   readonly validityPeriodSec: number | null;
   readonly webhookUrl: string | null;
   readonly providerOptions?: unknown;
-}): Promise<string> {
+  readonly fromByAdapter?: unknown;
+};
+
+/** Synchronous canonical serialization of the fields hashed by {@link fingerprintMessage}. */
+export function canonicalMessageKey(fields: FingerprintFields): string {
   const parts: unknown[] = [
     fields.to,
     fields.from ?? null,
@@ -167,10 +173,17 @@ export async function fingerprintMessage(fields: {
     fields.validityPeriodSec,
     fields.webhookUrl,
   ];
-  if (fields.providerOptions !== undefined) {
-    parts.push(sortKeys(fields.providerOptions));
+  if (fields.providerOptions !== undefined || fields.fromByAdapter !== undefined) {
+    parts.push(fields.providerOptions === undefined ? null : sortKeys(fields.providerOptions));
   }
-  const canonical = JSON.stringify(parts);
+  if (fields.fromByAdapter !== undefined) {
+    parts.push(sortKeys(fields.fromByAdapter));
+  }
+  return JSON.stringify(parts);
+}
+
+export async function fingerprintMessage(fields: FingerprintFields): Promise<string> {
+  const canonical = canonicalMessageKey(fields);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

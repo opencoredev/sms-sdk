@@ -78,6 +78,42 @@ export const sms = createSmsClient({
 
 Sending to a suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
 
+### With the built-in helpers
+
+`@opencoredev/sms-sdk` exports a `SuppressionList` interface (`has`, `add`, `remove`, each sync or async) and three helpers around it:
+
+- `suppressionPolicy(list)` returns a `beforeSend` that rejects suppressed recipients with reason `"recipient suppressed"`.
+- `applySuppressionEvent(list, event)` adds the sender of a `recipient.opted_out` event, removes the sender of a `recipient.opted_in` event, ignores everything else, and returns `"added"`, `"removed"`, or `"ignored"`.
+- `memorySuppressionList()` keeps the list in process memory. It is lost on restart and not shared between processes, so use it in tests and single-process tools, and back `SuppressionList` with your database in production.
+
+Any object with `has`, `add`, and `remove` works as the list, such as a table in your database:
+
+```ts
+import { applySuppressionEvent, createSmsClient, suppressionPolicy } from "@opencoredev/sms-sdk";
+import { telnyx } from "@opencoredev/sms-sdk/telnyx";
+import { parseSmsWebhooks } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export const sms = createSmsClient({
+  adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" })],
+  beforeSend: suppressionPolicy(db.suppressions),
+});
+
+export async function POST(request: Request): Promise<Response> {
+  const events = await parseSmsWebhooks({
+    provider: "telnyx",
+    request,
+    credentials: { publicKey: process.env.TELNYX_PUBLIC_KEY ?? "" },
+  });
+  for (const event of events) {
+    await applySuppressionEvent(db.suppressions, event);
+  }
+  return new Response(null, { status: 200 });
+}
+```
+
+Numbers are compared exactly, so store them in E.164, the form webhook events and `send()` use.
+
 A provider may also refuse a message because the recipient opted out with it directly: Twilio 21610, Telnyx 40300, or Vonage 1240. That rejection has `category: "compliance"`, and SMS SDK never retries it or tries another provider. See [Fallback and retries](/sending/fallback-and-retries). Add the number to your list when you see one:
 
 ```ts

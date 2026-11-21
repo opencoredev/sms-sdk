@@ -6,9 +6,11 @@ import {
   ProviderRateLimitedError,
   ProviderRejectedError,
   SendAbortedError,
+  sanitizeDiagnosticToken,
   type SmsError,
 } from "./errors.js";
 import type { SendAttempt } from "./events.js";
+import { sanitizeProviderDetails } from "./http.js";
 import { decideRetry, sleep, type ResolvedRetryOptions } from "./retry.js";
 
 /** An adapter paired with the message built for it. */
@@ -33,6 +35,7 @@ type ChainInput = {
   readonly signal: AbortSignal | undefined;
   readonly idempotencyKey: string | undefined;
   readonly onAttempt: (attempt: SendAttempt) => void;
+  readonly onBackoffState?: (waiting: boolean) => void;
 };
 
 type AdapterRun =
@@ -70,7 +73,7 @@ export async function runSendChain(input: ChainInput): Promise<ChainResult> {
       case "unknown":
         return { kind: "failed", error: run.error, attempts };
       case "aborted":
-        return { kind: "failed", error: new SendAbortedError([...attempts]), attempts };
+        return { kind: "failed", error: new SendAbortedError([...attempts], input.signal?.reason), attempts };
       case "rejected":
         rejections.push(run.error);
         if (!input.fallback || !run.error.fallbackEligible) {
@@ -158,7 +161,14 @@ async function runAdapter(
         if (outcome.category === "rate_limited") {
           const decision = decideRetry({ attempt, retryAfterMs: outcome.retryAfterMs, options: input.retry });
           if (decision.kind === "wait") {
-            if ((await sleep(decision.delayMs, input.signal)) === "aborted") {
+            input.onBackoffState?.(true);
+            let sleepResult: "slept" | "aborted";
+            try {
+              sleepResult = await sleep(decision.delayMs, input.signal);
+            } finally {
+              input.onBackoffState?.(false);
+            }
+            if (sleepResult === "aborted") {
               return { kind: "aborted" };
             }
             continue;
@@ -200,30 +210,137 @@ async function attemptOnce(candidate: SendCandidate, input: ChainInput, attempt:
     input.signal?.removeEventListener("abort", onCallerAbort);
   }
 
+  outcome = normalizeOutcome(outcome, candidate.adapter.name);
   if (outcome.kind === "unknown" && controller.signal.aborted) {
-    return { ...outcome, reason: timedOut ? "timeout" : "aborted" };
+    return {
+      ...outcome,
+      reason: timedOut ? "timeout" : "aborted",
+      ...(!timedOut && outcome.cause === undefined && input.signal !== undefined
+        ? { cause: input.signal.reason }
+        : {}),
+    };
   }
   return outcome;
+}
+
+const REJECTION_CATEGORIES: ReadonlySet<unknown> = new Set([
+  "auth",
+  "rate_limited",
+  "recipient",
+  "sender",
+  "account",
+  "compliance",
+  "request",
+]);
+
+/** Delivery values an accepted send or lookup outcome may report. */
+export const DELIVERIES: ReadonlySet<unknown> = new Set([
+  "unknown",
+  "queued",
+  "sent",
+  "delivered",
+  "undelivered",
+  "filtered",
+]);
+
+/** Reason values an unknown send outcome may carry. */
+export const UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
+  "network",
+  "timeout",
+  "aborted",
+  "malformed_response",
+  "server_error",
+  "unexpected_status",
+  "adapter_exception",
+]);
+
+const MALFORMED_OUTCOME = (): AdapterSendOutcome => ({
+  kind: "unknown",
+  reason: "adapter_exception",
+  cause: new TypeError("Adapter returned a malformed send outcome."),
+});
+
+/**
+ * A send outcome the client cannot act on safely is treated as unknown: the
+ * request may have reached the provider. Every field is read once and copied,
+ * so getters cannot change a value after it was checked.
+ */
+function normalizeOutcome(outcome: unknown, adapterName: string): AdapterSendOutcome {
+  try {
+    if (typeof outcome !== "object" || outcome === null || Array.isArray(outcome)) {
+      return MALFORMED_OUTCOME();
+    }
+    const record = outcome as Record<string, unknown>;
+    const kind = record["kind"];
+    if (kind === "accepted") {
+      const providerId = record["providerId"];
+      const delivery = record["delivery"];
+      if (typeof providerId !== "string" || providerId.length === 0 || !DELIVERIES.has(delivery)) {
+        return MALFORMED_OUTCOME();
+      }
+      return { kind: "accepted", providerId, delivery: delivery as Delivery };
+    }
+    if (kind === "rejected") {
+      const category = record["category"];
+      const rawDetails = record["details"];
+      const retryAfterMs = record["retryAfterMs"];
+      if (
+        !REJECTION_CATEGORIES.has(category) ||
+        typeof rawDetails !== "object" ||
+        rawDetails === null ||
+        Array.isArray(rawDetails)
+      ) {
+        return MALFORMED_OUTCOME();
+      }
+      return {
+        kind: "rejected",
+        category: category as Extract<AdapterSendOutcome, { kind: "rejected" }>["category"],
+        details: sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName),
+        ...(typeof retryAfterMs === "number" && retryAfterMs >= 0
+          ? { retryAfterMs: Number.isFinite(retryAfterMs) ? retryAfterMs : Number.MAX_SAFE_INTEGER }
+          : {}),
+      };
+    }
+    if (kind === "unknown") {
+      const reason = record["reason"];
+      const rawDetails = record["details"];
+      if (!UNKNOWN_REASONS.has(reason)) {
+        return MALFORMED_OUTCOME();
+      }
+      const details =
+        typeof rawDetails === "object" && rawDetails !== null && !Array.isArray(rawDetails)
+          ? sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName)
+          : undefined;
+      return {
+        kind: "unknown",
+        reason: reason as Extract<AdapterSendOutcome, { kind: "unknown" }>["reason"],
+        ...(details === undefined ? {} : { details }),
+        ...("cause" in record ? { cause: record["cause"] } : {}),
+      };
+    }
+    return MALFORMED_OUTCOME();
+  } catch (cause) {
+    return { kind: "unknown", reason: "adapter_exception", cause };
+  }
 }
 
 function rejectionError(
   outcome: Extract<AdapterSendOutcome, { kind: "rejected" }>,
   attempts: readonly SendAttempt[],
 ): ProviderRejectedError {
-  const provider = outcome.details.provider;
-  const detail = outcome.details.message === undefined ? "" : `: ${outcome.details.message}`;
+  const provider = sanitizeDiagnosticToken(outcome.details.provider, 64) ?? "unknown";
 
   if (outcome.category === "auth") {
-    return new ProviderAuthError(`${provider} rejected the credentials${detail}`, { provider: outcome.details, attempts });
+    return new ProviderAuthError(`${provider} rejected the credentials`, { provider: outcome.details, attempts });
   }
   if (outcome.category === "rate_limited") {
-    return new ProviderRateLimitedError(`${provider} rate-limited the request; the message was not created${detail}`, {
+    return new ProviderRateLimitedError(`${provider} rate-limited the request; the message was not created`, {
       provider: outcome.details,
       attempts,
       ...(outcome.retryAfterMs === undefined ? {} : { retryAfterMs: outcome.retryAfterMs }),
     });
   }
-  return new ProviderRejectedError(`${provider} rejected the message (${outcome.category})${detail}`, {
+  return new ProviderRejectedError(`${provider} rejected the message (${outcome.category})`, {
     category: outcome.category,
     provider: outcome.details,
     attempts,
@@ -231,8 +348,9 @@ function rejectionError(
 }
 
 function unknownMessage(provider: string, reason: string): string {
+  const safeProvider = sanitizeDiagnosticToken(provider, 64) ?? "unknown";
   return (
-    `The outcome of the ${provider} request is unknown (${reason.replace("_", " ")}). ` +
+    `The outcome of the ${safeProvider} request is unknown (${reason.replace("_", " ")}). ` +
     "The message may have been accepted. Do not resend automatically; reconcile with the provider first."
   );
 }

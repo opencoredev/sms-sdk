@@ -1,5 +1,5 @@
 {
-  "extends": "@email-sdk/config/tsconfig.base.json",
+  "extends": "@sms-sdk/config/tsconfig.base.json",
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -30,6 +30,12 @@
       ],
       "@opencoredev/sms-sdk/vonage": [
         "./src/providers/vonage.ts"
+      ],
+      "@opencoredev/sms-sdk/bandwidth": [
+        "./src/providers/bandwidth.ts"
+      ],
+      "@opencoredev/sms-sdk/sinch": [
+        "./src/providers/sinch.ts"
       ],
       "@opencoredev/sms-sdk/webhooks": [
         "./src/webhooks/index.ts"

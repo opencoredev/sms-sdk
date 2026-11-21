@@ -53,6 +53,19 @@ const vonageFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 202, body: { workflow_id: "w1" } },
   serverError: { status: 500, body: { title: "Internal Error" } },
+  lookup: {
+    providerId: UUID,
+    request: {
+      url: `https://api.nexmo.com/v2/reports/records?account_id=key&product=MESSAGES&direction=outbound&id=${UUID}`,
+      headers: { authorization: `Basic ${btoa("key:secret")}`, accept: "application/json" },
+    },
+    found: {
+      response: { status: 200, body: { request_status: "SUCCESS", records: [{ message_id: UUID, status: "delivered", to: "447700900000" }] } },
+      delivery: "delivered",
+      providerStatus: "delivered",
+    },
+    notFound: { status: 200, body: { request_status: "SUCCESS", records: [] } },
+  },
   webhooks: {
     parse: (request) => parseSmsWebhook({ provider: "vonage", request, credentials: { signatureSecret: SECRET } }),
     cases: [
@@ -114,6 +127,31 @@ describe("vonage JWT auth", () => {
     const signatureBytes = fromBase64(signature);
     if (signatureBytes === undefined) throw new Error("bad signature encoding");
     expect(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, signatureBytes, utf8(`${header}.${payload}`))).toBe(true);
+  });
+
+  test("has no getMessage without reportsCredentials", () => {
+    const adapter = vonage({ applicationId: "app-123", privateKey: privatePem });
+    expect(adapter.getMessage).toBeUndefined();
+  });
+
+  test("reportsCredentials enable getMessage with Basic auth on the Reports API", async () => {
+    const mock = mockFetch({ status: 200, body: { records: [{ message_id: UUID, status: "submitted" }] } });
+    const adapter = vonage({
+      applicationId: "app-123",
+      privateKey: privatePem,
+      reportsCredentials: { apiKey: "key", apiSecret: "secret" },
+      fetch: mock.fetch,
+    });
+    const status = await createSmsClient({ adapters: [adapter] }).getMessage(UUID);
+    expect(status).toEqual({ provider: "vonage", providerId: UUID, delivery: "sent", providerStatus: "submitted" });
+    expect(mock.calls[0]?.headers["authorization"]).toBe(`Basic ${btoa("key:secret")}`);
+    expect(mock.calls[0]?.url).toContain("/v2/reports/records?account_id=key&product=MESSAGES");
+  });
+
+  test("rejects empty reportsCredentials", () => {
+    expect(() =>
+      vonage({ applicationId: "app-123", privateKey: privatePem, reportsCredentials: { apiKey: "", apiSecret: "s" } }),
+    ).toThrow(ConfigurationError);
   });
 
   test("accepts a PEM with escaped newlines from an environment variable", async () => {

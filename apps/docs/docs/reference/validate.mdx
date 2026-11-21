@@ -66,7 +66,9 @@ type ValidationIssue = {
 | `unsupported_field` | `UnsupportedFieldError` | The adapter cannot send this field or sender type, Twilio `sendAt` without a Messaging Service sender, or a `providerOptions` key the adapter does not accept or that names a parameter the SDK sets. |
 | `invalid_field` | `InvalidMessageError` | A malformed field, a value outside the adapter's range, or a `providerOptions` value of the wrong type. |
 
-`ValidationField` is `"to" | "from" | "body" | "mediaUrls" | "sendAt" | "validityPeriodSec" | "webhookUrl" | "idempotencyKey" | "providerOptions"`.
+`ValidationField` is `"message" | "to" | "from" | "fromByAdapter" | "body" | "mediaUrls" | "sendAt" | "validityPeriodSec" | "webhookUrl" | "idempotencyKey" | "providerOptions"`. `"message"` means the input as a whole, for example `null` from a JSON body.
+
+`validate()` never throws on malformed input. A value that is not an object, a `mediaUrls` that is not an array, or a non-string `idempotencyKey` comes back as an `invalid_field` issue.
 
 ## What it does not check
 
