@@ -90,10 +90,24 @@ export function supportsSender(capabilities: SmsCapabilities, sender: SmsSender)
   return senderTypesFor(sender).some((type) => capabilities.senderTypes.includes(type));
 }
 
-/** Checks that do not depend on an adapter: recipient, body, field formats. */
+/** Reported when the value passed as a message is not an object at all. */
+export const MESSAGE_NOT_OBJECT_ISSUE: ValidationIssue = {
+  code: "invalid_field",
+  field: "message",
+  message: "The message must be an object with to and body.",
+};
+
+/**
+ * Checks that do not depend on an adapter: recipient, body, field formats.
+ * Total over runtime input: a malformed value from JavaScript or JSON yields
+ * issues, never a thrown `TypeError`.
+ */
 export function validateMessage(input: SmsSendInput): ValidationIssue[] {
+  if (!isRecord(input)) {
+    return [MESSAGE_NOT_OBJECT_ISSUE];
+  }
   const issues: ValidationIssue[] = [];
-  const mediaUrls = input.mediaUrls ?? [];
+  const mediaUrls = mediaUrlsOf(input);
 
   if (!isE164(input.to)) {
     issues.push({
@@ -107,7 +121,9 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   } else if (input.body.length === 0 && mediaUrls.length === 0) {
     issues.push({ code: "empty_body", field: "body", message: "Body is empty and there is no media to send." });
   }
-  if (mediaUrls.some((url) => !isHttpUrl(url))) {
+  if (input.mediaUrls !== undefined && !Array.isArray(input.mediaUrls)) {
+    issues.push({ code: "invalid_field", field: "mediaUrls", message: "mediaUrls must be an array of absolute http(s) URLs." });
+  } else if (mediaUrls.some((url) => !isHttpUrl(url))) {
     issues.push({ code: "invalid_field", field: "mediaUrls", message: "Every media URL must be an absolute http(s) URL." });
   }
   if (input.sendAt !== undefined && !(input.sendAt instanceof Date && Number.isFinite(input.sendAt.getTime()))) {
@@ -128,12 +144,14 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   }
   if (
     input.idempotencyKey !== undefined &&
-    (input.idempotencyKey.length === 0 || input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH)
+    (typeof input.idempotencyKey !== "string" ||
+      input.idempotencyKey.length === 0 ||
+      input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH)
   ) {
     issues.push({
       code: "invalid_field",
       field: "idempotencyKey",
-      message: `idempotencyKey must be 1-${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
+      message: `idempotencyKey must be a string of 1-${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
     });
   }
   return issues;
@@ -165,7 +183,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
   const issues: ValidationIssue[] = [];
   const capabilities = adapter.capabilities;
   const sender = resolution.sender;
-  const mediaUrls = input.mediaUrls ?? [];
+  const mediaUrls = mediaUrlsOf(input);
 
   if (!supportsSender(capabilities, sender)) {
     issues.push(unsupported(provider, "from", `${provider} does not support ${sender.kind.replace("_", " ")} senders.`));
@@ -243,6 +261,11 @@ export function issueToError(issue: ValidationIssue): SmsError {
 
 function unsupported(provider: string, field: ValidationIssue["field"], message: string): ValidationIssue {
   return { code: "unsupported_field", field, provider, message };
+}
+
+/** `input.mediaUrls`, or an empty list when absent or not an array (which {@link validateMessage} reports). */
+function mediaUrlsOf(input: SmsSendInput): readonly string[] {
+  return Array.isArray(input.mediaUrls) ? input.mediaUrls : [];
 }
 
 function isHttpUrl(value: string): boolean {

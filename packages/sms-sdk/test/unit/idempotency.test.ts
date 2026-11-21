@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSmsClient } from "../../src/core/client.js";
 import {
+  ConfigurationError,
   HandoffUnknownError,
   IdempotencyConflictError,
   IdempotencyInProgressError,
@@ -119,7 +120,7 @@ describe("idempotent replay", () => {
   test("an unknown outcome replays as unknown and never resends", async () => {
     const store = memoryIdempotencyStore();
     const adapter = memory({ outcomes: [unknownOutcome("timeout")] });
-    const sms = createSmsClient({ adapters: [adapter], idempotency: { store, ttlSec: 0 } });
+    const sms = createSmsClient({ adapters: [adapter], idempotency: { store, ttlSec: 0.001 } });
     await expect(sms.send(message)).rejects.toBeInstanceOf(HandoffUnknownError);
     await new Promise((resolve) => setTimeout(resolve, 5));
     const replay = await rejection(sms.send(message));
@@ -239,5 +240,29 @@ describe("memoryIdempotencyStore contract", () => {
     ]) {
       expect(await fingerprintMessage({ ...base, ...change })).not.toBe(reference);
     }
+  });
+});
+
+describe("idempotency configuration", () => {
+  test.each([
+    ["ttlSec", 0],
+    ["ttlSec", -1],
+    ["ttlSec", Number.NaN],
+    ["ttlSec", Number.POSITIVE_INFINITY],
+    ["staleReservationSec", 0],
+    ["staleReservationSec", Number.NaN],
+  ] as const)("rejects %s: %p", (field, value) => {
+    expect(() =>
+      createSmsClient({ adapters: [memory()], idempotency: { store: memoryIdempotencyStore(), [field]: value } }),
+    ).toThrow(ConfigurationError);
+  });
+
+  test("a valid TTL sends a repeated key exactly once", async () => {
+    const adapter = memory();
+    const sms = createSmsClient({ adapters: [adapter], idempotency: { store: memoryIdempotencyStore(), ttlSec: 60 } });
+    const first = await sms.send(message);
+    const second = await sms.send(message);
+    expect(adapter.sent).toHaveLength(1);
+    expect(second).toMatchObject({ id: first.id, providerId: first.providerId, replayed: true });
   });
 });

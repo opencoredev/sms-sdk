@@ -1,5 +1,5 @@
 import type { SmsAdapter, ValidationIssue } from "./adapters.js";
-import { checkAdapter, issueToError, validateMessage } from "./capabilities.js";
+import { checkAdapter, issueToError, MESSAGE_NOT_OBJECT_ISSUE, validateMessage } from "./capabilities.js";
 import { maskPhoneNumber } from "./e164.js";
 import { estimateSegments, type SegmentPreview } from "./encoding.js";
 import {
@@ -11,7 +11,8 @@ import {
   SendAbortedError,
   SmsError,
 } from "./errors.js";
-import { emitHook, type SmsHookEventBase } from "./events.js";
+import { emitHook, type SendAttempt, type SmsHookEventBase } from "./events.js";
+import { isRecord } from "./http.js";
 import { runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
@@ -65,12 +66,24 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       ? undefined
       : {
           store: options.idempotency.store,
-          ttlSec: options.idempotency.ttlSec ?? DEFAULT_TTL_SEC,
-          staleReservationSec: options.idempotency.staleReservationSec ?? DEFAULT_STALE_RESERVATION_SEC,
+          ttlSec: requirePositiveSeconds(options.idempotency.ttlSec ?? DEFAULT_TTL_SEC, "ttlSec"),
+          staleReservationSec: requirePositiveSeconds(
+            options.idempotency.staleReservationSec ?? DEFAULT_STALE_RESERVATION_SEC,
+            "staleReservationSec",
+          ),
         };
   const inFlight = new Map<string, InFlight>();
 
   const validate = (input: SmsSendInput): SmsValidationResult => {
+    if (!isRecord(input)) {
+      return {
+        ...estimateSegments(""),
+        supported: false,
+        issues: [MESSAGE_NOT_OBJECT_ISSUE],
+        adapterCandidates: [],
+        providerOptionsFor: [],
+      };
+    }
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const messageIssues = [...validateMessage(input), ...validateProviderOptions(adapters, input.providerOptions)];
     if (messageIssues.length > 0) {
@@ -99,6 +112,9 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   };
 
   const send = async (input: SmsSendInput, sendOptions: SmsSendOptions = {}): Promise<SmsSendResult> => {
+    if (!isRecord(input)) {
+      throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
+    }
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const candidates = buildCandidates(input);
     const signal = sendOptions.signal;
@@ -267,11 +283,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       try {
         decision = await options.beforeSend({ id, message: input, encoding: preview.encoding, segments: preview.segments });
       } catch (cause) {
-        await finalize({
-          state: "rejected",
-          fingerprint: reservation?.fingerprint ?? "",
-          error: new PolicyRejectedError("beforeSend threw").toJSON(),
-        });
+        const policyError = new PolicyRejectedError("beforeSend threw");
+        await finalize({ state: "rejected", fingerprint: reservation?.fingerprint ?? "", error: policyError.toJSON() });
+        // The caller gets the original exception; hooks see it as a policy failure.
+        emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
         throw cause;
       }
       if (decision.kind === "reject") {
@@ -279,6 +294,9 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       }
     }
 
+    // Kept here as well as in the chain so an unexpected throw still reports
+    // every request already made, which is what reconciliation needs.
+    const attempts: SendAttempt[] = [];
     let chain: ChainResult;
     try {
       chain = await runSendChain({
@@ -288,13 +306,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         timeoutMs,
         signal: args.signal,
         idempotencyKey: input.idempotencyKey,
-        onAttempt: (attempt) => emitHook(hooks.onAttempt, { ...base, attempt }),
+        onAttempt: (attempt) => {
+          attempts.push(attempt);
+          emitHook(hooks.onAttempt, { ...base, attempt });
+        },
       });
     } catch (cause) {
       return fail(
         new HandoffUnknownError("The send failed unexpectedly after it may have reached a provider.", {
           reason: "adapter_exception",
-          attempts: [],
+          attempts: [...attempts],
           cause,
         }),
       );
@@ -338,6 +359,13 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       }));
     },
   };
+}
+
+function requirePositiveSeconds(value: number, name: "ttlSec" | "staleReservationSec"): number {
+  if (!(typeof value === "number" && Number.isFinite(value) && value > 0)) {
+    throw new ConfigurationError(`idempotency.${name} must be a finite number of seconds greater than 0.`);
+  }
+  return value;
 }
 
 function newId(): string {

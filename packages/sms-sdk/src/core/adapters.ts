@@ -267,6 +267,8 @@ export type ValidationIssueCode =
 
 /** Input fields a {@link ValidationIssue} can point at. */
 export type ValidationField =
+  /** The message as a whole, such as when it is not an object. */
+  | "message"
   | "to"
   | "from"
   | "body"

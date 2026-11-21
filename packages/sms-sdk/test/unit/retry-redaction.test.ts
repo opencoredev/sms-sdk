@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createSmsClient } from "../../src/core/client.js";
 import {
   AllProvidersRejectedError,
+  ConfigurationError,
   HandoffUnknownError,
   ProviderRejectedError,
   SmsError,
@@ -12,6 +13,7 @@ import { decideRetry, resolveRetryOptions } from "../../src/core/retry.js";
 import { twilio } from "../../src/providers/twilio.js";
 import { telnyx } from "../../src/providers/telnyx.js";
 import { mockFetch } from "../../src/testing/fetch.js";
+import { memory } from "../../src/testing/memory.js";
 import { rejection, TWILIO_SID } from "../helpers.js";
 
 describe("decideRetry", () => {
@@ -28,8 +30,8 @@ describe("decideRetry", () => {
   });
 
   test("caps backoff at maxDelayMs", () => {
-    const wide = resolveRetryOptions({ maxAttempts: 20, baseDelayMs: 100, maxDelayMs: 1_000 });
-    expect(decideRetry({ attempt: 10, retryAfterMs: undefined, options: wide, random: () => 0.999 })).toEqual({ kind: "wait", delayMs: 999 });
+    const wide = resolveRetryOptions({ maxAttempts: 10, baseDelayMs: 100, maxDelayMs: 1_000 });
+    expect(decideRetry({ attempt: 9, retryAfterMs: undefined, options: wide, random: () => 0.999 })).toEqual({ kind: "wait", delayMs: 999 });
   });
 
   test("honors Retry-After only within maxDelayMs", () => {
@@ -37,9 +39,25 @@ describe("decideRetry", () => {
     expect(decideRetry({ attempt: 1, retryAfterMs: 5_000, options })).toEqual({ kind: "stop" });
   });
 
-  test("resolveRetryOptions applies defaults and clamps", () => {
+  test("resolveRetryOptions applies defaults and raises maxDelayMs to baseDelayMs", () => {
     expect(resolveRetryOptions(undefined)).toEqual({ maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 10_000 });
-    expect(resolveRetryOptions({ maxAttempts: 0 }).maxAttempts).toBe(1);
+    expect(resolveRetryOptions({ baseDelayMs: 2_000, maxDelayMs: 100 }).maxDelayMs).toBe(2_000);
+  });
+
+  test.each([
+    [{ maxAttempts: 0 }],
+    [{ maxAttempts: 11 }],
+    [{ maxAttempts: 1e9 }],
+    [{ maxAttempts: 2.5 }],
+    [{ maxAttempts: Number.NaN }],
+    [{ baseDelayMs: Number.NaN }],
+    [{ baseDelayMs: -1 }],
+    [{ baseDelayMs: Number.POSITIVE_INFINITY }],
+    [{ maxDelayMs: Number.NaN }],
+    [{ maxDelayMs: Number.POSITIVE_INFINITY }],
+  ])("rejects retry %j with ConfigurationError", (retry) => {
+    expect(() => resolveRetryOptions(retry)).toThrow(ConfigurationError);
+    expect(() => createSmsClient({ adapters: [memory()], retry })).toThrow(ConfigurationError);
   });
 });
 

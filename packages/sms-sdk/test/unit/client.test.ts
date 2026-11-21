@@ -257,6 +257,40 @@ describe("send: fallback", () => {
     expect(error).toEqual(new Error("suppression list unavailable"));
     expect(adapter.sent).toHaveLength(0);
   });
+
+  test("an exception in beforeSend still emits onFailure", async () => {
+    const failures: SmsFailureEvent[] = [];
+    const sms = createSmsClient({
+      adapters: [memory()],
+      beforeSend: () => {
+        throw new Error("suppression list unavailable");
+      },
+      hooks: { onFailure: (event) => void failures.push(event) },
+    });
+    await rejection(sms.send(message));
+    expect(failures).toEqual([
+      expect.objectContaining({ errorCode: "policy_rejected", retrySafe: true, attempts: [], to: expect.not.stringContaining("4155550123") }),
+    ]);
+  });
+});
+
+describe("send: unexpected chain failure", () => {
+  test("keeps the attempts made before the chain threw", async () => {
+    const primary = memory({ name: "primary", outcomes: [rejectedOutcome("sender")] });
+    // A custom adapter that breaks the contract: a rejection with no details.
+    const broken = memory({ name: "broken", outcomes: [() => JSON.parse('{"kind":"rejected","category":"request"}')] });
+    const failures: SmsFailureEvent[] = [];
+    const sms = createSmsClient({
+      adapters: [primary, broken],
+      fallback: "on-known-rejection",
+      hooks: { onFailure: (event) => void failures.push(event) },
+    });
+    const error = await rejection(sms.send(message));
+    expect(error).toBeInstanceOf(HandoffUnknownError);
+    expect(error).toMatchObject({ reason: "adapter_exception", retrySafe: false });
+    expect(error).toMatchObject({ attempts: [expect.objectContaining({ provider: "primary", outcome: "rejected" })] });
+    expect(failures[0]?.attempts).toHaveLength(1);
+  });
 });
 
 describe("send: retries", () => {

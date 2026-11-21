@@ -98,9 +98,9 @@ export type BeforeSendContext = {
 
 /** Same-adapter retry policy for proven, rate-limited rejections. */
 export type RetryOptions = {
-  /** Requests per adapter, including the first. Default `2`. `1` disables retries. */
+  /** Requests per adapter, including the first: an integer from 1 to 10. Default `2`. `1` disables retries. */
   readonly maxAttempts?: number;
-  /** Base delay for exponential backoff with full jitter. Default `500` ms. */
+  /** Base delay for exponential backoff with full jitter. Finite, 0 or more. Default `500` ms. */
   readonly baseDelayMs?: number;
   /**
    * Longest wait between attempts. A `Retry-After` longer than this stops
@@ -126,9 +126,9 @@ export type SmsClientOptions = {
   /** Enables idempotency-key deduplication. Off unless a store is given. */
   readonly idempotency?: {
     readonly store: IdempotencyStore;
-    /** Retention of accepted/rejected records. Default `86400` (24 hours). */
+    /** Retention of accepted/rejected records, in seconds. Finite and positive. Default `86400` (24 hours). */
     readonly ttlSec?: number;
-    /** Age after which an unfinished reservation is treated as an unknown outcome. Default `300`. */
+    /** Age in seconds after which an unfinished reservation is an unknown outcome. Finite and positive. Default `300`. */
     readonly staleReservationSec?: number;
   };
   /** Policy check, such as a suppression list. A rejection never falls back. */

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ConfigurationError } from "../../src/core/errors.js";
 import { buildSinchRequest, interpretSinchResponse, sinch, sinchDelivery } from "../../src/providers/sinch.js";
 
 const message = { to: "+15551234567", from: { kind: "phone_number", value: "+15557654321" }, body: "hello", mediaUrls: [] } as const;
@@ -14,6 +15,18 @@ describe("Sinch adapter", () => {
     const outcome = await adapter.send(message, { signal: new AbortController().signal, attempt: 1 });
     expect(outcome).toEqual({ kind: "accepted", providerId: "batch-1", delivery: "queued" });
     expect(request?.headers).toMatchObject({ Authorization: "Bearer token", "Content-Type": "application/json" });
+  });
+
+  test.each([
+    [{}],
+    [{ servicePlanId: "plan" }],
+    [{ apiToken: "token" }],
+    [{ servicePlanId: "", apiToken: "token" }],
+    [{ servicePlanId: "plan", apiToken: "" }],
+    [{ servicePlanId: 5, apiToken: "token" }],
+  ])("throws ConfigurationError for options %j", (options) => {
+    // @ts-expect-error -- untyped JavaScript callers can pass anything.
+    expect(() => sinch(options)).toThrow(ConfigurationError);
   });
 
   test("does not claim a bare rate limit is safe to retry", () => {

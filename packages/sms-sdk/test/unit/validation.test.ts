@@ -6,6 +6,7 @@ import {
   InvalidMessageError,
   InvalidRecipientError,
   InvalidSenderError,
+  SmsError,
   UnsupportedFieldError,
 } from "../../src/core/errors.js";
 import type { SmsSendInput } from "../../src/core/types.js";
@@ -250,5 +251,46 @@ describe("capabilities()", () => {
     expect(info.map((entry) => entry.name)).toEqual(["a", "plivo"]);
     expect(info[1]?.support.status).toBe("partial");
     expect(info[1]?.capabilities.validityPeriod).toEqual({ minSec: 5, maxSec: 10_799 });
+  });
+});
+
+describe("malformed runtime input", () => {
+  /** A message as it arrives from an untyped JavaScript caller or a JSON body. */
+  const fromJson = (json: string): SmsSendInput => JSON.parse(json);
+  const sms = createSmsClient({ adapters: [memory()] });
+
+  test.each([
+    ["mediaUrls is a string", '{"to":"+14155550123","body":"hi","mediaUrls":"https://example.com/a.png"}', "mediaUrls"],
+    ["mediaUrls is a number", '{"to":"+14155550123","body":"hi","mediaUrls":5}', "mediaUrls"],
+    ["mediaUrls is an object", '{"to":"+14155550123","body":"hi","mediaUrls":{"0":"https://example.com/a.png"}}', "mediaUrls"],
+    ["idempotencyKey is a number", '{"to":"+14155550123","body":"hi","idempotencyKey":5}', "idempotencyKey"],
+    ["body is a number", '{"to":"+14155550123","body":5}', "body"],
+    ["input is null", "null", "message"],
+    ["input is a string", '"+14155550123"', "message"],
+    ["input is an array", "[]", "message"],
+  ])("validate() returns an issue when %s", (_name, json, field) => {
+    const result = sms.validate(fromJson(json));
+    expect(result.supported).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "invalid_field", field }));
+  });
+
+  test.each([
+    ['{"to":"+14155550123","body":"hi","mediaUrls":"https://example.com/a.png"}', "mediaUrls"],
+    ['{"to":"+14155550123","body":"hi","idempotencyKey":5}', "idempotencyKey"],
+    ["null", "message"],
+    ["42", "message"],
+  ])("send(%s) throws InvalidMessageError before any request", async (json, field) => {
+    const adapter = memory();
+    const error = await rejection(sms.send(fromJson(json)));
+    expect(error).toBeInstanceOf(InvalidMessageError);
+    expect(error).toBeInstanceOf(SmsError);
+    expect(error).toMatchObject({ field, retrySafe: true });
+    expect(adapter.sent).toHaveLength(0);
+  });
+
+  test("send(undefined) throws InvalidMessageError", async () => {
+    // @ts-expect-error -- untyped JavaScript callers can omit the message.
+    const error = await rejection(sms.send(undefined));
+    expect(error).toBeInstanceOf(InvalidMessageError);
   });
 });
