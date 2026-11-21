@@ -2121,5 +2121,74 @@ describe("send: fromByAdapter", () => {
       provider: { provider: "twilio", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
     });
     expect(directErr.toJSON().provider).toEqual({ provider: "twilio", httpStatus: 503 });
+
+    // R32: toJSON() strips credential-shaped providerCode in attempts and provider.code, while keeping hex UUID/RQ IDs
+    const rejErr = new ProviderRejectedError("rejected", {
+      category: "request",
+      provider: {
+        provider: "twilio",
+        code: "user:secret",
+        requestId: "00000000-0000-4000-8000-00000000000a",
+      },
+      attempts: [
+        {
+          provider: "twilio",
+          attempt: 1,
+          outcome: "rejected",
+          category: "request",
+          providerCode: "sk-live-DO-NOT-LEAK-9z",
+          durationMs: 5,
+        },
+      ],
+    });
+    const rejJson = rejErr.toJSON();
+    expect(rejJson.provider).toEqual({
+      provider: "twilio",
+      requestId: "00000000-0000-4000-8000-00000000000a",
+    });
+    expect(rejJson.attempts[0]).not.toHaveProperty("providerCode");
+
+    const codeCredErr = new HandoffUnknownError("cred-code", {
+      reason: "timeout",
+      attempts: [],
+      provider: { provider: "twilio", code: "api_key_123", requestId: "RQ0123456789abcdef0123456789abcdef" },
+    });
+    expect(codeCredErr.toJSON().provider).toEqual({
+      provider: "twilio",
+      requestId: "RQ0123456789abcdef0123456789abcdef",
+    });
+
+    // R32: coalesced callers both aborting during rate-limit backoff both get SendAbortedError with attempts
+    const backoffAdapter = memory({
+      outcomes: [rejectedOutcome("rate_limited", { retryAfterMs: 5000 })],
+    });
+    const backoffClient = createSmsClient({
+      adapters: [backoffAdapter],
+      retry: { maxAttempts: 2, baseDelayMs: 5000, maxDelayMs: 10000 },
+    });
+    const bac1 = new AbortController();
+    const bac2 = new AbortController();
+    const bp1 = backoffClient.send(
+      { to: "+14155550123", body: "hi", idempotencyKey: "k-r32-backoff" },
+      { signal: bac1.signal },
+    );
+    const bp2 = backoffClient.send(
+      { to: "+14155550123", body: "hi", idempotencyKey: "k-r32-backoff" },
+      { signal: bac2.signal },
+    );
+    await new Promise((r) => setTimeout(r, 25));
+    bac1.abort("b1");
+    bac2.abort("b2");
+    const [bs1, bs2] = await Promise.allSettled([bp1, bp2]);
+    expect(bs1.status).toBe("rejected");
+    expect(bs2.status).toBe("rejected");
+    if (bs1.status === "rejected" && bs2.status === "rejected") {
+      expect(bs1.reason).toBeInstanceOf(SendAbortedError);
+      expect(bs2.reason).toBeInstanceOf(SendAbortedError);
+      expect((bs1.reason as SendAbortedError).attempts).toHaveLength(1);
+      expect((bs2.reason as SendAbortedError).attempts).toHaveLength(1);
+      expect((bs1.reason as SendAbortedError).cause).toBe("b1");
+      expect((bs2.reason as SendAbortedError).cause).toBe("b2");
+    }
   });
 });

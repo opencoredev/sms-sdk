@@ -610,6 +610,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       }
 
       return new Promise<SmsSendResult>((resolve, reject) => {
+        let detached = false;
         const onAbort = (): void => {
           cleanup();
           const abortedUnderlying = release(true, signal.reason);
@@ -618,11 +619,42 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             // authoritative SendAbortedError or HandoffUnknownError (including attempts).
             return;
           }
+          detached = true;
           // Defer by one microtask so synchronous same-tick aborts of all coalesced
-          // callers settle as SendAbortedError when no provider request was dispatched.
+          // callers settle consistently from entry.promise (SendAbortedError pre-dispatch
+          // or during backoff, HandoffUnknownError if in-flight).
           queueMicrotask(() => {
-            if (entry.controller.signal.aborted && !entry.dispatched) {
-              reject(new SendAbortedError([], signal.reason));
+            if (entry.controller.signal.aborted) {
+              entry.promise.then(
+                () => {
+                  reject(
+                    new HandoffUnknownError(
+                      "The send was aborted while waiting on an in-flight request.",
+                      {
+                        reason: "aborted",
+                        attempts: [],
+                        cause: signal.reason,
+                      },
+                    ),
+                  );
+                },
+                (error: unknown) => {
+                  if (error instanceof SendAbortedError) {
+                    reject(new SendAbortedError(error.attempts, signal.reason));
+                    return;
+                  }
+                  reject(
+                    new HandoffUnknownError(
+                      "The send was aborted while waiting on an in-flight request.",
+                      {
+                        reason: "aborted",
+                        attempts: error instanceof SmsError ? error.attempts : [],
+                        cause: signal.reason,
+                      },
+                    ),
+                  );
+                },
+              );
               return;
             }
             reject(
@@ -640,11 +672,17 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         signal.addEventListener("abort", onAbort, { once: true });
         entry.promise.then(
           (result) => {
+            if (detached) {
+              return;
+            }
             cleanup();
             release(false);
             resolve(cloneSendResult(result, replayed ?? result.replayed));
           },
           (error: unknown) => {
+            if (detached) {
+              return;
+            }
             cleanup();
             release(false);
             reject(error);

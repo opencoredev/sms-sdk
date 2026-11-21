@@ -16,6 +16,8 @@ const CREDENTIAL_TOKEN_PREFIX =
 const CREDENTIAL_REQUEST_ID_MARKER =
   /(?:^|[_.:-])(?:secret|token|password|passwd|pwd|apikey|api_key|api-key|bearer|basic|auth_token|access_key|private_key)(?:[_.:-]|$)/i;
 
+// Require at least one hex letter [a-f] so phone-padded all-decimal IDs (e.g. RQ14155550123000...)
+// are still dropped as potential PII rather than echoed in diagnostic error metadata.
 function isOpaqueHexId(value: string): boolean {
   if (OPAQUE_UUID_ID.test(value)) {
     return /[a-f]/i.test(value);
@@ -36,18 +38,17 @@ function containsPhoneLengthDigits(value: string): boolean {
 }
 
 /** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, credentials, PII, or phone-length digit runs. */
-export function sanitizeDiagnosticToken(value: unknown, maxLength: number, isRequestId = false): string | undefined {
+export function sanitizeDiagnosticToken(value: unknown, maxLength: number, _isRequestId = false): string | undefined {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
     value.length > maxLength ||
     !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
     CREDENTIAL_TOKEN_PREFIX.test(value) ||
+    value.includes(":") ||
+    CREDENTIAL_REQUEST_ID_MARKER.test(value) ||
     (!isOpaqueHexId(value) && containsPhoneLengthDigits(value))
   ) {
-    return undefined;
-  }
-  if (isRequestId && (value.includes(":") || CREDENTIAL_REQUEST_ID_MARKER.test(value))) {
     return undefined;
   }
   return value;
@@ -75,23 +76,24 @@ export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackPr
 }
 
 function sanitizeAttemptForJson(attempt: SendAttempt): SendAttempt {
-  const requestId =
-    "requestId" in attempt ? sanitizeDiagnosticToken(attempt.requestId, 128, true) : undefined;
-  const errorCode =
-    "errorCode" in attempt ? sanitizeDiagnosticToken(attempt.errorCode, 64) : undefined;
+  if (attempt === null || typeof attempt !== "object") {
+    return attempt;
+  }
   const copy = { ...attempt };
+  if ("providerCode" in copy) {
+    const providerCode = sanitizeDiagnosticToken(copy.providerCode, 64);
+    if (providerCode === undefined) {
+      delete (copy as { providerCode?: string }).providerCode;
+    } else {
+      (copy as { providerCode?: string }).providerCode = providerCode;
+    }
+  }
   if ("requestId" in copy) {
+    const requestId = sanitizeDiagnosticToken((copy as { requestId?: unknown }).requestId, 128, true);
     if (requestId === undefined) {
       delete (copy as { requestId?: string }).requestId;
     } else {
       (copy as { requestId?: string }).requestId = requestId;
-    }
-  }
-  if ("errorCode" in copy) {
-    if (errorCode === undefined) {
-      delete (copy as { errorCode?: string }).errorCode;
-    } else {
-      (copy as { errorCode?: string }).errorCode = errorCode;
     }
   }
   return copy;
@@ -167,20 +169,23 @@ export class SmsError extends Error {
 
   /** Redacted, log-safe representation. */
   toJSON(): SerializedSmsError {
+    const safeAttempts = Array.isArray(this.attempts)
+      ? this.attempts.map(sanitizeAttemptForJson)
+      : [];
+    const safeProvider =
+      this.provider !== null && typeof this.provider === "object" && !Array.isArray(this.provider)
+        ? sanitizeProviderDetails(
+            this.provider as unknown as Record<string, unknown>,
+            typeof this.provider.provider === "string" ? this.provider.provider : "unknown",
+          )
+        : undefined;
     return {
       name: this.name,
       code: this.code,
       message: this.message,
       retrySafe: this.retrySafe,
-      attempts: this.attempts.map(sanitizeAttemptForJson),
-      ...(this.provider === undefined
-        ? {}
-        : {
-            provider: sanitizeProviderDetails(
-              this.provider as unknown as Record<string, unknown>,
-              this.provider.provider,
-            ),
-          }),
+      attempts: safeAttempts,
+      ...(safeProvider === undefined ? {} : { provider: safeProvider }),
     };
   }
 }

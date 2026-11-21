@@ -340,7 +340,7 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
   const trimmed = value.trim();
   if (/^\d+$/.test(trimmed)) {
     const ms = Number(trimmed) * 1000;
-    return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+    return Number.isFinite(ms) ? Math.min(ms, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
   }
   const date = Date.parse(trimmed);
   return Number.isNaN(date) ? undefined : Math.max(0, date - now);
