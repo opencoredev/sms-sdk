@@ -38,7 +38,7 @@ function containsPhoneLengthDigits(value: string): boolean {
 }
 
 /** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, credentials, PII, or phone-length digit runs. */
-export function sanitizeDiagnosticToken(value: unknown, maxLength: number, _isRequestId = false): string | undefined {
+export function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | undefined {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -54,19 +54,27 @@ export function sanitizeDiagnosticToken(value: unknown, maxLength: number, _isRe
   return value;
 }
 
+function safeReadProperty(obj: Record<string, unknown>, key: string): unknown {
+  try {
+    return obj[key];
+  } catch {
+    return undefined;
+  }
+}
+
 /** Copies only structural provider details, reading each field once. Free-form `message` and unvalidated strings are dropped. */
 export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string): ProviderErrorInfo {
-  const rawStatus = raw["httpStatus"];
-  const rawCode = raw["code"];
-  const rawRequestId = raw["requestId"];
+  const rawStatus = safeReadProperty(raw, "httpStatus");
+  const rawCode = safeReadProperty(raw, "code");
+  const rawRequestId = safeReadProperty(raw, "requestId");
   // The client knows which adapter answered; an adapter-supplied name is untrusted free text.
-  const provider = fallbackProvider;
+  const provider = sanitizeDiagnosticToken(fallbackProvider, 64) ?? "unknown";
   const httpStatus =
     typeof rawStatus === "number" && Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599
       ? rawStatus
       : undefined;
   const code = sanitizeDiagnosticToken(rawCode, 64);
-  const requestId = sanitizeDiagnosticToken(rawRequestId, 128, true);
+  const requestId = sanitizeDiagnosticToken(rawRequestId, 128);
   return {
     provider,
     ...(httpStatus === undefined ? {} : { httpStatus }),
@@ -75,28 +83,122 @@ export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackPr
   };
 }
 
-function sanitizeAttemptForJson(attempt: SendAttempt): SendAttempt {
-  if (attempt === null || typeof attempt !== "object") {
-    return attempt;
-  }
-  const copy = { ...attempt };
-  if ("providerCode" in copy) {
-    const providerCode = sanitizeDiagnosticToken(copy.providerCode, 64);
-    if (providerCode === undefined) {
-      delete (copy as { providerCode?: string }).providerCode;
-    } else {
-      (copy as { providerCode?: string }).providerCode = providerCode;
+const VALID_DELIVERIES = new Set(["queued", "sent", "delivered"]);
+const VALID_REJECTION_CATEGORIES = new Set([
+  "auth",
+  "recipient",
+  "sender",
+  "content",
+  "rate_limited",
+  "balance",
+  "request",
+  "provider_unavailable",
+]);
+const VALID_UNKNOWN_REASONS = new Set([
+  "timeout",
+  "network",
+  "server_error",
+  "malformed_response",
+  "aborted",
+  "adapter_exception",
+]);
+
+function sanitizeAttemptForJson(attempt: unknown): SendAttempt | undefined {
+  try {
+    if (attempt === null || typeof attempt !== "object" || Array.isArray(attempt)) {
+      return undefined;
     }
-  }
-  if ("requestId" in copy) {
-    const requestId = sanitizeDiagnosticToken((copy as { requestId?: unknown }).requestId, 128, true);
-    if (requestId === undefined) {
-      delete (copy as { requestId?: string }).requestId;
-    } else {
-      (copy as { requestId?: string }).requestId = requestId;
+    const raw = attempt as Record<string, unknown>;
+    const rawProvider = safeReadProperty(raw, "provider");
+    const rawAttemptNum = safeReadProperty(raw, "attempt");
+    const rawOutcome = safeReadProperty(raw, "outcome");
+    const rawDuration = safeReadProperty(raw, "durationMs");
+
+    const provider = sanitizeDiagnosticToken(rawProvider, 64) ?? "unknown";
+    const attemptNum =
+      typeof rawAttemptNum === "number" && Number.isFinite(rawAttemptNum) ? rawAttemptNum : 0;
+    const durationMs =
+      typeof rawDuration === "number" && Number.isFinite(rawDuration) ? rawDuration : 0;
+
+    if (rawOutcome === "accepted") {
+      const rawProviderId = safeReadProperty(raw, "providerId");
+      const rawDelivery = safeReadProperty(raw, "delivery");
+      const providerId = sanitizeDiagnosticToken(rawProviderId, 128) ?? "[redacted]";
+      const delivery =
+        typeof rawDelivery === "string" && VALID_DELIVERIES.has(rawDelivery)
+          ? (rawDelivery as "queued" | "sent" | "delivered")
+          : "queued";
+      return {
+        provider,
+        attempt: attemptNum,
+        outcome: "accepted",
+        providerId,
+        delivery,
+        durationMs,
+      };
     }
+
+    if (rawOutcome === "rejected") {
+      const rawCategory = safeReadProperty(raw, "category");
+      const rawHttpStatus = safeReadProperty(raw, "httpStatus");
+      const rawProviderCode = safeReadProperty(raw, "providerCode");
+      const rawRetryAfterMs = safeReadProperty(raw, "retryAfterMs");
+      const category =
+        typeof rawCategory === "string" && VALID_REJECTION_CATEGORIES.has(rawCategory)
+          ? (rawCategory as RejectionCategory)
+          : "request";
+      const httpStatus =
+        typeof rawHttpStatus === "number" &&
+        Number.isInteger(rawHttpStatus) &&
+        rawHttpStatus >= 100 &&
+        rawHttpStatus <= 599
+          ? rawHttpStatus
+          : undefined;
+      const providerCode = sanitizeDiagnosticToken(rawProviderCode, 64);
+      const retryAfterMs =
+        typeof rawRetryAfterMs === "number" && Number.isFinite(rawRetryAfterMs) && rawRetryAfterMs >= 0
+          ? rawRetryAfterMs
+          : undefined;
+      return {
+        provider,
+        attempt: attemptNum,
+        outcome: "rejected",
+        category,
+        ...(httpStatus === undefined ? {} : { httpStatus }),
+        ...(providerCode === undefined ? {} : { providerCode }),
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+        durationMs,
+      };
+    }
+
+    if (rawOutcome === "unknown") {
+      const rawReason = safeReadProperty(raw, "reason");
+      const rawHttpStatus = safeReadProperty(raw, "httpStatus");
+      const reason =
+        typeof rawReason === "string" && VALID_UNKNOWN_REASONS.has(rawReason)
+          ? (rawReason as UnknownReason)
+          : "adapter_exception";
+      const httpStatus =
+        typeof rawHttpStatus === "number" &&
+        Number.isInteger(rawHttpStatus) &&
+        rawHttpStatus >= 100 &&
+        rawHttpStatus <= 599
+          ? rawHttpStatus
+          : undefined;
+      return {
+        provider,
+        attempt: attemptNum,
+        outcome: "unknown",
+        reason,
+        ...(httpStatus === undefined ? {} : { httpStatus }),
+        durationMs,
+      };
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
   }
-  return copy;
 }
 
 /** Stable machine-readable error codes. One per error class. */
@@ -169,16 +271,33 @@ export class SmsError extends Error {
 
   /** Redacted, log-safe representation. */
   toJSON(): SerializedSmsError {
-    const safeAttempts = Array.isArray(this.attempts)
-      ? this.attempts.map(sanitizeAttemptForJson)
-      : [];
-    const safeProvider =
-      this.provider !== null && typeof this.provider === "object" && !Array.isArray(this.provider)
-        ? sanitizeProviderDetails(
-            this.provider as unknown as Record<string, unknown>,
-            typeof this.provider.provider === "string" ? this.provider.provider : "unknown",
-          )
-        : undefined;
+    const safeAttempts: SendAttempt[] = [];
+    try {
+      if (Array.isArray(this.attempts)) {
+        for (const item of this.attempts) {
+          const sanitized = sanitizeAttemptForJson(item);
+          if (sanitized !== undefined) {
+            safeAttempts.push(sanitized);
+          }
+        }
+      }
+    } catch {
+      // Malformed or revoked attempts array: omit unreadable entries.
+    }
+
+    let safeProvider: ProviderErrorInfo | undefined;
+    try {
+      const rawProvider = this.provider;
+      if (rawProvider !== null && typeof rawProvider === "object" && !Array.isArray(rawProvider)) {
+        const record = rawProvider as unknown as Record<string, unknown>;
+        const rawName = safeReadProperty(record, "provider");
+        const fallbackName = typeof rawName === "string" ? rawName : "unknown";
+        safeProvider = sanitizeProviderDetails(record, fallbackName);
+      }
+    } catch {
+      safeProvider = undefined;
+    }
+
     return {
       name: this.name,
       code: this.code,

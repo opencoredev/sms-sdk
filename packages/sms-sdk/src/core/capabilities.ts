@@ -276,7 +276,14 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
 
   if (issues.length === 0 && adapter.validate !== undefined) {
     try {
-      const rawIssues: unknown = adapter.validate(message);
+      const validateCopy: AdapterMessage = Object.freeze({
+        ...message,
+        ...(message.sendAt === undefined ? {} : { sendAt: new Date(message.sendAt.getTime()) }),
+        ...(message.providerFields === undefined
+          ? {}
+          : { providerFields: Object.freeze(message.providerFields.map((field) => Object.freeze({ ...field }))) }),
+      });
+      const rawIssues: unknown = adapter.validate(validateCopy);
       if (!Array.isArray(rawIssues)) {
         issues.push({
           code: "invalid_field",

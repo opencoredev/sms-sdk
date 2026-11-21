@@ -2190,5 +2190,80 @@ describe("send: fromByAdapter", () => {
       expect((bs1.reason as SendAbortedError).cause).toBe("b1");
       expect((bs2.reason as SendAbortedError).cause).toBe("b2");
     }
+
+    // R33: toJSON() allowlists attempt fields, single-reads/sanitizes provider.provider, handles throwing/revoked getters
+    let providerNameReads = 0;
+    const hostileProvider = {
+      get provider() {
+        providerNameReads += 1;
+        return providerNameReads === 1 ? "twilio" : "sk-live-FLIPPED";
+      },
+      get code() {
+        throw new Error("boom");
+      },
+    };
+    const r33Err = new HandoffUnknownError("r33", {
+      reason: "timeout",
+      provider: hostileProvider as unknown as NonNullable<HandoffUnknownError["provider"]>,
+      attempts: [
+        {
+          provider: "sk-live-LEAK",
+          attempt: 1,
+          outcome: "rejected",
+          category: "request",
+          durationMs: 3,
+          to: "+14155550123",
+          body: "secret body",
+          authToken: "sk-live-x",
+        } as unknown as HandoffUnknownError["attempts"][number],
+      ],
+    });
+    const r33Json = r33Err.toJSON();
+    expect(providerNameReads).toBe(1);
+    expect(r33Json.provider).toEqual({ provider: "twilio" });
+    expect(r33Json.attempts).toEqual([
+      { provider: "unknown", attempt: 1, outcome: "rejected", category: "request", durationMs: 3 },
+    ]);
+
+    const { proxy: revokedProvider, revoke: revokeProvider } = Proxy.revocable({}, {});
+    revokeProvider();
+    const revokedErr = new HandoffUnknownError("revoked", {
+      reason: "timeout",
+      provider: revokedProvider as unknown as NonNullable<HandoffUnknownError["provider"]>,
+      attempts: [],
+    });
+    expect(revokedErr.toJSON().provider).toBeUndefined();
+
+    // R33: adapter.validate() receives a frozen message copy so it cannot mutate what send() receives
+    let sentBody = "";
+    const baseMem = memory();
+    const mutatingValidatorClient = createSmsClient({
+      adapters: [
+        {
+          ...baseMem,
+          name: "mutval",
+          validate(msg) {
+            try {
+              (msg as { body: string }).body = "INJECTED";
+            } catch {
+              // Expected in strict mode on frozen object
+            }
+            return [];
+          },
+          async send(msg) {
+            sentBody = msg.body;
+            return { kind: "accepted", providerId: "ok1", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    await mutatingValidatorClient.send({ to: "+14155550123", body: "original" });
+    expect(sentBody).toBe("original");
+
+    // R33: parseRetryAfter rejects signed/decimal numeric strings instead of Date.parse fallback
+    expect(parseRetryAfter("-5")).toBeUndefined();
+    expect(parseRetryAfter("+5")).toBeUndefined();
+    expect(parseRetryAfter("1.5")).toBeUndefined();
+    expect(parseRetryAfter("0")).toBe(0);
   });
 });

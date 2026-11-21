@@ -342,6 +342,10 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
     const ms = Number(trimmed) * 1000;
     return Number.isFinite(ms) ? Math.min(ms, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
   }
+  // Reject signed or decimal numeric strings that Date.parse would interpret as years/dates.
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return undefined;
+  }
   const date = Date.parse(trimmed);
   return Number.isNaN(date) ? undefined : Math.max(0, date - now);
 }
@@ -369,7 +373,7 @@ export function providerInfo(input: {
   readonly requestId?: string | null | undefined;
 }): ProviderErrorInfo {
   const code = sanitizeDiagnosticToken(input.code, 64);
-  const requestId = sanitizeDiagnosticToken(input.requestId, 128, true);
+  const requestId = sanitizeDiagnosticToken(input.requestId, 128);
   return {
     provider: input.provider,
     ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),

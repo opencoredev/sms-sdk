@@ -51,7 +51,6 @@ type InFlight = {
   readonly promise: Promise<SmsSendResult>;
   readonly controller: AbortController;
   waiters: number;
-  dispatched: boolean;
 };
 
 type IdempotencyConfig = {
@@ -640,7 +639,12 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
                 },
                 (error: unknown) => {
                   if (error instanceof SendAbortedError) {
-                    reject(new SendAbortedError(error.attempts, signal.reason));
+                    reject(
+                      new SendAbortedError(
+                        error.attempts.map((a) => ({ ...a })),
+                        signal.reason,
+                      ),
+                    );
                     return;
                   }
                   reject(
@@ -648,7 +652,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
                       "The send was aborted while waiting on an in-flight request.",
                       {
                         reason: "aborted",
-                        attempts: error instanceof SmsError ? error.attempts : [],
+                        attempts: error instanceof SmsError ? error.attempts.map((a) => ({ ...a })) : [],
                         cause: signal.reason,
                       },
                     ),
@@ -714,9 +718,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           signal: controller.signal,
           key,
           fingerprint,
-          onBeforeDispatch: () => {
-            entry.dispatched = true;
-          },
         }),
       )
       .then(
@@ -734,7 +735,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       promise,
       controller,
       waiters: 0,
-      dispatched: false,
     };
     inFlight.set(key, entry);
     void promise.catch(() => undefined);
@@ -777,7 +777,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly signal: AbortSignal | undefined;
     readonly key: string;
     readonly fingerprint: string;
-    readonly onBeforeDispatch?: () => void;
   }): Promise<SmsSendResult> => {
     if (args.signal?.aborted === true) {
       throw new SendAbortedError([], args.signal.reason);
@@ -850,7 +849,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly reservation:
       | { readonly config: IdempotencyConfig; readonly key: string; readonly fingerprint: string; readonly id: string }
       | undefined;
-    readonly onBeforeDispatch?: () => void;
   }): Promise<SmsSendResult> => {
     const { input, preview, id, reservation } = args;
     const base: SmsHookEventBase = {
@@ -967,7 +965,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     if (checkAborted(args.signal)) {
       return fail(new SendAbortedError([], args.signal?.reason));
     }
-    args.onBeforeDispatch?.();
     const attempts: SendAttempt[] = [];
     let chain: ChainResult;
     try {
