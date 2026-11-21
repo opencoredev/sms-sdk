@@ -13,6 +13,14 @@ export { isE164, maskPhoneNumber, type E164 } from "./core/e164.js";
 export { estimateSegments, isGsm7, type SegmentPreview } from "./core/encoding.js";
 export { resolveSender, supportsSender, type SenderResolution } from "./core/capabilities.js";
 export { memoryIdempotencyStore } from "./core/idempotency.js";
+export {
+  applySuppressionEvent,
+  memorySuppressionList,
+  suppressionPolicy,
+  type MemorySuppressionList,
+  type SuppressionEventInput,
+  type SuppressionList,
+} from "./core/suppression.js";
 export { redactText } from "./core/redact.js";
 export {
   AllProvidersRejectedError,

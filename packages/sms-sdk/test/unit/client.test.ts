@@ -10,6 +10,7 @@ import {
   SendAbortedError,
 } from "../../src/core/errors.js";
 import type { SmsAcceptedEvent, SmsAttemptEvent, SmsFailureEvent } from "../../src/core/events.js";
+import type { SmsSendInput } from "../../src/core/types.js";
 import { acceptedOutcome, memory, rejectedOutcome, unknownOutcome } from "../../src/testing/memory.js";
 import { rejection } from "../helpers.js";
 
@@ -456,5 +457,44 @@ describe("observability hooks", () => {
       },
     });
     await expect(sms.send(message)).resolves.toMatchObject({ handoff: "accepted" });
+  });
+});
+
+describe("send: fromByAdapter", () => {
+  test("each adapter in a fallback chain sends from its own entry", async () => {
+    const primary = memory({ name: "primary", from: "+15005550001", outcomes: [rejectedOutcome("sender")] });
+    const backup = memory({ name: "backup", from: "+15005550002" });
+    const sms = createSmsClient({ adapters: [primary, backup], fallback: "on-known-rejection" });
+    await sms.send({
+      ...message,
+      from: "+15005550009",
+      fromByAdapter: { primary: { senderId: "Acme" }, backup: "+15005550003", unconfigured: "+15005550004" },
+    });
+    expect(primary.sent[0]?.message.from).toEqual({ kind: "alphanumeric", value: "Acme" });
+    expect(backup.sent[0]?.message.from).toEqual({ kind: "phone_number", value: "+15005550003" });
+  });
+
+  test("an adapter without an entry falls back to from, then its default", async () => {
+    const a = memory({ name: "a", from: "+15005550001", outcomes: [rejectedOutcome("sender")] });
+    const b = memory({ name: "b", from: "+15005550002", outcomes: [rejectedOutcome("sender")] });
+    const c = memory({ name: "c", from: "+15005550003" });
+    await createSmsClient({ adapters: [a, b, c], fallback: "on-known-rejection" }).send({
+      ...message,
+      fromByAdapter: { a: "+15005550007" },
+    });
+    expect([a, b, c].map((adapter) => adapter.sent[0]?.message.from.value)).toEqual(["+15005550007", "+15005550002", "+15005550003"]);
+  });
+
+  test("an invalid entry is reported for that adapter only", () => {
+    const sms = createSmsClient({ adapters: [memory({ name: "a" }), memory({ name: "b" })] });
+    const result = sms.validate({ ...message, fromByAdapter: { b: { shortCode: "1" } } });
+    expect(result.adapterCandidates).toEqual(["a"]);
+    expect(result.issues).toEqual([expect.objectContaining({ code: "invalid_sender", provider: "b" })]);
+  });
+
+  test("a non-object fromByAdapter is an invalid_field issue", () => {
+    const sms = createSmsClient({ adapters: [memory()] });
+    const input: SmsSendInput = JSON.parse('{"to":"+14155550123","body":"hi","fromByAdapter":"+15005550006"}');
+    expect(sms.validate(input).issues).toContainEqual(expect.objectContaining({ code: "invalid_field", field: "fromByAdapter" }));
   });
 });

@@ -126,6 +126,9 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   } else if (mediaUrls.some((url) => !isHttpUrl(url))) {
     issues.push({ code: "invalid_field", field: "mediaUrls", message: "Every media URL must be an absolute http(s) URL." });
   }
+  if (input.fromByAdapter !== undefined && !isRecord(input.fromByAdapter)) {
+    issues.push({ code: "invalid_field", field: "fromByAdapter", message: "fromByAdapter must be an object keyed by adapter name." });
+  }
   if (input.sendAt !== undefined && !(input.sendAt instanceof Date && Number.isFinite(input.sendAt.getTime()))) {
     issues.push({ code: "invalid_field", field: "sendAt", message: "sendAt must be a valid Date." });
   }
@@ -168,7 +171,7 @@ export type AdapterCheck =
  */
 export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterCheck {
   const provider = adapter.name;
-  const resolution = resolveSender(input.from ?? adapter.defaultFrom);
+  const resolution = resolveSender(senderFor(input, provider) ?? input.from ?? adapter.defaultFrom);
 
   if (resolution.kind === "missing") {
     return {
@@ -231,6 +234,28 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
     issues.push(...adapter.validate(message).map((issue) => ({ ...issue, provider })));
   }
   return issues.length === 0 ? { kind: "ok", message } : { kind: "issues", issues };
+}
+
+/** The caller's `fromByAdapter` entry for `adapterName`, if any. */
+export function senderFor(input: SmsSendInput, adapterName: string): SmsFrom | undefined {
+  const all: unknown = input.fromByAdapter;
+  return isRecord(all) && Object.hasOwn(all, adapterName) ? input.fromByAdapter?.[adapterName] : undefined;
+}
+
+/**
+ * `fromByAdapter` reduced to the configured adapters' entries, for the
+ * idempotency fingerprint. `undefined` when no entry applies, so messages
+ * without it keep the fingerprint earlier versions stored.
+ */
+export function canonicalFromByAdapter(
+  adapters: readonly SmsAdapter[],
+  input: SmsSendInput,
+): Readonly<Record<string, SmsFrom>> | undefined {
+  const entries = adapters.flatMap((adapter): Array<[string, SmsFrom]> => {
+    const from = senderFor(input, adapter.name);
+    return from === undefined ? [] : [[adapter.name, from]];
+  });
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
 /** The caller's `providerOptions` entry for `adapterName`, still unparsed. */

@@ -1,5 +1,11 @@
 import type { SmsAdapter, SmsMessageStatus, ValidationIssue } from "./adapters.js";
-import { checkAdapter, issueToError, MESSAGE_NOT_OBJECT_ISSUE, validateMessage } from "./capabilities.js";
+import {
+  canonicalFromByAdapter,
+  checkAdapter,
+  issueToError,
+  MESSAGE_NOT_OBJECT_ISSUE,
+  validateMessage,
+} from "./capabilities.js";
 import { maskPhoneNumber } from "./e164.js";
 import { estimateSegments, type SegmentPreview } from "./encoding.js";
 import {
@@ -139,6 +145,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       validityPeriodSec: input.validityPeriodSec ?? null,
       webhookUrl: input.webhookUrl ?? null,
       providerOptions: canonicalProviderOptions(adapters, input.providerOptions),
+      fromByAdapter: canonicalFromByAdapter(adapters, input),
     });
 
     const running = inFlight.get(key);

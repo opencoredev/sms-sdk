@@ -266,3 +266,36 @@ describe("idempotency configuration", () => {
     expect(second).toMatchObject({ id: first.id, providerId: first.providerId, replayed: true });
   });
 });
+
+describe("fingerprint with fromByAdapter", () => {
+  const fields = {
+    to: "+14155550123",
+    from: null,
+    body: "hi",
+    mediaUrls: [],
+    sendAt: null,
+    validityPeriodSec: null,
+    webhookUrl: null,
+  } as const;
+
+  test("is unchanged for messages without it", async () => {
+    expect(await fingerprintMessage({ ...fields, fromByAdapter: undefined })).toBe(await fingerprintMessage(fields));
+  });
+
+  test("changes with it and cannot be confused with providerOptions", async () => {
+    const asSender = await fingerprintMessage({ ...fields, fromByAdapter: { twilio: "+15005550006" } });
+    const asOptions = await fingerprintMessage({ ...fields, providerOptions: { twilio: "+15005550006" } });
+    expect(asSender).not.toBe(await fingerprintMessage(fields));
+    expect(asSender).not.toBe(asOptions);
+  });
+
+  test("a different per-adapter sender under the same key is a conflict", async () => {
+    const sms = createSmsClient({ adapters: [memory({ name: "a" })], idempotency: { store: memoryIdempotencyStore() } });
+    await sms.send({ ...message, fromByAdapter: { a: "+15005550001" } });
+    await expect(sms.send({ ...message, fromByAdapter: { a: "+15005550002" } })).rejects.toBeInstanceOf(IdempotencyConflictError);
+    await expect(sms.send({ ...message, fromByAdapter: { a: "+15005550001", other: "+15005550009" } })).resolves.toMatchObject({
+      replayed: true,
+    });
+  });
+});
+

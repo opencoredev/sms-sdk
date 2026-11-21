@@ -147,6 +147,8 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
  * present, so sends without it keep the fingerprint earlier versions stored.
  * The client passes the canonical form from `canonicalProviderOptions`, so
  * options with no effect on any configured adapter are left out.
+ * `fromByAdapter` follows the same rule: only when present, after a
+ * `providerOptions` slot (`null` when absent) so the two cannot be confused.
  */
 export async function fingerprintMessage(fields: {
   readonly to: string;
@@ -157,6 +159,7 @@ export async function fingerprintMessage(fields: {
   readonly validityPeriodSec: number | null;
   readonly webhookUrl: string | null;
   readonly providerOptions?: unknown;
+  readonly fromByAdapter?: unknown;
 }): Promise<string> {
   const parts: unknown[] = [
     fields.to,
@@ -167,8 +170,11 @@ export async function fingerprintMessage(fields: {
     fields.validityPeriodSec,
     fields.webhookUrl,
   ];
-  if (fields.providerOptions !== undefined) {
-    parts.push(sortKeys(fields.providerOptions));
+  if (fields.providerOptions !== undefined || fields.fromByAdapter !== undefined) {
+    parts.push(fields.providerOptions === undefined ? null : sortKeys(fields.providerOptions));
+  }
+  if (fields.fromByAdapter !== undefined) {
+    parts.push(sortKeys(fields.fromByAdapter));
   }
   const canonical = JSON.stringify(parts);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));

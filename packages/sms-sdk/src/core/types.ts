@@ -21,6 +21,13 @@ export type SmsSendInput = {
   readonly to: E164;
   /** Sender. Defaults to each adapter's configured `from`. */
   readonly from?: SmsFrom;
+  /**
+   * Sender per adapter name, such as `{ twilio: "+15005550006", telnyx: "+15005550007" }`.
+   * With fallback, each adapter sends from its own entry, then `from`, then its
+   * configured default. Entries for adapters the client does not have are
+   * ignored. Part of the idempotency fingerprint.
+   */
+  readonly fromByAdapter?: Readonly<Record<string, SmsFrom>>;
   /** Message text. May be empty only when `mediaUrls` is non-empty. */
   readonly body: string;
   /**

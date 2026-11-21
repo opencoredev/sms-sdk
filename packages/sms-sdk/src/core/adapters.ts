@@ -311,6 +311,7 @@ export type ValidationField =
   | "message"
   | "to"
   | "from"
+  | "fromByAdapter"
   | "body"
   | "mediaUrls"
   | "sendAt"
