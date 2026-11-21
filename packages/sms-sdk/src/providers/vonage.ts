@@ -185,6 +185,12 @@ export type VonageMessageRequest = {
  * @throws {ConfigurationError} when credentials are empty.
  */
 export function vonage(options: VonageOptions): SmsAdapter {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Vonage options must be an object.");
+  }
+  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
+    throw new ConfigurationError("Vonage baseUrl must be a string.");
+  }
   const baseUrl = (options.baseUrl ?? `https://${options.region ?? "api"}.nexmo.com`).replace(/\/+$/, "");
   const url = `${baseUrl}/v1/messages`;
   const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));

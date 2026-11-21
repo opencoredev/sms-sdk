@@ -1,5 +1,5 @@
 import { fromBase64, hmac, sha256Hex, timingSafeEqual, toBase64Url } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import { parseDate, readWebhookBody, requireTolerance, skipVerification, type WebhookCommonOptions } from "./shared.js";
@@ -87,6 +87,9 @@ export async function parseVonageWebhook(options: VonageWebhookOptions): Promise
   const rawBody = await readWebhookBody(options.request, "vonage");
 
   if (!skip) {
+    if (!isRecord(options.credentials)) {
+      throw new ConfigurationError("Vonage webhook credentials must be an object with signatureSecret.");
+    }
     const verification = await verifyVonageSignature({
       signatureSecret: options.credentials.signatureSecret,
       authorization: options.request.headers.get("authorization"),

@@ -28,6 +28,9 @@ export function toBase64Url(bytes: Uint8Array): string {
 
 /** Decodes standard or URL-safe base64. Returns `undefined` for invalid input. */
 export function fromBase64(text: string): Uint8Array<ArrayBuffer> | undefined {
+  if (typeof text !== "string") {
+    return undefined;
+  }
   const normalized = text.trim().replace(/-/g, "+").replace(/_/g, "/");
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
     return undefined;

@@ -4,6 +4,8 @@
  * @packageDocumentation
  */
 
+import { ConfigurationError } from "../core/errors.js";
+import { isRecord } from "../core/http.js";
 import type { SmsEvent } from "./events.js";
 import { parseBandwidthWebhook, parseBandwidthWebhooks, type BandwidthWebhookOptions } from "./bandwidth.js";
 import { parseSinchWebhook, parseSinchWebhooks, type SinchWebhookOptions } from "./sinch.js";
@@ -35,6 +37,9 @@ export type ParseSmsWebhookOptions =
  * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
 export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<SmsEvent> {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Webhook options must be an object with a supported provider.");
+  }
   switch (options.provider) {
     case "twilio":
       return parseTwilioWebhook(options);
@@ -50,7 +55,8 @@ export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<
       return parseSinchWebhook(options);
     default: {
       const _exhaustive: never = options;
-      return _exhaustive;
+      void _exhaustive;
+      throw new ConfigurationError("Unsupported SMS webhook provider.");
     }
   }
 }
@@ -67,6 +73,9 @@ export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<
  * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
 export async function parseSmsWebhooks(options: ParseSmsWebhookOptions): Promise<SmsEvent[]> {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Webhook options must be an object with a supported provider.");
+  }
   switch (options.provider) {
     case "bandwidth":
       return parseBandwidthWebhooks(options);
@@ -79,7 +88,8 @@ export async function parseSmsWebhooks(options: ParseSmsWebhookOptions): Promise
       return [await parseSmsWebhook(options)];
     default: {
       const _exhaustive: never = options;
-      return _exhaustive;
+      void _exhaustive;
+      throw new ConfigurationError("Unsupported SMS webhook provider.");
     }
   }
 }

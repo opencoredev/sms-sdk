@@ -1,5 +1,6 @@
-import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { hmac, sha256Hex, timingSafeEqual, toBase64 } from "../core/crypto.js";
+import { isRecord } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import {
   paramsToRecord,
@@ -95,6 +96,9 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
         reason: "body_hash_mismatch",
         provider: "twilio",
       });
+    }
+    if (!isRecord(options.credentials)) {
+      throw new ConfigurationError("Twilio webhook credentials must be an object with authToken.");
     }
     const signedParams = request.method.toUpperCase() === "GET" ? [] : formParams;
     const valid = await verifyTwilioSignature({

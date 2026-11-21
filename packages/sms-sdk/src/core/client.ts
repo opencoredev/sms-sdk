@@ -54,6 +54,9 @@ type IdempotencyConfig = {
  * @throws {ConfigurationError} when no adapters are given, names repeat, or numeric options are invalid.
  */
 export function createSmsClient(options: SmsClientOptions): SmsClient {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("createSmsClient options must be an object.");
+  }
   const adapters = options.adapters;
   if (!Array.isArray(adapters) || adapters.length === 0) {
     throw new ConfigurationError("createSmsClient needs at least one adapter.");
@@ -140,12 +143,15 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   };
 
   const send = async (input: SmsSendInput, sendOptions: SmsSendOptions = {}): Promise<SmsSendResult> => {
+    if (!isRecord(sendOptions)) {
+      throw new ConfigurationError("send options must be an object.");
+    }
     if (!isRecord(input)) {
       throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
     }
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const candidates = buildCandidates(input);
-    const signal = sendOptions.signal;
+    const signal = requireOptionalSignal(sendOptions.signal, "send");
     if (signal?.aborted === true) {
       throw new SendAbortedError([], signal.reason);
     }
@@ -394,6 +400,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     if (!isRecord(lookupOptions)) {
       throw new ConfigurationError("getMessage options must be an object.");
     }
+    const signal = requireOptionalSignal(lookupOptions.signal, "getMessage");
     const name = lookupOptions.adapter ?? adapters[0].name;
     const adapter = adapters.find((candidate) => candidate.name === name);
     if (adapter === undefined) {
@@ -402,7 +409,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     if (adapter.getMessage === undefined) {
       throw new ConfigurationError(`getMessage: the ${name} adapter cannot look up messages.`);
     }
-    const outcome = await lookupOnce({ adapter, providerId, timeoutMs, signal: lookupOptions.signal });
+    const outcome = await lookupOnce({ adapter, providerId, timeoutMs, signal });
     switch (outcome.kind) {
       case "found":
         return outcome.status;
@@ -446,6 +453,21 @@ function requirePositiveSeconds(value: number, name: "ttlSec" | "staleReservatio
     throw new ConfigurationError(
       `idempotency.${name} must be a safe integer number of seconds between 1 and ${MAX_IDEMPOTENCY_SECONDS}.`,
     );
+  }
+  return value;
+}
+
+function requireOptionalSignal(value: AbortSignal | undefined, method: "send" | "getMessage"): AbortSignal | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    !isRecord(value) ||
+    typeof value["aborted"] !== "boolean" ||
+    typeof value["addEventListener"] !== "function" ||
+    typeof value["removeEventListener"] !== "function"
+  ) {
+    throw new ConfigurationError(`${method} signal must be an AbortSignal.`);
   }
   return value;
 }

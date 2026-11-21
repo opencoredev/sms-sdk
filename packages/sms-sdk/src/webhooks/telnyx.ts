@@ -1,5 +1,5 @@
 import { fromBase64, utf8 } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import { parseDate, readWebhookBody, requireTolerance, skipVerification, type WebhookCommonOptions } from "./shared.js";
@@ -75,6 +75,9 @@ export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise
   const rawBody = await readWebhookBody(options.request, "telnyx");
 
   if (!skip) {
+    if (!isRecord(options.credentials)) {
+      throw new ConfigurationError("Telnyx webhook credentials must be an object with publicKey.");
+    }
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,
       rawBody,

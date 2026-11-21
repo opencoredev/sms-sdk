@@ -404,10 +404,71 @@ describe("malformed runtime input", () => {
     const payloadErr = new WebhookPayloadError("too big", { provider: "twilio", reason: "body_too_large" });
     expect(payloadErr.toJSON()).toMatchObject({ providerName: "twilio", reason: "body_too_large" });
 
+    const { twilio } = await import("../../src/providers/twilio.js");
+    const { telnyx } = await import("../../src/providers/telnyx.js");
+    const { plivo } = await import("../../src/providers/plivo.js");
+    const { bandwidth } = await import("../../src/providers/bandwidth.js");
+    const { parseSmsWebhook, parseSmsWebhooks } = await import("../../src/webhooks/index.js");
+
     const bwEvents = interpretBandwidthEvents(
-      [{ type: "message-delivered", message: { id: "g1", to: ["+15551111111", "+15552222222"] } }],
+      [
+        { type: "message-delivered", message: { id: "g1", to: ["+15551111111"] } },
+        { type: "message-delivered", message: { id: "g1", to: ["+15552222222"] } },
+      ],
       true,
     );
-    expect(bwEvents[0]?.dedupeKey).toBe("bandwidth:g1:message-delivered");
+    expect(bwEvents[0]?.dedupeKey).toBe("bandwidth:g1:+15551111111:message-delivered");
+    expect(bwEvents[1]?.dedupeKey).toBe("bandwidth:g1:+15552222222:message-delivered");
+
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => vonage()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => twilio()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => telnyx()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => plivo()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => bandwidth()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => createSmsClient()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can pass non-string baseUrl
+    expect(() => sinch({ servicePlanId: "sp", apiToken: "t", baseUrl: 5 })).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can pass a non-AbortSignal
+    expect(await rejection(client.getMessage("id", { signal: {} }))).toBeInstanceOf(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can pass null send options
+    expect(await rejection(client.send({ to: "+14155550123", body: "hi" }, null))).toBeInstanceOf(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can pass a non-AbortSignal
+    expect(await rejection(client.send({ to: "+14155550123", body: "hi" }, { signal: {} }))).toBeInstanceOf(ConfigurationError);
+
+    const unsignedStop = () =>
+      new Request("https://example.com/webhooks/sinch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "mo_text", id: "m1", from: "+14155550123", to: "+15005550006", body: "STOP" }),
+      });
+    for (const badCreds of [
+      undefined,
+      {},
+      { username: "u", password: "p" },
+      { kind: "Basic", username: "u", password: "p" },
+      { kind: "HMAC", webhookSecret: "s" },
+      { kind: "oauth" },
+    ]) {
+      expect(
+        await rejection(
+          parseSmsWebhooks({
+            provider: "sinch",
+            request: unsignedStop(),
+            // @ts-expect-error -- untyped JS callers can pass bad credentials.kind
+            credentials: badCreds,
+          }),
+        ),
+      ).toBeInstanceOf(ConfigurationError);
+    }
+    // @ts-expect-error -- untyped JS callers can pass an unknown provider
+    expect(await rejection(parseSmsWebhook({ provider: "bogus" }))).toBeInstanceOf(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can pass an unknown provider
+    expect(await rejection(parseSmsWebhooks({ provider: "bogus" }))).toBeInstanceOf(ConfigurationError);
   });
 });

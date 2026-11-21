@@ -168,7 +168,13 @@ declare module "../index.js" {
  * @throws {ConfigurationError} when the account SID or credentials are malformed.
  */
 export function twilio(options: TwilioOptions): SmsAdapter {
-  if (!ACCOUNT_SID_PATTERN.test(options.accountSid)) {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Twilio options must be an object.");
+  }
+  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
+    throw new ConfigurationError("Twilio baseUrl must be a string.");
+  }
+  if (typeof options.accountSid !== "string" || !ACCOUNT_SID_PATTERN.test(options.accountSid)) {
     throw new ConfigurationError("Twilio accountSid must be AC followed by 32 hex characters.");
   }
   const authorization =

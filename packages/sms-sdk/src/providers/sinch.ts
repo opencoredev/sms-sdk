@@ -114,8 +114,14 @@ export type SinchBatchRequest = {
  * @throws {ConfigurationError} when `servicePlanId` or `apiToken` is missing or empty.
  */
 export function sinch(options: SinchOptions): SmsAdapter {
-  const servicePlanId = requireValue(options?.servicePlanId, "servicePlanId");
-  const apiToken = requireValue(options?.apiToken, "apiToken");
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Sinch options must be an object.");
+  }
+  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
+    throw new ConfigurationError("Sinch baseUrl must be a string.");
+  }
+  const servicePlanId = requireValue(options.servicePlanId, "servicePlanId");
+  const apiToken = requireValue(options.apiToken, "apiToken");
   const baseUrl = (options.baseUrl ?? "https://sms.api.sinch.com").replace(/\/+$/, "");
   const url = `${baseUrl}/xms/v1/${encodeURIComponent(servicePlanId)}/batches`;
   const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));

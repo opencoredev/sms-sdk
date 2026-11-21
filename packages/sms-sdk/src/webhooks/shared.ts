@@ -57,6 +57,9 @@ export type SignedUrlOptions = {
  * @throws {ConfigurationError} when skipping is requested and `NODE_ENV` is `"production"`.
  */
 export function skipVerification(options: Pick<WebhookCommonOptions, "unsafeSkipVerification">): boolean {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Webhook options must be an object.");
+  }
   if (options.unsafeSkipVerification !== true) {
     return false;
   }

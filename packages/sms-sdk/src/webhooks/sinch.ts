@@ -1,5 +1,5 @@
 import { hmac, timingSafeEqual, toBase64 } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import {
@@ -96,6 +96,9 @@ export async function parseSinchWebhooks(options: SinchWebhookOptions): Promise<
 
 async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string): Promise<void> {
   const { credentials, request } = options;
+  if (!isRecord(credentials)) {
+    throw new ConfigurationError('Sinch webhook credentials must specify kind: "basic" or "hmac".');
+  }
   switch (credentials.kind) {
     case "basic": {
       const header = request.headers.get("authorization");
@@ -127,7 +130,8 @@ async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string)
     }
     default: {
       const _exhaustive: never = credentials;
-      return _exhaustive;
+      void _exhaustive;
+      throw new ConfigurationError('Sinch webhook credentials must specify kind: "basic" or "hmac".');
     }
   }
 }

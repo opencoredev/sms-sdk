@@ -1,5 +1,6 @@
 import { hmac, timingSafeEqual, toBase64 } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { isRecord } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import {
   paramsToRecord,
@@ -69,6 +70,9 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
         reason: "missing_signature",
         provider: "plivo",
       });
+    }
+    if (!isRecord(options.credentials)) {
+      throw new ConfigurationError("Plivo webhook credentials must be an object with authToken.");
     }
     const url = resolveSignedUrl(request, options);
     let valid = false;

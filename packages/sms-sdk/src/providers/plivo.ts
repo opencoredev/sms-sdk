@@ -120,6 +120,12 @@ export type PlivoMessageRequest = {
  * @throws {ConfigurationError} when credentials are empty.
  */
 export function plivo(options: PlivoOptions): SmsAdapter {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Plivo options must be an object.");
+  }
+  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
+    throw new ConfigurationError("Plivo baseUrl must be a string.");
+  }
   if (typeof options.authId !== "string" || options.authId.length === 0) {
     throw new ConfigurationError("Plivo authId is required.");
   }

@@ -115,6 +115,12 @@ export type BandwidthMessageRequest = {
  * @throws {ConfigurationError} when a credential or the application ID is missing or empty.
  */
 export function bandwidth(options: BandwidthOptions): SmsAdapter {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Bandwidth options must be an object.");
+  }
+  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
+    throw new ConfigurationError("Bandwidth baseUrl must be a string.");
+  }
   requireValue(options.userId, "userId");
   requireValue(options.apiToken, "apiToken");
   requireValue(options.apiSecret, "apiSecret");

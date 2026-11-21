@@ -122,6 +122,12 @@ export type TelnyxMessageRequest = {
  * @throws {ConfigurationError} when `apiKey` is empty.
  */
 export function telnyx(options: TelnyxOptions): SmsAdapter {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Telnyx options must be an object.");
+  }
+  if (options.baseUrl !== undefined && typeof options.baseUrl !== "string") {
+    throw new ConfigurationError("Telnyx baseUrl must be a string.");
+  }
   if (typeof options.apiKey !== "string" || options.apiKey.length === 0) {
     throw new ConfigurationError("Telnyx apiKey is required.");
   }

@@ -62,7 +62,7 @@ Per-provider options:
 
 - `WebhookSignatureError` (`code: "webhook_signature"`) when the request is not authentic. `reason` is `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, or `invalid_credentials`. Respond 401 or 403.
 - `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of losing all but one.
-- `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, or Basic credentials contain characters outside Latin-1.
+- `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, `provider` is unsupported, `credentials` are missing or malformed (including empty Basic or HMAC secrets, an unknown Sinch `kind`, or Basic credentials containing characters outside Latin-1), or `toleranceSec` is negative, `NaN`, non-finite, or not a number.
 
 ## `parseSmsWebhooks(options)`
 
