@@ -199,13 +199,15 @@ export type RejectionCategory =
   | "request";
 
 /**
- * Redacted provider details, safe to log. `message` has phone numbers masked
- * and is truncated; message bodies and credentials are never included.
+ * Structural provider diagnostics, safe to log: HTTP status, provider error
+ * code, and request ID. Free-form response text, message bodies, credentials,
+ * and full phone numbers are never included.
  */
 export type ProviderErrorInfo = {
   readonly provider: string;
   readonly httpStatus?: number;
   readonly code?: string;
+  /** Omitted by built-in adapters and client sanitization so echoed text never leaks into logs. */
   readonly message?: string;
   readonly requestId?: string;
 };

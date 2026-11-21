@@ -989,5 +989,136 @@ describe("send: fromByAdapter", () => {
     expect(leakyErr.message).not.toContain("SECRET_BODY");
     expect(JSON.stringify(leakyErr)).not.toContain("+14155550123");
     expect(JSON.stringify(leakyErr)).not.toContain("SECRET_BODY");
+
+    // 17. Accepted send outcome validates delivery & reads providerId once; malformed fails closed
+    const badDeliveryClient = createSmsClient({
+      adapters: [
+        {
+          name: "bad-del",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return { kind: "accepted", providerId: "id1", delivery: "bogus" } as unknown as never;
+          },
+        },
+      ],
+    });
+    await expect(badDeliveryClient.send({ to: "+14155550123", body: "hi" })).rejects.toBeInstanceOf(HandoffUnknownError);
+
+    let pidReads = 0;
+    const toctouPidClient = createSmsClient({
+      adapters: [
+        {
+          name: "pid-once",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return {
+              kind: "accepted",
+              get providerId() {
+                pidReads += 1;
+                return pidReads === 1 ? "msg_ok" : (undefined as unknown as string);
+              },
+              delivery: "queued",
+            };
+          },
+        },
+      ],
+    });
+    const toctouPidRes = await toctouPidClient.send({ to: "+14155550123", body: "hi" });
+    expect(toctouPidRes.providerId).toBe("msg_ok");
+    expect(pidReads).toBe(1);
+
+    // 18. getMessage() normalizes missing reason, empty status, throwing getters, and strips details.message
+    const badLookupShapes = [
+      { kind: "failed" },
+      { kind: "failed", reason: 123 },
+      { kind: "found", status: {} },
+      {
+        get kind() {
+          throw new Error("getter-boom");
+        },
+      },
+    ];
+    for (const shape of badLookupShapes) {
+      const c = createSmsClient({
+        adapters: [
+          {
+            name: "bad-lkp",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return { kind: "accepted", providerId: "1", delivery: "queued" };
+            },
+            async getMessage() {
+              return shape as unknown as never;
+            },
+          },
+        ],
+      });
+      await expect(c.getMessage("m1")).rejects.toBeInstanceOf(MessageLookupError);
+    }
+
+    const leakyLookupClient = createSmsClient({
+      adapters: [
+        {
+          name: "leaky-lkp",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return { kind: "accepted", providerId: "1", delivery: "queued" };
+          },
+          async getMessage() {
+            return {
+              kind: "failed",
+              reason: "request",
+              details: {
+                provider: "leaky-lkp",
+                code: "body secret +14155550123 alice@example.com",
+                requestId: "body secret +14155550123 alice@example.com",
+                message: "SECRET_KEY +14155550123 alice@example.com",
+              },
+            };
+          },
+        },
+      ],
+    });
+    const leakyLookupErr = (await rejection(leakyLookupClient.getMessage("m1"))) as Error;
+    expect(leakyLookupErr).toBeInstanceOf(MessageLookupError);
+    expect(leakyLookupErr.message).not.toContain("SECRET_KEY");
+    expect(JSON.stringify(leakyLookupErr)).not.toContain("+14155550123");
+    expect(JSON.stringify(leakyLookupErr)).not.toContain("alice@example.com");
+
+    // 19. memory().enqueue rejects malformed outcomes; malformed idempotency.store.reserve throws ConfigurationError
+    expect(() => memory().enqueue({ kind: "queued" } as unknown as never)).toThrow(ConfigurationError);
+
+    let capturedFp = "";
+    const badReserveClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: {
+        store: {
+          async get() {
+            return null;
+          },
+          async reserve(i) {
+            capturedFp = i.fingerprint;
+            return {
+              kind: "existing",
+              record: { state: "accepted", fingerprint: capturedFp },
+            } as unknown as never;
+          },
+          async finalize() {
+            return { kind: "finalized" };
+          },
+        },
+      },
+    });
+    await expect(
+      badReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-res" }),
+    ).rejects.toBeInstanceOf(ConfigurationError);
   });
 });

@@ -59,7 +59,7 @@ The base class. Every error has these fields.
 | `message` | `string` | Human-readable explanation. Phone numbers are masked. |
 | `retrySafe` | `boolean` | See above. |
 | `attempts` | `readonly SendAttempt[]` | Provider requests made before the error, oldest first. Empty when nothing was sent. |
-| `provider` | `ProviderErrorInfo \| undefined` | Redacted provider details: `{ provider, httpStatus?, code?, message?, requestId? }`. `message` has numbers masked and is at most 200 characters. |
+| `provider` | `ProviderErrorInfo \| undefined` | Structural provider diagnostics: `{ provider, httpStatus?, code?, requestId? }`. Free-form provider response text is omitted so echoed bodies, credentials, or PII never leak into logs. |
 | `cause` | `unknown` | The original exception, when there was one. For debugging only. |
 
 `toJSON()` returns `{ name, code, message, retrySafe, attempts, provider?, providerName?, reason? }` (with `providerName` and `reason` included on `MessageLookupError`, `WebhookSignatureError`, and `WebhookPayloadError` when present). It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
@@ -121,7 +121,7 @@ The provider answered and proved it did not create the message. Sending the same
 ### `ProviderRejectedError`
 
 - `code`: `provider_rejected`. `retrySafe`: true.
-- Extra fields: `category: RejectionCategory`, `providerName: string`, `fallbackEligible: boolean`, and `provider` with the provider's HTTP status, error code, message, and request ID.
+- Extra fields: `category: RejectionCategory`, `providerName: string`, `fallbackEligible: boolean`, and `provider` with the provider's HTTP status, error code, and request ID.
 - What to do depends on `category`.
 
 | `category` | Falls back | Typical cause | What to do |

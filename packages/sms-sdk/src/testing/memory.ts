@@ -176,6 +176,9 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
     },
 
     enqueue(...outcomes) {
+      if (!outcomes.every(isMemoryOutcome)) {
+        throw new ConfigurationError("Memory adapter outcomes must contain valid outcomes or functions.");
+      }
       queue.push(...outcomes);
     },
 

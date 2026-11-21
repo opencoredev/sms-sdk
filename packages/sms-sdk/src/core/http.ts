@@ -332,7 +332,42 @@ export function basicAuthorization(username: string, password: string): string {
   }
 }
 
-/** Builds redacted {@link ProviderErrorInfo}. */
+const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
+const PHONE_LENGTH_DIGITS = /^\d{8,}$/;
+
+/** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, PII, or phone-length digit runs. */
+function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | undefined {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength ||
+    !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
+    PHONE_LENGTH_DIGITS.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+/** Copies only structural provider details, reading each field once. Free-form `message` and unvalidated strings are dropped. */
+export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string): ProviderErrorInfo {
+  const rawProvider = raw["provider"];
+  const rawStatus = raw["httpStatus"];
+  const rawCode = raw["code"];
+  const rawRequestId = raw["requestId"];
+  const provider = typeof rawProvider === "string" && rawProvider.length > 0 ? rawProvider : fallbackProvider;
+  const httpStatus = typeof rawStatus === "number" && Number.isFinite(rawStatus) ? rawStatus : undefined;
+  const code = sanitizeDiagnosticToken(rawCode, 64);
+  const requestId = sanitizeDiagnosticToken(rawRequestId, 128);
+  return {
+    provider,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+    ...(code === undefined ? {} : { code }),
+    ...(requestId === undefined ? {} : { requestId }),
+  };
+}
+
+/** Builds structural, log-safe {@link ProviderErrorInfo}. */
 export function providerInfo(input: {
   readonly provider: string;
   readonly httpStatus?: number;
@@ -340,13 +375,15 @@ export function providerInfo(input: {
   readonly message?: string | undefined;
   readonly requestId?: string | null | undefined;
 }): ProviderErrorInfo {
+  const code = sanitizeDiagnosticToken(input.code, 64);
+  const requestId = sanitizeDiagnosticToken(input.requestId, 128);
   return {
     provider: input.provider,
     ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
-    ...(input.code === undefined ? {} : { code: input.code }),
+    ...(code === undefined ? {} : { code }),
     // Free-form response text can echo message bodies, PII, or credentials.
     // Keep log-safe diagnostics structural.
-    ...(input.requestId === undefined || input.requestId === null ? {} : { requestId: input.requestId }),
+    ...(requestId === undefined ? {} : { requestId }),
   };
 }
 

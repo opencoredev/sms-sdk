@@ -339,8 +339,7 @@ export class MessageLookupError extends SmsError {
     readonly provider?: ProviderErrorInfo;
     readonly cause?: unknown;
   }) {
-    const detail = options.provider?.message === undefined ? "" : `: ${options.provider.message}`;
-    super(`The ${options.providerName} message lookup failed (${options.reason.replace("_", " ")})${detail}`, {
+    super(`The ${options.providerName} message lookup failed (${options.reason.replace("_", " ")})`, {
       code: "message_lookup_failed",
       retrySafe: false,
       ...(options.provider === undefined ? {} : { provider: options.provider }),

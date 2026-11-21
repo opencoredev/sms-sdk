@@ -9,6 +9,7 @@ import {
   type SmsError,
 } from "./errors.js";
 import type { SendAttempt } from "./events.js";
+import { sanitizeProviderDetails } from "./http.js";
 import { decideRetry, sleep, type ResolvedRetryOptions } from "./retry.js";
 
 /** An adapter paired with the message built for it. */
@@ -217,7 +218,18 @@ const REJECTION_CATEGORIES: ReadonlySet<unknown> = new Set([
   "request",
 ]);
 
-const UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
+/** Delivery values an accepted send or lookup outcome may report. */
+export const DELIVERIES: ReadonlySet<unknown> = new Set([
+  "unknown",
+  "queued",
+  "sent",
+  "delivered",
+  "undelivered",
+  "filtered",
+]);
+
+/** Reason values an unknown send outcome may carry. */
+export const UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
   "network",
   "timeout",
   "aborted",
@@ -227,56 +239,74 @@ const UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
   "adapter_exception",
 ]);
 
-function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string) {
-  const provider = typeof raw["provider"] === "string" && raw["provider"].length > 0 ? raw["provider"] : fallbackProvider;
-  const httpStatus = typeof raw["httpStatus"] === "number" && Number.isFinite(raw["httpStatus"]) ? raw["httpStatus"] : undefined;
-  const code = typeof raw["code"] === "string" && raw["code"].length > 0 ? raw["code"] : undefined;
-  const requestId = typeof raw["requestId"] === "string" && raw["requestId"].length > 0 ? raw["requestId"] : undefined;
-  return {
-    provider,
-    ...(httpStatus === undefined ? {} : { httpStatus }),
-    ...(code === undefined ? {} : { code }),
-    ...(requestId === undefined ? {} : { requestId }),
-  };
-}
+const MALFORMED_OUTCOME = (): AdapterSendOutcome => ({
+  kind: "unknown",
+  reason: "adapter_exception",
+  cause: new TypeError("Adapter returned a malformed send outcome."),
+});
 
-/** A send outcome the client cannot act on safely is treated as unknown: the request may have reached the provider. */
+/**
+ * A send outcome the client cannot act on safely is treated as unknown: the
+ * request may have reached the provider. Every field is read once and copied,
+ * so getters cannot change a value after it was checked.
+ */
 function normalizeOutcome(outcome: unknown, adapterName: string): AdapterSendOutcome {
-  const record = typeof outcome === "object" && outcome !== null && !Array.isArray(outcome) ? (outcome as Record<string, unknown>) : undefined;
-  const kind = record?.["kind"];
-  if (kind === "accepted" && typeof record?.["providerId"] === "string" && record["providerId"].length > 0) {
-    return outcome as AdapterSendOutcome;
+  try {
+    if (typeof outcome !== "object" || outcome === null || Array.isArray(outcome)) {
+      return MALFORMED_OUTCOME();
+    }
+    const record = outcome as Record<string, unknown>;
+    const kind = record["kind"];
+    if (kind === "accepted") {
+      const providerId = record["providerId"];
+      const delivery = record["delivery"];
+      if (typeof providerId !== "string" || providerId.length === 0 || !DELIVERIES.has(delivery)) {
+        return MALFORMED_OUTCOME();
+      }
+      return { kind: "accepted", providerId, delivery: delivery as Delivery };
+    }
+    if (kind === "rejected") {
+      const category = record["category"];
+      const rawDetails = record["details"];
+      const retryAfterMs = record["retryAfterMs"];
+      if (
+        !REJECTION_CATEGORIES.has(category) ||
+        typeof rawDetails !== "object" ||
+        rawDetails === null ||
+        Array.isArray(rawDetails)
+      ) {
+        return MALFORMED_OUTCOME();
+      }
+      return {
+        kind: "rejected",
+        category: category as Extract<AdapterSendOutcome, { kind: "rejected" }>["category"],
+        details: sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName),
+        ...(typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0
+          ? { retryAfterMs }
+          : {}),
+      };
+    }
+    if (kind === "unknown") {
+      const reason = record["reason"];
+      const rawDetails = record["details"];
+      if (!UNKNOWN_REASONS.has(reason)) {
+        return MALFORMED_OUTCOME();
+      }
+      const details =
+        typeof rawDetails === "object" && rawDetails !== null && !Array.isArray(rawDetails)
+          ? sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName)
+          : undefined;
+      return {
+        kind: "unknown",
+        reason: reason as Extract<AdapterSendOutcome, { kind: "unknown" }>["reason"],
+        ...(details === undefined ? {} : { details }),
+        ...("cause" in record ? { cause: record["cause"] } : {}),
+      };
+    }
+    return MALFORMED_OUTCOME();
+  } catch (cause) {
+    return { kind: "unknown", reason: "adapter_exception", cause };
   }
-  if (
-    kind === "rejected" &&
-    REJECTION_CATEGORIES.has(record?.["category"]) &&
-    typeof record?.["details"] === "object" &&
-    record["details"] !== null &&
-    !Array.isArray(record["details"])
-  ) {
-    const details = sanitizeProviderDetails(record["details"] as Record<string, unknown>, adapterName);
-    const retryAfterMs = record["retryAfterMs"];
-    return {
-      kind: "rejected",
-      category: record["category"] as Extract<AdapterSendOutcome, { kind: "rejected" }>["category"],
-      details,
-      ...(typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0 ? { retryAfterMs } : {}),
-    };
-  }
-  if (kind === "unknown" && UNKNOWN_REASONS.has(record?.["reason"])) {
-    const rawDetails = record?.["details"];
-    const details =
-      typeof rawDetails === "object" && rawDetails !== null && !Array.isArray(rawDetails)
-        ? sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName)
-        : undefined;
-    return {
-      kind: "unknown",
-      reason: record!["reason"] as Extract<AdapterSendOutcome, { kind: "unknown" }>["reason"],
-      ...(details === undefined ? {} : { details }),
-      ...("cause" in record! ? { cause: record!["cause"] } : {}),
-    };
-  }
-  return { kind: "unknown", reason: "adapter_exception", cause: new TypeError("Adapter returned a malformed send outcome.") };
 }
 
 function rejectionError(
@@ -284,19 +314,18 @@ function rejectionError(
   attempts: readonly SendAttempt[],
 ): ProviderRejectedError {
   const provider = outcome.details.provider;
-  const detail = outcome.details.message === undefined ? "" : `: ${outcome.details.message}`;
 
   if (outcome.category === "auth") {
-    return new ProviderAuthError(`${provider} rejected the credentials${detail}`, { provider: outcome.details, attempts });
+    return new ProviderAuthError(`${provider} rejected the credentials`, { provider: outcome.details, attempts });
   }
   if (outcome.category === "rate_limited") {
-    return new ProviderRateLimitedError(`${provider} rate-limited the request; the message was not created${detail}`, {
+    return new ProviderRateLimitedError(`${provider} rate-limited the request; the message was not created`, {
       provider: outcome.details,
       attempts,
       ...(outcome.retryAfterMs === undefined ? {} : { retryAfterMs: outcome.retryAfterMs }),
     });
   }
-  return new ProviderRejectedError(`${provider} rejected the message (${outcome.category})${detail}`, {
+  return new ProviderRejectedError(`${provider} rejected the message (${outcome.category})`, {
     category: outcome.category,
     provider: outcome.details,
     attempts,
