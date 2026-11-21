@@ -1,5 +1,5 @@
 {
-  "extends": "@email-sdk/config/tsconfig.base.json",
+  "extends": "@sms-sdk/config/tsconfig.base.json",
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",

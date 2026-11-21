@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@email-sdk/config": "workspace:*",
+    "@sms-sdk/config": "workspace:*",
     "@changesets/cli": "^2.31.1",
     "@changesets/changelog-github": "^0.5.1"
   },
