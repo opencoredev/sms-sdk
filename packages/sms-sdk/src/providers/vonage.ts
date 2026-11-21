@@ -260,6 +260,7 @@ function reportsAccess(options: VonageOptions): ReportsAccess | undefined {
     return undefined;
   }
   if (
+    !isRecord(credentials) ||
     typeof credentials.apiKey !== "string" ||
     credentials.apiKey.length === 0 ||
     typeof credentials.apiSecret !== "string" ||
@@ -457,7 +458,12 @@ type Authorization = { readonly kind: "ok"; readonly value: string } | { readonl
 
 function createAuthorizer(options: VonageOptions): () => Promise<Authorization> {
   if (options.apiKey !== undefined) {
-    if (options.apiKey.length === 0 || options.apiSecret.length === 0) {
+    if (
+      typeof options.apiKey !== "string" ||
+      options.apiKey.length === 0 ||
+      typeof options.apiSecret !== "string" ||
+      options.apiSecret.length === 0
+    ) {
       throw new ConfigurationError("Vonage apiKey and apiSecret are required.");
     }
     const value = basicAuthorization(options.apiKey, options.apiSecret);

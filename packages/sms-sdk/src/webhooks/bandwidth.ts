@@ -85,7 +85,7 @@ function interpretBandwidthEvent(input: { readonly event: unknown; readonly raw:
     throw new WebhookPayloadError("The bandwidth webhook is missing message.id.", { provider: "bandwidth" });
   }
   const occurredAt = parseDate(readString(event, "time") ?? readString(message, "time"));
-  const statusTo = readString(event, "to") ?? firstString(message["to"]);
+  const statusTo = readString(event, "to");
   const base: SmsEventBase = {
     provider: "bandwidth",
     dedupeKey: type === "message-received" || statusTo === undefined

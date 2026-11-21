@@ -2,7 +2,7 @@ import { fromBase64, hmac, sha256Hex, timingSafeEqual, toBase64Url } from "../co
 import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, readWebhookBody, skipVerification, type WebhookCommonOptions } from "./shared.js";
+import { parseDate, readWebhookBody, requireTolerance, skipVerification, type WebhookCommonOptions } from "./shared.js";
 import type { WebhookVerification } from "./telnyx.js";
 
 /**
@@ -39,6 +39,7 @@ export async function verifyVonageSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
+  const tolerance = requireTolerance(input.toleranceSec, VONAGE_DEFAULT_TOLERANCE_SEC);
   const token = input.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (token === undefined || token.length === 0) {
     return { valid: false, reason: "missing_signature" };
@@ -64,7 +65,7 @@ export async function verifyVonageSignature(input: {
     return { valid: false, reason: "malformed_signature" };
   }
   const nowSec = Math.floor((input.now ?? Date.now()) / 1000);
-  if (Math.abs(nowSec - iat) > (input.toleranceSec ?? VONAGE_DEFAULT_TOLERANCE_SEC)) {
+  if (!(Math.abs(nowSec - iat) <= tolerance)) {
     return { valid: false, reason: "stale_timestamp" };
   }
 

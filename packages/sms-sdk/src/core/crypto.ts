@@ -3,6 +3,8 @@
  * in Node 20+, Bun, and other runtimes with `globalThis.crypto.subtle`.
  */
 
+import { ConfigurationError } from "./errors.js";
+
 const encoder = new TextEncoder();
 
 /** UTF-8 bytes of `text`. */
@@ -50,6 +52,9 @@ export function toHex(bytes: Uint8Array): string {
 
 /** HMAC of `message` with `key`. */
 export async function hmac(algorithm: "SHA-1" | "SHA-256", key: string, message: string): Promise<Uint8Array> {
+  if (typeof key !== "string" || key.length === 0) {
+    throw new ConfigurationError("Webhook HMAC secret must be a non-empty string.");
+  }
   const cryptoKey = await crypto.subtle.importKey("raw", utf8(key), { name: "HMAC", hash: algorithm }, false, ["sign"]);
   return new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, utf8(message)));
 }
@@ -80,6 +85,9 @@ export function timingSafeEqual(left: string, right: string): boolean {
  * Returns `undefined` when no PEM body is found.
  */
 export function pemToDer(pem: string): Uint8Array<ArrayBuffer> | undefined {
+  if (typeof pem !== "string") {
+    return undefined;
+  }
   const body = pem
     .replace(/\\n/g, "\n")
     .replace(/-----BEGIN [^-]+-----/, "")

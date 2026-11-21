@@ -2,7 +2,7 @@ import { fromBase64, utf8 } from "../core/crypto.js";
 import { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, readWebhookBody, skipVerification, type WebhookCommonOptions } from "./shared.js";
+import { parseDate, readWebhookBody, requireTolerance, skipVerification, type WebhookCommonOptions } from "./shared.js";
 
 /** Default replay window for `telnyx-timestamp`, matching Telnyx's guidance of 5 minutes. */
 export const TELNYX_DEFAULT_TOLERANCE_SEC = 300;
@@ -33,6 +33,7 @@ export async function verifyTelnyxSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
+  const tolerance = requireTolerance(input.toleranceSec, TELNYX_DEFAULT_TOLERANCE_SEC);
   if (input.signature === null || input.timestamp === null || input.signature.length === 0) {
     return { valid: false, reason: "missing_signature" };
   }
@@ -40,7 +41,7 @@ export async function verifyTelnyxSignature(input: {
     return { valid: false, reason: "malformed_signature" };
   }
   const nowSec = Math.floor((input.now ?? Date.now()) / 1000);
-  if (Math.abs(nowSec - Number(input.timestamp)) > (input.toleranceSec ?? TELNYX_DEFAULT_TOLERANCE_SEC)) {
+  if (!(Math.abs(nowSec - Number(input.timestamp)) <= tolerance)) {
     return { valid: false, reason: "stale_timestamp" };
   }
   const keyBytes = fromBase64(input.publicKey);

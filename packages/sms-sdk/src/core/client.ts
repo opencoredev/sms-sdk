@@ -97,6 +97,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           ),
         };
   const inFlight = new Map<string, InFlight>();
+  const configuredAdapters = new Set(adapters.map((adapter) => adapter.name));
 
   const validate = (input: SmsSendInput): SmsValidationResult => {
     if (!isRecord(input)) {
@@ -109,7 +110,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       };
     }
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
-    const messageIssues = [...validateMessage(input), ...validateProviderOptions(adapters, input.providerOptions)];
+    const messageIssues = [
+      ...validateMessage(input, configuredAdapters),
+      ...validateProviderOptions(adapters, input.providerOptions),
+    ];
     if (messageIssues.length > 0) {
       return { ...preview, supported: false, issues: messageIssues, adapterCandidates: [], providerOptionsFor: [] };
     }
@@ -183,7 +187,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
   /** Validates and builds the ordered candidates, throwing for the primary adapter's first issue. */
   const buildCandidates = (input: SmsSendInput): [SendCandidate, ...SendCandidate[]] => {
-    const [firstIssue] = [...validateMessage(input), ...validateProviderOptions(adapters, input.providerOptions)];
+    const [firstIssue] = [
+      ...validateMessage(input, configuredAdapters),
+      ...validateProviderOptions(adapters, input.providerOptions),
+    ];
     if (firstIssue !== undefined) {
       throw issueToError(firstIssue);
     }
@@ -376,8 +383,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     providerId: string,
     lookupOptions: SmsGetMessageOptions = {},
   ): Promise<SmsMessageStatus | undefined> => {
-    if (typeof providerId !== "string" || providerId.length === 0) {
+    if (
+      typeof providerId !== "string" ||
+      providerId.length === 0 ||
+      providerId === "." ||
+      providerId === ".."
+    ) {
       throw new ConfigurationError("getMessage needs a non-empty providerId.");
+    }
+    if (!isRecord(lookupOptions)) {
+      throw new ConfigurationError("getMessage options must be an object.");
     }
     const name = lookupOptions.adapter ?? adapters[0].name;
     const adapter = adapters.find((candidate) => candidate.name === name);
@@ -424,9 +439,13 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   };
 }
 
+const MAX_IDEMPOTENCY_SECONDS = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
+
 function requirePositiveSeconds(value: number, name: "ttlSec" | "staleReservationSec"): number {
-  if (!(typeof value === "number" && Number.isInteger(value) && value >= 1)) {
-    throw new ConfigurationError(`idempotency.${name} must be an integer number of seconds >= 1.`);
+  if (!(typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_IDEMPOTENCY_SECONDS)) {
+    throw new ConfigurationError(
+      `idempotency.${name} must be a safe integer number of seconds between 1 and ${MAX_IDEMPOTENCY_SECONDS}.`,
+    );
   }
   return value;
 }

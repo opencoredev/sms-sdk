@@ -281,7 +281,8 @@ describe("malformed runtime input", () => {
     ["42", "message"],
   ])("send(%s) throws InvalidMessageError before any request", async (json, field) => {
     const adapter = memory();
-    const error = await rejection(sms.send(fromJson(json)));
+    const client = createSmsClient({ adapters: [adapter] });
+    const error = await rejection(client.send(fromJson(json)));
     expect(error).toBeInstanceOf(InvalidMessageError);
     expect(error).toBeInstanceOf(SmsError);
     expect(error).toMatchObject({ field, retrySafe: true });
@@ -310,5 +311,103 @@ describe("malformed runtime input", () => {
     const error = await rejection(client.send(parsed));
     expect(error).toBeInstanceOf(InvalidSenderError);
     expect(adapter.sent).toHaveLength(0);
+  });
+
+  test("ignores malformed fromByAdapter entries for unconfigured adapters", async () => {
+    const adapter = memory();
+    const client = createSmsClient({ adapters: [adapter] });
+    const parsed = fromJson('{"to":"+14155550123","from":"+14155550100","body":"hi","fromByAdapter":{"unconfigured":null}}');
+    expect(client.validate(parsed).supported).toBe(true);
+    const result = await client.send(parsed);
+    expect(result.provider).toBe("memory");
+    expect(adapter.sent).toHaveLength(1);
+  });
+
+  test("rejects missing adapter options, invalid getMessage args, overflowing TTLs, and invalid webhook credentials/tolerances", async () => {
+    const { sinch } = await import("../../src/providers/sinch.js");
+    const { vonage } = await import("../../src/providers/vonage.js");
+    const { ConfigurationError, WebhookPayloadError } = await import("../../src/core/errors.js");
+    const { memoryIdempotencyStore } = await import("../../src/core/idempotency.js");
+    const { hasBasicAuthorization } = await import("../../src/webhooks/shared.js");
+    const { verifySinchSignature } = await import("../../src/webhooks/sinch.js");
+    const { verifyTelnyxSignature } = await import("../../src/webhooks/telnyx.js");
+    const { verifyVonageSignature } = await import("../../src/webhooks/vonage.js");
+    const { interpretBandwidthEvents } = await import("../../src/webhooks/bandwidth.js");
+
+    // @ts-expect-error -- untyped JS callers can omit options
+    expect(() => sinch()).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit apiSecret
+    expect(() => vonage({ apiKey: "k" })).toThrow(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can omit privateKey
+    expect(() => vonage({ applicationId: "app-1" })).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        idempotency: { store: memoryIdempotencyStore(), ttlSec: 1e306 },
+      }),
+    ).toThrow(ConfigurationError);
+
+    const client = createSmsClient({ adapters: [memory()] });
+    expect(await rejection(client.getMessage(".."))).toBeInstanceOf(ConfigurationError);
+    expect(await rejection(client.getMessage("."))).toBeInstanceOf(ConfigurationError);
+    // @ts-expect-error -- untyped JS callers can pass null options
+    expect(await rejection(client.getMessage("id", null))).toBeInstanceOf(ConfigurationError);
+
+    expect(() => hasBasicAuthorization("Basic Og==", { username: "", password: "" })).toThrow(ConfigurationError);
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(
+        await rejection(
+          verifySinchSignature({
+            webhookSecret: "sec",
+            rawBody: "{}",
+            signature: "abc",
+            nonce: "n",
+            timestamp: "1",
+            toleranceSec: bad,
+          }),
+        ),
+      ).toBeInstanceOf(ConfigurationError);
+      expect(
+        await rejection(
+          verifyTelnyxSignature({
+            publicKey: "k",
+            rawBody: "{}",
+            signature: "abc",
+            timestamp: "1",
+            toleranceSec: bad,
+          }),
+        ),
+      ).toBeInstanceOf(ConfigurationError);
+      expect(
+        await rejection(
+          verifyVonageSignature({
+            signatureSecret: "sec",
+            authorization: "Bearer a.b.c",
+            rawBody: "{}",
+            toleranceSec: bad,
+          }),
+        ),
+      ).toBeInstanceOf(ConfigurationError);
+    }
+    expect(
+      await rejection(
+        verifySinchSignature({
+          webhookSecret: "",
+          rawBody: "{}",
+          signature: "abc",
+          nonce: "n",
+          timestamp: String(Math.floor(Date.now() / 1000)),
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    const payloadErr = new WebhookPayloadError("too big", { provider: "twilio", reason: "body_too_large" });
+    expect(payloadErr.toJSON()).toMatchObject({ providerName: "twilio", reason: "body_too_large" });
+
+    const bwEvents = interpretBandwidthEvents(
+      [{ type: "message-delivered", message: { id: "g1", to: ["+15551111111", "+15552222222"] } }],
+      true,
+    );
+    expect(bwEvents[0]?.dedupeKey).toBe("bandwidth:g1:message-delivered");
   });
 });

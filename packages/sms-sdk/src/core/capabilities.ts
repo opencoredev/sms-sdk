@@ -102,7 +102,10 @@ export const MESSAGE_NOT_OBJECT_ISSUE: ValidationIssue = {
  * Total over runtime input: a malformed value from JavaScript or JSON yields
  * issues, never a thrown `TypeError`.
  */
-export function validateMessage(input: SmsSendInput): ValidationIssue[] {
+export function validateMessage(
+  input: SmsSendInput,
+  configuredAdapters?: ReadonlySet<string>,
+): ValidationIssue[] {
   if (!isRecord(input)) {
     return [MESSAGE_NOT_OBJECT_ISSUE];
   }
@@ -138,6 +141,9 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
       issues.push({ code: "invalid_field", field: "fromByAdapter", message: "fromByAdapter must be an object keyed by adapter name." });
     } else {
       for (const [adapterName, entry] of Object.entries(input.fromByAdapter)) {
+        if (configuredAdapters !== undefined && !configuredAdapters.has(adapterName)) {
+          continue;
+        }
         if (entry !== undefined && typeof entry !== "string" && !isRecord(entry)) {
           issues.push({
             code: "invalid_field",

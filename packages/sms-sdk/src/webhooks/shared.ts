@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "../core/crypto.js";
 import { ConfigurationError, WebhookPayloadError } from "../core/errors.js";
-import { basicAuthorization, MAX_RESPONSE_BYTES, readBoundedText } from "../core/http.js";
+import { basicAuthorization, isRecord, MAX_RESPONSE_BYTES, readBoundedText } from "../core/http.js";
 import type { SmsEvent, WebhookProvider } from "./events.js";
 
 /** Largest inbound webhook body read before verification, in bytes (1 MiB). */
@@ -135,13 +135,38 @@ export type BasicCallbackCredentials = { readonly username: string; readonly pas
 /**
  * Checks an `Authorization` header against Basic credentials in constant time.
  *
- * @throws {ConfigurationError} when the credentials are not Latin-1.
+ * @throws {ConfigurationError} when the credentials are missing, empty, or not Latin-1.
  */
 export function hasBasicAuthorization(header: string | null, credentials: BasicCallbackCredentials): boolean {
+  if (
+    !isRecord(credentials) ||
+    typeof credentials.username !== "string" ||
+    credentials.username.length === 0 ||
+    typeof credentials.password !== "string" ||
+    credentials.password.length === 0
+  ) {
+    throw new ConfigurationError("Basic webhook credentials require non-empty username and password.");
+  }
+  const expected = basicAuthorization(credentials.username, credentials.password);
   if (header === null) {
     return false;
   }
-  return timingSafeEqual(header, basicAuthorization(credentials.username, credentials.password));
+  return timingSafeEqual(header, expected);
+}
+
+/**
+ * Validates a webhook timestamp tolerance window in seconds.
+ *
+ * @throws {ConfigurationError} when `value` is not a finite number >= 0.
+ */
+export function requireTolerance(value: number | undefined, fallback: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!(typeof value === "number" && Number.isFinite(value) && value >= 0)) {
+    throw new ConfigurationError("toleranceSec must be a finite number of seconds >= 0.");
+  }
+  return value;
 }
 
 /** Parses a date string, returning `undefined` when absent or invalid. */

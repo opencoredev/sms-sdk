@@ -7,6 +7,7 @@ import {
   onlyEvent,
   parseDate,
   readWebhookBody,
+  requireTolerance,
   skipVerification,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
@@ -49,6 +50,7 @@ export async function verifySinchSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<SinchWebhookVerification> {
+  const tolerance = requireTolerance(input.toleranceSec, SINCH_DEFAULT_TOLERANCE_SEC);
   if (input.signature === null || input.nonce === null || input.timestamp === null || input.signature.length === 0) {
     return { valid: false, reason: "missing_signature" };
   }
@@ -56,7 +58,7 @@ export async function verifySinchSignature(input: {
     return { valid: false, reason: "malformed_signature" };
   }
   const nowSec = Math.floor((input.now ?? Date.now()) / 1000);
-  if (Math.abs(nowSec - Number(input.timestamp)) > (input.toleranceSec ?? SINCH_DEFAULT_TOLERANCE_SEC)) {
+  if (!(Math.abs(nowSec - Number(input.timestamp)) <= tolerance)) {
     return { valid: false, reason: "stale_timestamp" };
   }
   const expected = toBase64(await hmac("SHA-256", input.webhookSecret, `${input.rawBody}.${input.nonce}.${input.timestamp}`));

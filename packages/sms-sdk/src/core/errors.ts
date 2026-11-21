@@ -35,6 +35,8 @@ export type SerializedSmsError = {
   readonly retrySafe: boolean;
   readonly attempts: readonly SendAttempt[];
   readonly provider?: ProviderErrorInfo;
+  readonly providerName?: string;
+  readonly reason?: string;
 };
 
 type SmsErrorOptions = {
@@ -387,6 +389,14 @@ export class WebhookPayloadError extends SmsError {
     this.name = "WebhookPayloadError";
     this.providerName = options.provider;
     this.reason = options.reason;
+  }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      providerName: this.providerName,
+      ...(this.reason === undefined ? {} : { reason: this.reason }),
+    };
   }
 }
 

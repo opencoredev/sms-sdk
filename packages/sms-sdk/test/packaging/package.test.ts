@@ -1,6 +1,6 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -31,6 +31,12 @@ beforeAll(() => {
   run("tar", ["-xzf", join(consumerDir, tarball), "-C", target, "--strip-components=1"], consumerDir);
   writeFileSync(join(consumerDir, "package.json"), JSON.stringify({ name: "consumer", type: "module", private: true }));
 }, 180_000);
+
+afterAll(() => {
+  if (consumerDir) {
+    rmSync(consumerDir, { recursive: true, force: true });
+  }
+});
 
 describe("published package", () => {
   test("ships only dist and documentation files", () => {
