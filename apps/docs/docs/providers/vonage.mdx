@@ -564,7 +564,7 @@ The Messages API has no message lookup, so `sms.getMessage(messageUuid, { adapte
 - With Basic auth, `getMessage` uses `apiKey` and `apiSecret`.
 - With JWT auth, pass `reportsCredentials: { apiKey, apiSecret }` to `vonage()`. Without it the adapter has no `getMessage`, and `sms.getMessage()` throws `ConfigurationError`.
 
-`submitted` maps to `sent`, `delivered` and `read` to `delivered`, and `rejected`, `undeliverable`, `failed`, and `expired` to `undelivered`. Vonage adds a record shortly after sending, so a lookup right after `send()` can return `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
+`submitted` maps to `sent`, `delivered` and `read` to `delivered`, `rejected` and `undeliverable` with error `1210`, `1470`, `1472`, or `1480` to `1483` to `filtered`, and other `rejected`, `undeliverable`, `failed`, and `expired` statuses to `undelivered`. Vonage adds a record shortly after sending, so a lookup right after `send()` can return `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

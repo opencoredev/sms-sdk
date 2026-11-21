@@ -53,7 +53,7 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 - Optional
 - Defaults to `{ maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 10000 }`
 - Retries on the same adapter, only after a `rate_limited` rejection. `maxAttempts` counts the first request, so `1` turns retries off. Backoff is exponential with full jitter. A provider `Retry-After` of at most `maxDelayMs` is used as the delay. A longer one stops retrying that adapter.
-- `maxAttempts` must be an integer from 1 to 10. `baseDelayMs` and `maxDelayMs` must be finite and at least 0; a `maxDelayMs` below `baseDelayMs` is raised to it. Anything else throws `ConfigurationError`.
+- `maxAttempts` must be an integer from 1 to 10. `baseDelayMs` and `maxDelayMs` must be finite numbers from 0 to `2147483647`; a `maxDelayMs` below `baseDelayMs` is raised to it. Anything else throws `ConfigurationError`.
 
 ### `timeoutMs`
 

@@ -676,7 +676,7 @@ The handler in [Build it with SMS SDK](#1-create-the-client-and-handlers) is the
 
 ## Look up a message
 
-`sms.getMessage(sid, { adapter: "twilio" })` fetches the Message resource (`GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`) and maps its `status` the same way as a send result, with `error_code` as `errorCode` for a failed message. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
+`sms.getMessage(sid, { adapter: "twilio" })` fetches the Message resource (`GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`) and maps its `status` the same way as a status webhook (mapping error `30007` to `filtered`), with `error_code` as `errorCode` for a failed message. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

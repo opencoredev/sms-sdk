@@ -46,8 +46,8 @@ export function resolveRetryOptions(options: RetryOptions | undefined): Resolved
 }
 
 function requireDelay(value: number, name: "baseDelayMs" | "maxDelayMs"): number {
-  if (!(typeof value === "number" && Number.isFinite(value) && value >= 0)) {
-    throw new ConfigurationError(`retry.${name} must be a finite number of milliseconds, 0 or more.`);
+  if (!(typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 2_147_483_647)) {
+    throw new ConfigurationError(`retry.${name} must be a finite number of milliseconds from 0 to 2147483647.`);
   }
   return value;
 }

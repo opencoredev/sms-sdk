@@ -71,7 +71,7 @@ The base class. Every error has these fields.
 ### `ConfigurationError`
 
 - `code`: `configuration`. `retrySafe`: true.
-- Thrown by `createSmsClient` for no adapters, duplicate adapter names, a `timeoutMs` that is not a positive number up to `2147483647`, an `idempotency.ttlSec` or `staleReservationSec` that is not a whole number of seconds of at least 1, a malformed `idempotency` or `retry` option, or `retry` values out of range (`maxAttempts` outside 1 to 10, a negative or non-finite delay).
+- Thrown by `createSmsClient` for no adapters, duplicate adapter names, a `timeoutMs` that is not a positive number up to `2147483647`, an `idempotency.ttlSec` or `staleReservationSec` that is not a whole number of seconds of at least 1, a malformed `idempotency` or `retry` option, or `retry` values out of range (`maxAttempts` outside 1 to 10, or a delay outside 0 to `2147483647`).
 - Thrown by adapter factories for malformed or missing credentials (a Twilio Account SID that is not `AC` plus 32 hex, a missing or empty API key, a Vonage private key that is not a PEM, Basic credentials with characters outside Latin-1).
 - Thrown by `getMessage()` for an empty `providerId` or an adapter that is not configured or cannot look messages up, and by the webhook parsers when `unsafeSkipVerification` is set while `NODE_ENV` is `"production"`.
 - Fix the configuration. Nothing was sent.

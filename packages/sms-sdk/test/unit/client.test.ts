@@ -559,5 +559,17 @@ describe("send: fromByAdapter", () => {
         retry: { maxAttempts: null as unknown as number },
       }),
     ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        retry: { maxDelayMs: 2 ** 31 },
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        retry: { baseDelayMs: 2 ** 31 },
+      }),
+    ).toThrow(ConfigurationError);
   });
 });

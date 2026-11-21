@@ -186,9 +186,9 @@ Texts to your number go to the URL set on the number or its group. A per-message
 | Event | Twilio | Telnyx | Plivo | Vonage | Bandwidth | Sinch |
 | --- | --- | --- | --- | --- | --- | --- |
 | `message.queued` | queued, accepted, scheduled, sending | queued, sending | queued | (none) | message-sending | Queued, Pending |
-| `message.sent` | sent | sent, delivery_unconfirmed | sent | submitted | (none) | Sent, Accepted |
+| `message.sent` | sent | sent, delivery_unconfirmed | sent | submitted | (none) | Sent, Accepted, Dispatched |
 | `message.delivered` | delivered | delivered | delivered | delivered | message-delivered | Delivered |
-| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed | rejected, undeliverable | message-failed | Failed, Undelivered, Expired; Rejected or Filtered without code 40003 |
+| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed, rejected | rejected, undeliverable | message-failed | Failed, Undelivered, Expired, Aborted; Rejected or Filtered without code 40003 |
 | `message.filtered` | a failure with error 30007 | a failure with error 40002, 40003, or 40322 | never | a failure with error 1210, 1470, 1472, or 1480 to 1483 | never | Rejected or Filtered with code 40003 |
 
 `message.filtered` means a carrier or the provider blocked the message as spam or for its content. It needs one of the error codes above; any other failure stays `message.undelivered`. Telnyx status events come from its `message.sent` and `message.finalized` webhooks.

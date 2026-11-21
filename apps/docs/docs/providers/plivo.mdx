@@ -94,7 +94,7 @@ The 2xx means Plivo accepted and queued the message. Delivery to the phone is re
 | Refused | 401, a 429 with `api_id`, or another 4xx with an `error` text | `ProviderRejectedError` with category `auth`, `rate_limited`, or `request` |
 | Outcome unknown | 5xx, timeout, network error, or a 2xx without `message_uuid` | `HandoffUnknownError`. Never resent automatically. |
 | Handed to the carrier | Callback with `Status=sent` | `message.sent` event |
-| Delivered or failed | Callback with `Status=delivered`, `undelivered`, or `failed`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
+| Delivered or failed | Callback with `Status=delivered`, `undelivered`, `failed`, or `rejected`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
 
 ## Verify a callback with the raw API
 
