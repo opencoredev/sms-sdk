@@ -56,7 +56,12 @@ export async function verifySinchSignature(input: {
     throw new ConfigurationError("Sinch webhook webhookSecret must be a non-empty string.");
   }
   const tolerance = requireTolerance(input.toleranceSec, SINCH_DEFAULT_TOLERANCE_SEC);
-  if (input.signature === null || input.nonce === null || input.timestamp === null || input.signature.length === 0) {
+  if (
+    typeof input.signature !== "string" ||
+    typeof input.nonce !== "string" ||
+    typeof input.timestamp !== "string" ||
+    input.signature.length === 0
+  ) {
     return { valid: false, reason: "missing_signature" };
   }
   if (!/^\d+$/.test(input.timestamp)) {
@@ -85,14 +90,11 @@ export async function parseSinchWebhook(options: SinchWebhookOptions): Promise<S
  * `recipient_delivery_report`, or a single event otherwise.
  */
 export async function parseSinchWebhooks(rawOptions: SinchWebhookOptions): Promise<SmsEvent[]> {
-  const options = snapshotWebhookOptions<SinchWebhookOptions>(rawOptions, [
-    "request",
-    "credentials",
-    "toleranceSec",
-    "unsafeSkipVerification",
-    "detectKeywords",
-    "now",
-  ]);
+  const options = snapshotWebhookOptions<SinchWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "toleranceSec", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["kind", "username", "password", "webhookSecret"],
+  );
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "sinch");
   if (!skip) {

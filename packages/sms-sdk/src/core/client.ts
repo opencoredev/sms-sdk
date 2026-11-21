@@ -13,6 +13,7 @@ import {
   HandoffUnknownError,
   IdempotencyConflictError,
   IdempotencyInProgressError,
+  InvalidMessageError,
   MessageLookupError,
   PolicyRejectedError,
   SendAbortedError,
@@ -134,15 +135,43 @@ function freezeShallowRecord(value: unknown): unknown {
   return Object.freeze(copy);
 }
 
+const SENDER_KEYS = ["senderId", "shortCode", "messagingService"] as const;
+
+function freezeSender(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  let copied = false;
+  for (const key of SENDER_KEYS) {
+    if (key in value) {
+      defineOwn(copy, key, value[key]);
+      copied = true;
+    }
+  }
+  if (!copied) {
+    return Object.freeze(copy);
+  }
+  return Object.freeze(copy);
+}
+
 function freezeFromByAdapter(value: unknown): unknown {
   if (!isRecord(value)) {
     return value;
   }
   const copy: Record<string, unknown> = {};
   for (const key of Object.keys(value)) {
-    defineOwn(copy, key, freezeShallowRecord(value[key]));
+    defineOwn(copy, key, freezeSender(value[key]));
   }
   return Object.freeze(copy);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 function freezeProviderOptions(value: unknown): unknown {
@@ -152,7 +181,7 @@ function freezeProviderOptions(value: unknown): unknown {
   const copy: Record<string, unknown> = {};
   for (const key of Object.keys(value)) {
     const entry = value[key];
-    if (isRecord(entry)) {
+    if (isPlainRecord(entry)) {
       const entryCopy: Record<string, unknown> = {};
       for (const optKey of Object.keys(entry)) {
         const optVal = entry[optKey];
@@ -192,7 +221,7 @@ function snapshotSendInput(raw: SmsSendInput): SmsSendInput {
     body: source["body"],
   };
   if (from !== undefined) {
-    snapshot["from"] = freezeShallowRecord(from);
+    snapshot["from"] = freezeSender(from);
   }
   if (fromByAdapter !== undefined) {
     snapshot["fromByAdapter"] = freezeFromByAdapter(fromByAdapter);
@@ -255,7 +284,8 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
     }
   }
-  if (options.beforeSend !== undefined && typeof options.beforeSend !== "function") {
+  const beforeSend = options.beforeSend;
+  if (beforeSend !== undefined && typeof beforeSend !== "function") {
     throw new ConfigurationError("beforeSend must be a function.");
   }
   const names = adapters.map((adapter) => adapter.name);
@@ -282,7 +312,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       }
     }
   }
-  const hooks = options.hooks ?? {};
+  const hooks = options.hooks === undefined ? {} : { ...options.hooks };
   if (
     options.idempotency !== undefined &&
     (!isRecord(options.idempotency) ||
@@ -313,7 +343,19 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   const configuredAdapters = new Set(adapters.map((adapter) => adapter.name));
 
   const validate = (rawInput: SmsSendInput): SmsValidationResult => {
-    if (!isRecord(rawInput)) {
+    let input: SmsSendInput;
+    try {
+      if (!isRecord(rawInput)) {
+        return {
+          ...estimateSegments(""),
+          supported: false,
+          issues: [MESSAGE_NOT_OBJECT_ISSUE],
+          adapterCandidates: [],
+          providerOptionsFor: [],
+        };
+      }
+      input = snapshotSendInput(rawInput);
+    } catch {
       return {
         ...estimateSegments(""),
         supported: false,
@@ -322,7 +364,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         providerOptionsFor: [],
       };
     }
-    const input = snapshotSendInput(rawInput);
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const messageIssues = [
       ...validateMessage(input, configuredAdapters),
@@ -354,14 +395,30 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   };
 
   const send = async (rawInput: SmsSendInput, sendOptions: SmsSendOptions = {}): Promise<SmsSendResult> => {
-    if (!isRecord(sendOptions)) {
+    let signal: AbortSignal | undefined;
+    try {
+      if (!isRecord(sendOptions)) {
+        throw new ConfigurationError("send options must be an object.");
+      }
+      signal = requireOptionalSignal(sendOptions.signal, "send");
+    } catch (error) {
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
       throw new ConfigurationError("send options must be an object.");
     }
-    const signal = requireOptionalSignal(sendOptions.signal, "send");
-    if (!isRecord(rawInput)) {
+    let input: SmsSendInput;
+    try {
+      if (!isRecord(rawInput)) {
+        throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
+      }
+      input = snapshotSendInput(rawInput);
+    } catch (error) {
+      if (error instanceof InvalidMessageError) {
+        throw error;
+      }
       throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
     }
-    const input = snapshotSendInput(rawInput);
     const preview = estimateSegments(typeof input.body === "string" ? input.body : "");
     const candidates = buildCandidates(input);
     if (signal?.aborted === true) {
@@ -528,7 +585,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       throw error;
     };
 
-    if (options.beforeSend !== undefined) {
+    if (beforeSend !== undefined) {
       let isObj = false;
       let kind: unknown;
       let reason: unknown;
@@ -537,7 +594,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           input.sendAt instanceof Date
             ? Object.freeze({ ...input, sendAt: new Date(input.sendAt.getTime()) })
             : input;
-        const decision: unknown = await options.beforeSend({
+        const decision: unknown = await beforeSend({
           id,
           message: policyMessage,
           encoding: preview.encoding,

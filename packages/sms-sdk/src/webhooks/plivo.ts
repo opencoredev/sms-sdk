@@ -70,15 +70,11 @@ export async function verifyPlivoSignatureV2(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parsePlivoWebhook(rawOptions: PlivoWebhookOptions): Promise<SmsEvent> {
-  const options = snapshotWebhookOptions<PlivoWebhookOptions>(rawOptions, [
-    "request",
-    "credentials",
-    "publicUrl",
-    "trustProxy",
-    "unsafeSkipVerification",
-    "detectKeywords",
-    "now",
-  ]);
+  const options = snapshotWebhookOptions<PlivoWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "publicUrl", "trustProxy", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["authToken"],
+  );
   const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "plivo");
@@ -182,8 +178,16 @@ function plivoMediaUrls(fields: Record<string, string>): string[] {
 }
 
 function plivoBaseUrl(url: unknown): string {
-  if (typeof url !== "string" || url.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url)) {
+  if (
+    typeof url !== "string" ||
+    url.length === 0 ||
+    /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url) ||
+    !/^https?:\/\/[^\\/?#]/i.test(url)
+  ) {
     throw new ConfigurationError("Plivo signature verification requires a valid URL.");
+  }
+  if (url.includes("#")) {
+    throw new ConfigurationError("Plivo signature verification URL must not include a fragment.");
   }
   let parsed: URL;
   try {
@@ -193,6 +197,13 @@ function plivoBaseUrl(url: unknown): string {
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ConfigurationError("Plivo signature verification requires an http or https URL.");
+  }
+  if (
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    /^https?:[\\/]*[^\\/?#]*@/i.test(url)
+  ) {
+    throw new ConfigurationError("Plivo signature verification URL must not include credentials.");
   }
   return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
 }

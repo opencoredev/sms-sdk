@@ -116,6 +116,7 @@ export type SignedUrlOptions = {
 export function snapshotWebhookOptions<T extends Record<string, unknown>>(
   options: unknown,
   keys: readonly (keyof T & string)[],
+  credentialKeys?: readonly string[],
 ): T {
   try {
     if (!isRecord(options)) {
@@ -127,13 +128,16 @@ export function snapshotWebhookOptions<T extends Record<string, unknown>>(
       if (value !== undefined) {
         if (key === "credentials" && isRecord(value)) {
           const creds: Record<string, unknown> = {};
-          for (const credKey of Object.keys(value)) {
-            Object.defineProperty(creds, credKey, {
-              value: value[credKey],
-              enumerable: true,
-              writable: true,
-              configurable: true,
-            });
+          const keysToCopy = credentialKeys ?? Object.keys(value);
+          for (const credKey of keysToCopy) {
+            if (credKey in value) {
+              Object.defineProperty(creds, credKey, {
+                value: value[credKey],
+                enumerable: true,
+                writable: true,
+                configurable: true,
+              });
+            }
           }
           copy[key] = Object.freeze(creds);
         } else {
@@ -154,7 +158,7 @@ export function snapshotWebhookOptions<T extends Record<string, unknown>>(
  * Reads a header string safely, failing with {@link ConfigurationError} if a spoofed
  * Headers implementation returns a non-string value.
  */
-export function readHeaderString(headers: Headers, name: string, provider: WebhookProvider): string | null {
+export function readHeaderString(headers: Headers, name: string, provider: string): string | null {
   let value: unknown;
   try {
     value = headers.get(name);
@@ -269,8 +273,15 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     return options.publicUrl.includes("?") ? options.publicUrl : `${options.publicUrl}${requestUrl.search}`;
   }
   if (options.trustProxy === true) {
-    const proto = (firstHeaderValue(request.headers.get("x-forwarded-proto")) ?? requestUrl.protocol.replace(":", "")).toLowerCase();
-    const host = firstHeaderValue(request.headers.get("x-forwarded-host")) ?? request.headers.get("host") ?? requestUrl.host;
+    const label = provider ?? "webhook";
+    const proto = (
+      firstHeaderValue(readHeaderString(request.headers, "x-forwarded-proto", label)) ??
+      requestUrl.protocol.replace(":", "")
+    ).toLowerCase();
+    const host =
+      firstHeaderValue(readHeaderString(request.headers, "x-forwarded-host", label)) ??
+      readHeaderString(request.headers, "host", label) ??
+      requestUrl.host;
     if (proto !== "http" && proto !== "https") {
       throw new WebhookSignatureError("Invalid X-Forwarded-Proto header.", {
         reason: "invalid_signature",

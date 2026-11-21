@@ -130,6 +130,10 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
   if (typeof options.apiKey !== "string" || options.apiKey.length === 0) {
     throw new ConfigurationError("Telnyx apiKey is required.");
   }
+  const messagingProfileId = options.messagingProfileId;
+  if (messagingProfileId !== undefined && typeof messagingProfileId !== "string") {
+    throw new ConfigurationError("Telnyx messagingProfileId must be a string.");
+  }
   const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.telnyx.com", "Telnyx");
   const url = `${baseUrl}/v2/messages`;
   const fetcher: FetchLike = resolveFetcher(options.fetch, "Telnyx");
@@ -143,7 +147,7 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
     ...(options.from === undefined ? {} : { defaultFrom: options.from }),
 
     validate(message) {
-      return validateTelnyxMessage(message, options.messagingProfileId);
+      return validateTelnyxMessage(message, messagingProfileId);
     },
 
     async send(message, context) {
@@ -154,7 +158,7 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(buildTelnyxRequest(message, options.messagingProfileId)),
+        body: JSON.stringify(buildTelnyxRequest(message, messagingProfileId)),
         signal: context.signal,
       });
       if (response.kind === "failed") {

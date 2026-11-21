@@ -124,6 +124,7 @@ export function bandwidth(options: BandwidthOptions): SmsAdapter {
   requireValue(options.apiToken, "apiToken");
   requireValue(options.apiSecret, "apiSecret");
   requireValue(options.applicationId, "applicationId");
+  const applicationId = options.applicationId;
   const baseUrl = resolveBaseUrl(options.baseUrl, "https://messaging.bandwidth.com", "Bandwidth");
   const url = `${baseUrl}/api/v2/users/${encodeURIComponent(options.userId)}/messages`;
   const fetcher: FetchLike = resolveFetcher(options.fetch, "Bandwidth");
@@ -142,7 +143,7 @@ export function bandwidth(options: BandwidthOptions): SmsAdapter {
       const response = await exchange(fetcher, url, {
         method: "POST",
         headers: { Authorization: authorization, "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(buildBandwidthRequest(message, options.applicationId)),
+        body: JSON.stringify(buildBandwidthRequest(message, applicationId)),
         signal: context.signal,
       });
       if (response.kind === "failed") {

@@ -58,7 +58,7 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
   if (spec === undefined) {
     return issues(unsupported(provider, `The ${provider} adapter accepts no providerOptions.`));
   }
-  if (!isRecord(entry)) {
+  if (!isPlainObject(entry)) {
     return issues(invalid(provider, `providerOptions.${provider} must be an object.`));
   }
 
@@ -169,6 +169,17 @@ function wireNames(lower: string, prefixes: readonly string[]): string[] {
   return names;
 }
 
+const regexpSourceGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get;
+const regexpFlagsGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 type ValueRead = { readonly kind: "ok"; readonly value: ProviderOptionValue } | { readonly kind: "invalid"; readonly problem: string };
 
 function readValue(field: ProviderOptionField, value: unknown): ValueRead {
@@ -184,9 +195,17 @@ function readValue(field: ProviderOptionField, value: unknown): ValueRead {
         return bad(`must be at most ${field.maxLength} characters`);
       }
       if (field.pattern !== undefined) {
-        const pattern = new RegExp(field.pattern.source, field.pattern.flags);
+        let source: string;
+        let pattern: RegExp;
+        try {
+          source = regexpSourceGetter?.call(field.pattern) as string;
+          const flags = regexpFlagsGetter?.call(field.pattern) as string;
+          pattern = new RegExp(source, flags);
+        } catch {
+          return bad("has an unusable pattern");
+        }
         if (!pattern.test(value)) {
-          return bad(`must match ${field.pattern.source}`);
+          return bad(`must match ${source}`);
         }
       }
       return { kind: "ok", value };

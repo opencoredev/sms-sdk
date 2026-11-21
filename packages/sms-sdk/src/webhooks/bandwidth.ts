@@ -43,13 +43,11 @@ export async function parseBandwidthWebhook(options: BandwidthWebhookOptions): P
  * Bandwidth sends a JSON array, which can hold more than one event.
  */
 export async function parseBandwidthWebhooks(rawOptions: BandwidthWebhookOptions): Promise<SmsEvent[]> {
-  const options = snapshotWebhookOptions<BandwidthWebhookOptions>(rawOptions, [
-    "request",
-    "credentials",
-    "unsafeSkipVerification",
-    "detectKeywords",
-    "now",
-  ]);
+  const options = snapshotWebhookOptions<BandwidthWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["username", "password"],
+  );
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "bandwidth");
   if (!skip) {

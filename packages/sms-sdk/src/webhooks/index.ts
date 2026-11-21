@@ -23,6 +23,20 @@ export type ParseSmsWebhookOptions =
   | ({ readonly provider: "bandwidth" } & BandwidthWebhookOptions)
   | ({ readonly provider: "sinch" } & SinchWebhookOptions);
 
+function readWebhookProvider(options: unknown): unknown {
+  try {
+    if (!isRecord(options)) {
+      throw new ConfigurationError("Webhook options must be an object with a supported provider.");
+    }
+    return options["provider"];
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Webhook options must be an object with a supported provider.");
+  }
+}
+
 /**
  * Reads the raw request body once, verifies the provider's signature, then
  * returns a normalized {@link SmsEvent}. Nothing is interpreted before
@@ -36,17 +50,6 @@ export type ParseSmsWebhookOptions =
  * @throws {WebhookPayloadError} when the body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification) or an authentic payload lacks required fields or carries several events.
  * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
-function readWebhookProvider(options: unknown): unknown {
-  if (!isRecord(options)) {
-    throw new ConfigurationError("Webhook options must be an object with a supported provider.");
-  }
-  try {
-    return options["provider"];
-  } catch {
-    throw new ConfigurationError("Webhook options must be an object with a supported provider.");
-  }
-}
-
 export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<SmsEvent> {
   const provider = readWebhookProvider(options);
   switch (provider) {
@@ -87,10 +90,13 @@ export async function parseSmsWebhooks(options: ParseSmsWebhookOptions): Promise
     case "sinch":
       return parseSinchWebhooks(options as Extract<ParseSmsWebhookOptions, { provider: "sinch" }>);
     case "twilio":
+      return [await parseTwilioWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "twilio" }>)];
     case "telnyx":
+      return [await parseTelnyxWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "telnyx" }>)];
     case "plivo":
+      return [await parsePlivoWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "plivo" }>)];
     case "vonage":
-      return [await parseSmsWebhook(options)];
+      return [await parseVonageWebhook(options as Extract<ParseSmsWebhookOptions, { provider: "vonage" }>)];
     default: {
       throw new ConfigurationError("Unsupported SMS webhook provider.");
     }

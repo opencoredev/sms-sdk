@@ -96,15 +96,11 @@ export async function verifyTwilioSignature(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parseTwilioWebhook(rawOptions: TwilioWebhookOptions): Promise<SmsEvent> {
-  const options = snapshotWebhookOptions<TwilioWebhookOptions>(rawOptions, [
-    "request",
-    "credentials",
-    "publicUrl",
-    "trustProxy",
-    "unsafeSkipVerification",
-    "detectKeywords",
-    "now",
-  ]);
+  const options = snapshotWebhookOptions<TwilioWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "publicUrl", "trustProxy", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["authToken"],
+  );
   const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "twilio");
@@ -246,8 +242,16 @@ function jsonParams(rawBody: string): Array<[string, string]> {
 }
 
 function validateTwilioUrl(url: unknown): URL {
-  if (typeof url !== "string" || url.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url)) {
+  if (
+    typeof url !== "string" ||
+    url.length === 0 ||
+    /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url) ||
+    !/^https?:\/\/[^\\/?#]/i.test(url)
+  ) {
     throw new ConfigurationError("Twilio signature verification requires a valid URL.");
+  }
+  if (url.includes("#")) {
+    throw new ConfigurationError("Twilio signature verification URL must not include a fragment.");
   }
   let parsed: URL;
   try {
@@ -257,6 +261,13 @@ function validateTwilioUrl(url: unknown): URL {
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ConfigurationError("Twilio signature verification requires an http or https URL.");
+  }
+  if (
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    /^https?:[\\/]*[^\\/?#]*@/i.test(url)
+  ) {
+    throw new ConfigurationError("Twilio signature verification URL must not include credentials.");
   }
   return parsed;
 }

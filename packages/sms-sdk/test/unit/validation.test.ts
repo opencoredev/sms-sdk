@@ -654,17 +654,19 @@ describe("malformed runtime input", () => {
     ).toBeInstanceOf(ConfigurationError);
     expect(headerRead).toBe(false);
 
-    // Prototype keys inside providerOptions[provider] are ignored (real Twilio option & extra)
+    // Non-plain prototype objects inside providerOptions[provider] are rejected with invalid_field
     const inheritedEntry = Object.create({ shortenUrls: "not-a-boolean", extra: "not-an-object" });
     const twilioClient = createSmsClient({
       adapters: [twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", from: "+15005550006" })],
     });
     expect(
-      twilioClient.validate({
-        to: "+14155550123",
-        body: "hi",
-        providerOptions: { twilio: inheritedEntry },
-      }).supported,
+      twilioClient
+        .validate({
+          to: "+14155550123",
+          body: "hi",
+          providerOptions: { twilio: inheritedEntry },
+        })
+        .issues.some((i) => i.code === "invalid_field"),
     ).toBe(true);
 
     // Error toJSON includes providerName and reason
@@ -1216,5 +1218,245 @@ describe("malformed runtime input", () => {
         ),
       ),
     ).toBeInstanceOf(ConfigurationError);
+  });
+
+  test("preserves class-getter senders/credentials, rejects non-plain providerOptions and RegExp/Date spoofs, and freezes client/factory options", async () => {
+    // 1. Class-getter sender works in validate() and send(), and unrelated throwing getters are never read
+    class BrandSender {
+      get senderId() {
+        return "BRAND";
+      }
+      get unrelated() {
+        throw new Error("should not be read");
+      }
+    }
+    const base = memory({ name: "a" });
+    const alphaClient = createSmsClient({
+      adapters: [
+        {
+          ...base,
+          capabilities: { ...base.capabilities, senderTypes: ["long_code", "alphanumeric"] },
+        },
+      ],
+    });
+    const sender = new BrandSender() as unknown as NonNullable<SmsSendInput["from"]>;
+    expect(alphaClient.validate({ to: "+447700900123", body: "hi", from: sender }).supported).toBe(true);
+    const sent = await alphaClient.send({ to: "+447700900123", body: "hi", from: sender });
+    expect(sent.providerId).toBeTruthy();
+
+    // 2. Revoked Proxy or throwing to getter returns issues in validate() and InvalidMessageError in send()
+    const revoked = Proxy.revocable({ to: "+14155550123", body: "hi" }, {});
+    revoked.revoke();
+    expect(alphaClient.validate(revoked.proxy as unknown as SmsSendInput).issues.length).toBeGreaterThan(0);
+    expect(await rejection(alphaClient.send(revoked.proxy as unknown as SmsSendInput))).toBeInstanceOf(
+      InvalidMessageError,
+    );
+
+    const throwingTo = {
+      get to(): string {
+        throw new Error("to boom");
+      },
+      body: "hi",
+    } as unknown as SmsSendInput;
+    expect(alphaClient.validate(throwingTo).issues.length).toBeGreaterThan(0);
+    expect(await rejection(alphaClient.send(throwingTo))).toBeInstanceOf(InvalidMessageError);
+
+    // 3. beforeSend cannot be mutated or disabled after client creation
+    let policyCalled = 0;
+    const clientOpts: Parameters<typeof createSmsClient>[0] = {
+      adapters: [memory({ name: "a" })],
+      beforeSend: () => {
+        policyCalled += 1;
+        return { kind: "reject", reason: "blocked" };
+      },
+    };
+    const lockedClient = createSmsClient(clientOpts);
+    (clientOpts as { beforeSend?: unknown }).beforeSend = undefined;
+    expect(await rejection(lockedClient.send({ to: "+14155550123", body: "hi" }))).toBeInstanceOf(PolicyRejectedError);
+    expect(policyCalled).toBe(1);
+
+    // 4. Non-plain providerOptions entry (class instance) returns invalid_field; RegExp subclass throwing source/flags is caught
+    class CustomOpts {
+      shortenUrls = true;
+    }
+    const twilioClient = createSmsClient({
+      adapters: [twilio({ accountSid: TWILIO_SID, authToken: "tok", from: "+15005550006" })],
+    });
+    const nonPlain = twilioClient.validate({
+      to: "+14155550123",
+      body: "hi",
+      providerOptions: { twilio: new CustomOpts() as unknown as Record<string, unknown> },
+    });
+    expect(nonPlain.issues.some((i) => i.code === "invalid_field")).toBe(true);
+
+    // Object.create(Date.prototype) is rejected as invalid_field
+    const fakeDate = Object.create(Date.prototype) as Date;
+    const schedClient = createSmsClient({
+      adapters: [{ ...base, capabilities: { ...base.capabilities, scheduling: true } }],
+    });
+    expect(
+      schedClient.validate({ to: "+14155550123", body: "hi", sendAt: fakeDate }).issues.length,
+    ).toBeGreaterThan(0);
+
+    // RegExp subclass with throwing source/flags getters
+    class EvilRegExp extends RegExp {
+      override get source(): string {
+        throw new Error("source boom");
+      }
+      override get flags(): string {
+        throw new Error("flags boom");
+      }
+    }
+    const evilReClient = createSmsClient({
+      adapters: [
+        {
+          ...base,
+          providerOptions: {
+            options: { tag: { type: "string", wire: "tag", pattern: new EvilRegExp("^ok$") } },
+            reserved: [],
+          },
+        },
+      ],
+    });
+    expect(
+      evilReClient.validate({
+        to: "+14155550123",
+        body: "hi",
+        providerOptions: { a: { tag: "ok" } } as NonNullable<SmsSendInput["providerOptions"]>,
+      }).supported,
+    ).toBe(true);
+
+    // 5. Class-getter webhook credentials work; single-event parseSmsWebhooks reads provider once; non-string signature returns { valid: false }
+    class TwilioCreds {
+      get authToken() {
+        return "tok";
+      }
+    }
+    const sigUrl = "https://example.com/hook";
+    const sig = await computeTwilioSignature({
+      authToken: "tok",
+      url: sigUrl,
+      params: [
+        ["MessageSid", "SM1"],
+        ["From", "+14155550123"],
+        ["To", "+15005550006"],
+        ["Body", "hi"],
+      ],
+    });
+    const signedReq = new Request(sigUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-twilio-signature": sig,
+      },
+      body: "MessageSid=SM1&From=%2B14155550123&To=%2B15005550006&Body=hi",
+    });
+    const parsedFromClassCreds = await parseSmsWebhook({
+      provider: "twilio",
+      request: signedReq,
+      credentials: new TwilioCreds(),
+    });
+    expect(parsedFromClassCreds.type).toBe("message.received");
+
+    let providerReads = 0;
+    const singleReadReq = new Request(sigUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-twilio-signature": sig,
+      },
+      body: "MessageSid=SM1&From=%2B14155550123&To=%2B15005550006&Body=hi",
+    });
+    const { parseSmsWebhooks } = await import("../../src/webhooks/index.js");
+    const many = await parseSmsWebhooks({
+      get provider() {
+        providerReads += 1;
+        return "twilio" as const;
+      },
+      request: singleReadReq,
+      credentials: { authToken: "tok" },
+    });
+    expect(many).toHaveLength(1);
+    expect(providerReads).toBe(1);
+
+    // Spoofed Headers.get returning non-string (5) fails closed with ConfigurationError
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: {
+            url: "https://example.com/hook",
+            method: "POST",
+            headers: { get: (name: string) => (name.toLowerCase() === "x-forwarded-host" ? 5 : null) },
+            body: null,
+            bodyUsed: false,
+          } as unknown as Request,
+          trustProxy: true,
+          credentials: { authToken: "tok" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // verifyTelnyxSignature / verifySinchSignature with undefined signature return { valid: false }
+    expect(
+      await verifyTelnyxSignature({
+        publicKey: "a".repeat(44),
+        rawBody: "{}",
+        signature: undefined as unknown as string,
+        timestamp: String(Math.floor(Date.now() / 1000)),
+      }),
+    ).toMatchObject({ valid: false });
+    expect(
+      await verifySinchSignature({
+        webhookSecret: "sec",
+        rawBody: "{}",
+        signature: undefined as unknown as string,
+        nonce: "n",
+        timestamp: String(Math.floor(Date.now() / 1000)),
+      }),
+    ).toMatchObject({ valid: false });
+
+    // Canonical URL checks in verifyTwilioSignature / verifyPlivoSignatureV2
+    for (const bad of ["https://user:pass@example.com/hook", "https://example.com/hook#frag", "https://example.com/a\u00a0b"]) {
+      expect(
+        await rejection(verifyTwilioSignature({ authToken: "tok", url: bad, params: [], signature: "x" })),
+      ).toBeInstanceOf(ConfigurationError);
+      expect(
+        await rejection(verifyPlivoSignatureV2({ authToken: "tok", url: bad, nonce: "1", signature: "x" })),
+      ).toBeInstanceOf(ConfigurationError);
+    }
+
+    // 6. bandwidth & telnyx capture applicationId / messagingProfileId at factory time
+    let sentAppId = "";
+    const bwOpts = {
+      userId: "acc",
+      applicationId: "app-original",
+      apiToken: "u",
+      apiSecret: "p",
+      from: "+15005550006" as const,
+      fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sentAppId = JSON.parse(String(init?.body ?? "{}")).applicationId;
+        return new Response(JSON.stringify({ id: "bw1" }), { status: 202 });
+      },
+    };
+    const bwAdapter = bandwidth(bwOpts);
+    bwOpts.applicationId = "app-mutated";
+    await createSmsClient({ adapters: [bwAdapter] }).send({ to: "+14155550123", body: "hi" });
+    expect(sentAppId).toBe("app-original");
+
+    let sentProfileId = "";
+    const txOpts = {
+      apiKey: "key",
+      messagingProfileId: "prof-original",
+      from: "+15005550006" as const,
+      fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sentProfileId = JSON.parse(String(init?.body ?? "{}")).messaging_profile_id;
+        return new Response(JSON.stringify({ data: { id: "tx1" } }), { status: 200 });
+      },
+    };
+    const txAdapter = telnyx(txOpts);
+    txOpts.messagingProfileId = "prof-mutated";
+    await createSmsClient({ adapters: [txAdapter] }).send({ to: "+14155550123", body: "hi" });
+    expect(sentProfileId).toBe("prof-original");
   });
 });

@@ -45,7 +45,7 @@ export async function verifyTelnyxSignature(input: {
     throw new ConfigurationError("Telnyx webhook publicKey must be a non-empty string.");
   }
   const tolerance = requireTolerance(input.toleranceSec, TELNYX_DEFAULT_TOLERANCE_SEC);
-  if (input.signature === null || input.timestamp === null || input.signature.length === 0) {
+  if (typeof input.signature !== "string" || typeof input.timestamp !== "string" || input.signature.length === 0) {
     return { valid: false, reason: "missing_signature" };
   }
   if (!/^\d+$/.test(input.timestamp)) {
@@ -82,14 +82,11 @@ export async function verifyTelnyxSignature(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parseTelnyxWebhook(rawOptions: TelnyxWebhookOptions): Promise<SmsEvent> {
-  const options = snapshotWebhookOptions<TelnyxWebhookOptions>(rawOptions, [
-    "request",
-    "credentials",
-    "toleranceSec",
-    "unsafeSkipVerification",
-    "detectKeywords",
-    "now",
-  ]);
+  const options = snapshotWebhookOptions<TelnyxWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "toleranceSec", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["publicKey"],
+  );
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "telnyx");
 
