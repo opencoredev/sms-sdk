@@ -1,4 +1,5 @@
 import type {
+  Delivery,
   LookupFailureReason,
   ProviderErrorInfo,
   RejectionCategory,
@@ -83,25 +84,38 @@ export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackPr
   };
 }
 
-const VALID_DELIVERIES = new Set(["queued", "sent", "delivered"]);
-const VALID_REJECTION_CATEGORIES = new Set([
-  "auth",
-  "recipient",
-  "sender",
-  "content",
-  "rate_limited",
-  "balance",
-  "request",
-  "provider_unavailable",
-]);
-const VALID_UNKNOWN_REASONS = new Set([
-  "timeout",
-  "network",
-  "server_error",
-  "malformed_response",
-  "aborted",
-  "adapter_exception",
-]);
+const DELIVERY_MAP = {
+  unknown: true,
+  queued: true,
+  sent: true,
+  delivered: true,
+  undelivered: true,
+  filtered: true,
+} as const satisfies Record<Delivery, true>;
+
+const REJECTION_CATEGORY_MAP = {
+  auth: true,
+  rate_limited: true,
+  recipient: true,
+  sender: true,
+  account: true,
+  compliance: true,
+  request: true,
+} as const satisfies Record<RejectionCategory, true>;
+
+const UNKNOWN_REASON_MAP = {
+  network: true,
+  timeout: true,
+  aborted: true,
+  malformed_response: true,
+  server_error: true,
+  unexpected_status: true,
+  adapter_exception: true,
+} as const satisfies Record<UnknownReason, true>;
+
+const VALID_DELIVERIES = new Set<string>(Object.keys(DELIVERY_MAP));
+const VALID_REJECTION_CATEGORIES = new Set<string>(Object.keys(REJECTION_CATEGORY_MAP));
+const VALID_UNKNOWN_REASONS = new Set<string>(Object.keys(UNKNOWN_REASON_MAP));
 
 function sanitizeAttemptForJson(attempt: unknown): SendAttempt | undefined {
   try {
@@ -126,8 +140,8 @@ function sanitizeAttemptForJson(attempt: unknown): SendAttempt | undefined {
       const providerId = sanitizeDiagnosticToken(rawProviderId, 128) ?? "[redacted]";
       const delivery =
         typeof rawDelivery === "string" && VALID_DELIVERIES.has(rawDelivery)
-          ? (rawDelivery as "queued" | "sent" | "delivered")
-          : "queued";
+          ? (rawDelivery as Delivery)
+          : "unknown";
       return {
         provider,
         attempt: attemptNum,
@@ -273,8 +287,9 @@ export class SmsError extends Error {
   toJSON(): SerializedSmsError {
     const safeAttempts: SendAttempt[] = [];
     try {
-      if (Array.isArray(this.attempts)) {
-        for (const item of this.attempts) {
+      const rawAttempts = this.attempts;
+      if (Array.isArray(rawAttempts)) {
+        for (const item of rawAttempts) {
           const sanitized = sanitizeAttemptForJson(item);
           if (sanitized !== undefined) {
             safeAttempts.push(sanitized);

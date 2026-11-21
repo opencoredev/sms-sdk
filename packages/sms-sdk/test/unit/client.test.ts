@@ -2264,6 +2264,61 @@ describe("send: fromByAdapter", () => {
     expect(parseRetryAfter("-5")).toBeUndefined();
     expect(parseRetryAfter("+5")).toBeUndefined();
     expect(parseRetryAfter("1.5")).toBeUndefined();
+    expect(parseRetryAfter(".5")).toBeUndefined();
+    expect(parseRetryAfter("5.")).toBeUndefined();
+    expect(parseRetryAfter("-5.")).toBeUndefined();
+    expect(parseRetryAfter("9999.")).toBeUndefined();
+    expect(parseRetryAfter("5 5")).toBeUndefined();
     expect(parseRetryAfter("0")).toBe(0);
+
+    // R34: toJSON() preserves every valid Delivery, RejectionCategory, and UnknownReason value
+    for (const category of ["auth", "rate_limited", "recipient", "sender", "account", "compliance", "request"] as const) {
+      const err = new ProviderRejectedError("rej", {
+        category,
+        provider: { provider: "twilio" },
+        attempts: [{ provider: "twilio", attempt: 1, outcome: "rejected", category, durationMs: 1 }],
+      });
+      expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "rejected", category });
+    }
+    for (const reason of ["network", "timeout", "aborted", "malformed_response", "server_error", "unexpected_status", "adapter_exception"] as const) {
+      const err = new HandoffUnknownError("unk", {
+        reason,
+        attempts: [{ provider: "twilio", attempt: 1, outcome: "unknown", reason, durationMs: 1 }],
+      });
+      expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "unknown", reason });
+    }
+    for (const delivery of ["unknown", "queued", "sent", "delivered", "undelivered", "filtered"] as const) {
+      const err = new HandoffUnknownError("acc", {
+        reason: "timeout",
+        attempts: [{ provider: "twilio", attempt: 1, outcome: "accepted", providerId: "SM1234567890abcdef1234567890abcdef", delivery, durationMs: 1 }],
+      });
+      expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "accepted", delivery });
+    }
+
+    // R34: adapter.validate() cannot mutate message.from before send()
+    let receivedFrom: unknown;
+    const mutFromClient = createSmsClient({
+      adapters: [
+        {
+          ...baseMem,
+          name: "mutfrom",
+          validate(msg) {
+            try {
+              (msg.from as { value: string }).value = "+19999999999";
+              (msg.from as { kind: string }).kind = "alphanumeric";
+            } catch {
+              // Expected in strict mode on frozen sender
+            }
+            return [];
+          },
+          async send(msg) {
+            receivedFrom = { ...msg.from };
+            return { kind: "accepted", providerId: "ok2", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    await mutFromClient.send({ to: "+14155550123", from: "+15005550006", body: "hi" });
+    expect(receivedFrom).toEqual({ kind: "phone_number", value: "+15005550006" });
   });
 });

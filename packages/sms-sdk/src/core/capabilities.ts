@@ -263,9 +263,10 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
     issues.push(...options.issues);
   }
 
+  const frozenSender = Object.freeze({ ...sender });
   const message: AdapterMessage = {
     to: input.to,
-    from: sender,
+    from: frozenSender,
     body: input.body,
     mediaUrls: Object.freeze([...mediaUrls]),
     ...(input.sendAt === undefined ? {} : { sendAt: new Date(input.sendAt.getTime()) }),
@@ -278,6 +279,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
     try {
       const validateCopy: AdapterMessage = Object.freeze({
         ...message,
+        from: Object.freeze({ ...message.from }),
         ...(message.sendAt === undefined ? {} : { sendAt: new Date(message.sendAt.getTime()) }),
         ...(message.providerFields === undefined
           ? {}

@@ -342,8 +342,8 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
     const ms = Number(trimmed) * 1000;
     return Number.isFinite(ms) ? Math.min(ms, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
   }
-  // Reject signed or decimal numeric strings that Date.parse would interpret as years/dates.
-  if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) {
+  // RFC 9110 HTTP-date values always contain a day/month name; reject numeric-only/loose Date.parse inputs.
+  if (!/[A-Za-z]{3}/.test(trimmed)) {
     return undefined;
   }
   const date = Date.parse(trimmed);
