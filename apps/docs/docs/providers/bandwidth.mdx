@@ -66,7 +66,7 @@ Bandwidth sends from a long code, a toll-free number, or a short code. Alphanume
 | Scheduling (`sendAt`) | No |
 | Validity period (`validityPeriodSec`) | No |
 | Per-message `webhookUrl` | No. Callbacks go to the URL on your Bandwidth application. |
-| Text length | Up to 2,048 characters, checked before sending |
+| Text length | Up to 2,048 characters, checked before sending. For how text splits into segments, see [Message length and cost](/sending/length-and-cost). |
 | Native idempotency | No. Use an [idempotency store](/sending/idempotency). |
 
 ## Provider options
@@ -123,7 +123,7 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 
 | Bandwidth event | SMS SDK event |
 | --- | --- |
-| `message-received` | `message.received`, or `recipient.opted_out` / `recipient.help` for STOP and HELP keywords |
+| `message-received` | `message.received`, or `recipient.opted_out` / `recipient.help` for [STOP and HELP keywords](/receiving/opt-outs) |
 | `message-sending` | `message.queued` |
 | `message-delivered` | `message.delivered` |
 | `message-failed` | `message.undelivered` |
