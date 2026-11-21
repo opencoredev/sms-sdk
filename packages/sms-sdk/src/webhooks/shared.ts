@@ -13,6 +13,7 @@ export async function readWebhookBody(request: Request, provider: WebhookProvide
   let method: string;
   let body: ReadableStream<Uint8Array> | null;
   let bodyUsed: boolean;
+  let bodyLocked = false;
   try {
     if (!isRecord(request)) {
       throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
@@ -22,25 +23,38 @@ export async function readWebhookBody(request: Request, provider: WebhookProvide
     method = request.method;
     body = request.body;
     bodyUsed = request.bodyUsed;
+    if (
+      !isRecord(headers) ||
+      typeof headers.get !== "function" ||
+      typeof url !== "string" ||
+      typeof method !== "string" ||
+      (body !== null && (!isRecord(body) || typeof body.getReader !== "function"))
+    ) {
+      throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+    }
+    headers.get("content-length");
+    if (body !== null) {
+      bodyLocked = body.locked === true;
+    }
   } catch (error) {
     if (error instanceof ConfigurationError) {
       throw error;
     }
     throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
   }
-  if (
-    !isRecord(headers) ||
-    typeof headers.get !== "function" ||
-    typeof url !== "string" ||
-    typeof method !== "string" ||
-    (body !== null && (!isRecord(body) || typeof body.getReader !== "function"))
-  ) {
-    throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
-  }
-  if (bodyUsed === true || (body !== null && body.locked === true)) {
+  if (bodyUsed === true || bodyLocked) {
     throw new ConfigurationError(`The ${provider} webhook request body is locked or has already been read.`);
   }
-  const text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
+  let text: string | undefined;
+  try {
+    text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
+  } catch (cause) {
+    throw new WebhookPayloadError(`The ${provider} webhook body could not be read.`, {
+      provider,
+      reason: "body_unreadable",
+      cause,
+    });
+  }
   if (text === undefined) {
     throw new WebhookPayloadError(`The ${provider} webhook body exceeded ${MAX_WEBHOOK_BYTES} bytes.`, {
       provider,
@@ -138,7 +152,7 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     throw new ConfigurationError("The webhook request has an invalid URL.");
   }
   if (options.publicUrl !== undefined) {
-    if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0 || /[\u0000-\u0020\u007f]/.test(options.publicUrl)) {
+    if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(options.publicUrl)) {
       throw new ConfigurationError("publicUrl must be a valid http or https URL.");
     }
     if (options.publicUrl.includes("#")) {
@@ -152,6 +166,12 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     }
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new ConfigurationError("publicUrl must use http or https.");
+    }
+    if (parsed.username.length > 0 || parsed.password.length > 0) {
+      throw new ConfigurationError("publicUrl must not include credentials.");
+    }
+    if (parsed.search === "" && options.publicUrl.includes("?")) {
+      throw new ConfigurationError("publicUrl must not end with a bare '?'.");
     }
     return options.publicUrl.includes("?") ? options.publicUrl : `${options.publicUrl}${requestUrl.search}`;
   }
@@ -204,7 +224,7 @@ export function paramsToRecord(params: ReadonlyArray<readonly [string, string]>)
   const record: Record<string, string> = {};
   for (const [key, value] of params) {
     if (!Object.hasOwn(record, key)) {
-      record[key] = value;
+      Object.defineProperty(record, key, { value, enumerable: true, writable: true, configurable: true });
     }
   }
   return record;

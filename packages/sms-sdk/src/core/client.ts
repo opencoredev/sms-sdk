@@ -53,6 +53,61 @@ type IdempotencyConfig = {
  *
  * @throws {ConfigurationError} when no adapters are given, names repeat, or numeric options are invalid.
  */
+const VALID_SENDER_TYPES = new Set([
+  "long_code",
+  "toll_free",
+  "short_code",
+  "alphanumeric",
+  "messaging_service",
+]);
+
+function isValidProviderOptionField(field: unknown): boolean {
+  if (!isRecord(field) || typeof field["wire"] !== "string" || field["wire"].length === 0) {
+    return false;
+  }
+  switch (field["type"]) {
+    case "boolean":
+      return true;
+    case "string":
+      return (
+        (field["maxLength"] === undefined ||
+          (typeof field["maxLength"] === "number" && Number.isInteger(field["maxLength"]) && field["maxLength"] > 0)) &&
+        (field["pattern"] === undefined || field["pattern"] instanceof RegExp)
+      );
+    case "integer": {
+      const min = field["min"];
+      const max = field["max"];
+      return (
+        typeof min === "number" &&
+        Number.isInteger(min) &&
+        (max === undefined || (typeof max === "number" && Number.isInteger(max) && max >= min))
+      );
+    }
+    case "enum": {
+      const values = field["values"];
+      return Array.isArray(values) && values.length > 0 && values.every((v) => typeof v === "string");
+    }
+    default:
+      return false;
+  }
+}
+
+function isValidProviderOptionsSpec(spec: unknown): boolean {
+  if (!isRecord(spec) || !isRecord(spec["options"]) || !Array.isArray(spec["reserved"])) {
+    return false;
+  }
+  if (!spec["reserved"].every((w) => typeof w === "string")) {
+    return false;
+  }
+  if (
+    spec["nestedPrefixes"] !== undefined &&
+    (!Array.isArray(spec["nestedPrefixes"]) || !spec["nestedPrefixes"].every((p) => typeof p === "string"))
+  ) {
+    return false;
+  }
+  return Object.values(spec["options"]).every(isValidProviderOptionField);
+}
+
 export function createSmsClient(options: SmsClientOptions): SmsClient {
   if (!isRecord(options)) {
     throw new ConfigurationError("createSmsClient options must be an object.");
@@ -69,12 +124,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       typeof adapter["send"] !== "function" ||
       !isRecord(adapter["capabilities"]) ||
       !Array.isArray(adapter["capabilities"]["senderTypes"]) ||
+      !adapter["capabilities"]["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
       (adapter["capabilities"]["validityPeriod"] !== null &&
         (!isRecord(adapter["capabilities"]["validityPeriod"]) ||
           typeof adapter["capabilities"]["validityPeriod"]["minSec"] !== "number" ||
-          !Number.isFinite(adapter["capabilities"]["validityPeriod"]["minSec"]) ||
+          !Number.isInteger(adapter["capabilities"]["validityPeriod"]["minSec"]) ||
+          adapter["capabilities"]["validityPeriod"]["minSec"] <= 0 ||
           typeof adapter["capabilities"]["validityPeriod"]["maxSec"] !== "number" ||
-          !Number.isFinite(adapter["capabilities"]["validityPeriod"]["maxSec"]))) ||
+          !Number.isInteger(adapter["capabilities"]["validityPeriod"]["maxSec"]) ||
+          adapter["capabilities"]["validityPeriod"]["maxSec"] < adapter["capabilities"]["validityPeriod"]["minSec"])) ||
+      (adapter["providerOptions"] !== undefined && !isValidProviderOptionsSpec(adapter["providerOptions"])) ||
       (adapter["validate"] !== undefined && typeof adapter["validate"] !== "function") ||
       (adapter["getMessage"] !== undefined && typeof adapter["getMessage"] !== "function")
     ) {
@@ -353,9 +412,18 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     };
 
     if (options.beforeSend !== undefined) {
-      let decision;
+      let isObj = false;
+      let kind: unknown;
+      let reason: unknown;
       try {
-        decision = await options.beforeSend({ id, message: input, encoding: preview.encoding, segments: preview.segments });
+        const decision: unknown = await options.beforeSend({ id, message: input, encoding: preview.encoding, segments: preview.segments });
+        if (isRecord(decision)) {
+          isObj = true;
+          kind = decision["kind"];
+          if (kind === "reject") {
+            reason = decision["reason"];
+          }
+        }
       } catch (cause) {
         const policyError = new PolicyRejectedError("beforeSend threw");
         await finalize({ state: "rejected", fingerprint: reservation?.fingerprint ?? "", error: policyError.toJSON() });
@@ -363,15 +431,12 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
         throw cause;
       }
-      if (!isRecord(decision) || (decision["kind"] !== "allow" && decision["kind"] !== "reject")) {
+      if (!isObj || (kind !== "allow" && kind !== "reject")) {
         return fail(new PolicyRejectedError('beforeSend must return { kind: "allow" } or { kind: "reject", reason }.'));
       }
-      if (decision["kind"] === "reject") {
-        const reason =
-          typeof decision["reason"] === "string" && decision["reason"].length > 0
-            ? decision["reason"]
-            : "beforeSend rejected";
-        return fail(new PolicyRejectedError(reason));
+      if (kind === "reject") {
+        const normalizedReason = typeof reason === "string" && reason.length > 0 ? reason : "beforeSend rejected";
+        return fail(new PolicyRejectedError(normalizedReason));
       }
     }
 

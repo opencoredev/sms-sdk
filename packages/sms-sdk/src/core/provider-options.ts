@@ -104,6 +104,8 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
         const typed = names.map((name) => typedWires.get(name)).find((option) => option !== undefined);
         if (names.some((name) => name.length === 0)) {
           found.push(invalid(provider, `providerOptions.${provider}.extra keys must be non-empty.`));
+        } else if (names.some((name) => name === "__proto__")) {
+          found.push(unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}".`));
         } else if (names.some((name) => reserved.has(name))) {
           found.push(
             unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}": the SDK sets it from the portable send fields.`),

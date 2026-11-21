@@ -72,7 +72,7 @@ The base class. Every error has these fields.
 
 - `code`: `configuration`. `retrySafe`: true.
 - Thrown by `createSmsClient` for missing options, no adapters, malformed adapters, duplicate adapter names, an invalid `fallback`, `hooks`, or `beforeSend`, a `timeoutMs` that is not a positive number up to `2147483647`, an `idempotency.ttlSec` or `staleReservationSec` that is not a whole number of seconds of at least 1, a malformed `idempotency` or `retry` option, or `retry` values out of range (`maxAttempts` outside 1 to 10, or a delay outside 0 to `2147483647`).
-- Thrown by adapter factories for missing or malformed options, an invalid or non-http(s) `baseUrl` (including query/fragment/whitespace), an invalid Vonage `region`, a non-function `fetch`, or malformed or missing credentials (a Twilio Account SID that is not `AC` plus 32 hex, a missing or empty API key, a Vonage private key or `reportsCredentials` that is invalid, Basic credentials with characters outside Latin-1).
+- Thrown by adapter factories for missing or malformed options, an invalid or non-http(s) `baseUrl` (including credentials, query/fragment, or whitespace/control characters), an invalid Vonage `region`, a non-function `fetch`, or malformed or missing credentials (a Twilio Account SID that is not `AC` plus 32 hex, a missing or empty API key, a Vonage private key or `reportsCredentials` that is invalid, Basic credentials with characters outside Latin-1).
 - Thrown by `send()` for non-object options or a non-`AbortSignal` `signal`, by `getMessage()` for an empty or dot-segment (`"."`, `".."`) `providerId`, non-object options, a non-`AbortSignal` `signal`, or an adapter that is not configured or cannot look messages up, and by the webhook parsers and verify helpers for a missing/malformed/locked `request`, an unsupported provider, an invalid `publicUrl`, a non-function `now`, missing or malformed credentials (including empty Basic or HMAC secrets or an unknown Sinch credential `kind`), an invalid `toleranceSec` (negative, `NaN`, non-finite, or non-number), or `unsafeSkipVerification` while `NODE_ENV` is `"production"`.
 - Fix the configuration. Nothing was sent.
 
@@ -110,7 +110,7 @@ The base class. Every error has these fields.
 ### `PolicyRejectedError`
 
 - `code`: `policy_rejected`. `retrySafe`: true. Extra field: `reason: string`.
-- Your `beforeSend` returned `{ kind: "reject", reason }`. Nothing was sent and fallback never runs.
+- Your `beforeSend` returned `{ kind: "reject", reason }` or a malformed/unrecognized decision (failing closed). Nothing was sent and fallback never runs.
 - `message` is always "Send blocked by the beforeSend policy." Your `reason` may name a person or number, so it stays on `error.reason` only. It is not in `message`, `toJSON()`, hook payloads, or the idempotency store.
 - Respect the decision. An error thrown inside `beforeSend` is not wrapped in this class. It propagates as is.
 
@@ -208,8 +208,8 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 
 ### `WebhookPayloadError`
 
-- `code`: `webhook_payload`. `retrySafe`: false. Extra fields: `providerName: string`, `reason?: "body_too_large"`.
-- Either the request body exceeded the 1 MiB limit (`reason: "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), or the signature was valid but the payload is not valid JSON or lacks a required field such as `MessageSid` (respond with 400, log the provider and request, and report it if it looks like a new provider format).
+- `code`: `webhook_payload`. `retrySafe`: false. Extra fields: `providerName: string`, `reason?: "body_too_large" | "body_unreadable"`.
+- Either the request body exceeded the 1 MiB limit (`reason: "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), the request body stream failed or aborted while reading (`reason: "body_unreadable"`; respond with 400), or the signature was valid but the payload is not valid JSON or lacks a required field such as `MessageSid` (respond with 400, log the provider and request, and report it if it looks like a new provider format).
 
 ## Message lookup
 

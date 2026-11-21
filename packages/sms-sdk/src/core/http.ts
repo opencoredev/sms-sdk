@@ -10,7 +10,7 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (baseUrl === undefined) {
     return fallback;
   }
-  if (typeof baseUrl !== "string" || baseUrl.length === 0 || /[\u0000-\u0020\u007f]/.test(baseUrl)) {
+  if (typeof baseUrl !== "string" || baseUrl.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(baseUrl)) {
     throw new ConfigurationError(`${provider} baseUrl must be a valid http or https URL.`);
   }
   if (baseUrl.includes("?") || baseUrl.includes("#")) {

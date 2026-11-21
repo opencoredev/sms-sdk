@@ -392,16 +392,23 @@ export class WebhookSignatureError extends SmsError {
 }
 
 /**
- * The webhook body exceeded the 1 MiB limit (checked before signature
- * verification, with `reason: "body_too_large"`), or an authentic payload is
+ * The webhook body exceeded the 1 MiB limit (`reason: "body_too_large"`),
+ * could not be read (`reason: "body_unreadable"`), or an authentic payload is
  * missing required fields.
  */
 export class WebhookPayloadError extends SmsError {
   readonly providerName: string;
-  readonly reason: "body_too_large" | undefined;
+  readonly reason: "body_too_large" | "body_unreadable" | undefined;
 
-  constructor(message: string, options: { readonly provider: string; readonly reason?: "body_too_large" }) {
-    super(message, { code: "webhook_payload", retrySafe: false });
+  constructor(
+    message: string,
+    options: { readonly provider: string; readonly reason?: "body_too_large" | "body_unreadable"; readonly cause?: unknown },
+  ) {
+    super(message, {
+      code: "webhook_payload",
+      retrySafe: false,
+      ...(options.cause === undefined ? {} : { cause: options.cause }),
+    });
     this.name = "WebhookPayloadError";
     this.providerName = options.provider;
     this.reason = options.reason;

@@ -29,6 +29,9 @@ export async function computePlivoSignatureV2(input: {
   readonly url: string;
   readonly nonce: string;
 }): Promise<string> {
+  if (typeof input.authToken !== "string" || input.authToken.length === 0) {
+    throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+  }
   return toBase64(await hmac("SHA-256", input.authToken, plivoBaseUrl(input.url) + input.nonce));
 }
 
@@ -39,6 +42,9 @@ export async function verifyPlivoSignatureV2(input: {
   readonly nonce: string;
   readonly signature: string;
 }): Promise<boolean> {
+  if (typeof input.authToken !== "string" || input.authToken.length === 0) {
+    throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+  }
   const expected = await computePlivoSignatureV2(input);
   return timingSafeEqual(expected, input.signature);
 }
@@ -158,6 +164,11 @@ function plivoMediaUrls(fields: Record<string, string>): string[] {
 }
 
 function plivoBaseUrl(url: string): string {
-  const parsed = new URL(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ConfigurationError("Plivo signature verification requires a valid URL.");
+  }
   return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
 }

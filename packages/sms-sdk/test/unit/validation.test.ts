@@ -3,6 +3,7 @@ import { createSmsClient } from "../../src/core/client.js";
 import { resolveSender, supportsSender } from "../../src/core/capabilities.js";
 import {
   ConfigurationError,
+  IdempotencyConflictError,
   InvalidMessageError,
   InvalidRecipientError,
   InvalidSenderError,
@@ -10,6 +11,7 @@ import {
   PolicyRejectedError,
   SmsError,
   UnsupportedFieldError,
+  WebhookPayloadError,
   WebhookSignatureError,
 } from "../../src/core/errors.js";
 import { memoryIdempotencyStore } from "../../src/core/idempotency.js";
@@ -22,11 +24,14 @@ import { twilio } from "../../src/providers/twilio.js";
 import { vonage } from "../../src/providers/vonage.js";
 import {
   parseSmsWebhook,
+  verifyPlivoSignatureV2,
   verifySinchSignature,
   verifyTelnyxSignature,
+  verifyTwilioSignature,
   verifyVonageSignature,
   type SinchWebhookVerification,
 } from "../../src/webhooks/index.js";
+import { paramsToRecord } from "../../src/webhooks/shared.js";
 import { memory } from "../../src/testing/memory.js";
 import { mockFetch } from "../../src/testing/fetch.js";
 import { rejection, TWILIO_SERVICE_SID, TWILIO_SID } from "../helpers.js";
@@ -861,6 +866,187 @@ describe("malformed runtime input", () => {
         idempotencyKey: "k-proto",
         providerOptions: Object.fromEntries([["__proto__", { tag: "b" }]]),
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(IdempotencyConflictError);
+  });
+
+  test("snapshots beforeSend decision safely, validates adapter specs, and hardens URLs and webhook streams", async () => {
+    // 1. Throwing decision.kind getter does not strand idempotency reservation
+    const store = memoryIdempotencyStore();
+    let allow = false;
+    const client = createSmsClient({
+      adapters: [memory({ name: "a" })],
+      idempotency: { store },
+      beforeSend: () =>
+        allow
+          ? { kind: "allow" }
+          : ({
+              get kind() {
+                throw new Error("getter boom");
+              },
+            } as unknown as { kind: "allow" }),
+    });
+    await expect(
+      client.send({ to: "+14155550123", body: "hi", from: "+14155550124", idempotencyKey: "k-getter" }),
+    ).rejects.toThrow("getter boom");
+    expect((await store.get("k-getter"))?.state).toBe("rejected");
+    allow = true;
+    const retried = await client.send({ to: "+14155550123", body: "hi", from: "+14155550124", idempotencyKey: "k-getter" });
+    expect(retried.replayed).toBe(false);
+
+    // Mutating getter returning "deny" then "allow" still fails closed
+    let reads = 0;
+    const flaky = createSmsClient({
+      adapters: [memory({ name: "a" })],
+      beforeSend: () =>
+        ({
+          get kind() {
+            reads += 1;
+            return reads === 1 ? "deny" : "allow";
+          },
+        }) as unknown as { kind: "allow" },
+    });
+    await expect(flaky.send({ to: "+14155550123", body: "hi" })).rejects.toBeInstanceOf(PolicyRejectedError);
+
+    // 2. Unicode whitespace rejected in baseUrl and publicUrl; publicUrl rejects userinfo and bare '?'
+    expect(() => twilio({ accountSid: TWILIO_SID, authToken: "tok", baseUrl: "https://example.com/a\u00a0b" })).toThrow(
+      ConfigurationError,
+    );
+    for (const badPublicUrl of [
+      "https://example.com/a\u00a0b",
+      "https://user:pass@example.com/hook",
+      "https://example.com/hook?",
+    ]) {
+      expect(
+        await rejection(
+          parseSmsWebhook({
+            provider: "twilio",
+            request: new Request("https://example.com/hook", { method: "POST", body: "" }),
+            credentials: { authToken: "tok" },
+            publicUrl: badPublicUrl,
+          }),
+        ),
+      ).toBeInstanceOf(ConfigurationError);
+    }
+
+    // 3. Prototype-spoofed body/headers throw ConfigurationError; errored stream throws WebhookPayloadError
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: {
+            url: "https://example.com/hook",
+            method: "POST",
+            headers: new Headers(),
+            body: Object.create(ReadableStream.prototype),
+            bodyUsed: false,
+          } as unknown as Request,
+          credentials: { authToken: "tok" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: {
+            url: "https://example.com/hook",
+            method: "POST",
+            headers: Object.create(Headers.prototype),
+            body: null,
+            bodyUsed: false,
+          } as unknown as Request,
+          credentials: { authToken: "tok" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    const brokenStream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error("client disconnected"));
+      },
+    });
+    const streamErr = await rejection(
+      parseSmsWebhook({
+        provider: "twilio",
+        request: new Request("https://example.com/hook", { method: "POST", body: brokenStream }),
+        credentials: { authToken: "tok" },
+      }),
+    );
+    expect(streamErr).toBeInstanceOf(WebhookPayloadError);
+    expect((streamErr as WebhookPayloadError).reason).toBe("body_unreadable");
+
+    // 4. verifyTwilioSignature / verifyPlivoSignatureV2 reject empty authToken before URL parsing
+    expect(
+      await rejection(verifyTwilioSignature({ authToken: "", url: "not-a-url", params: [], signature: "" })),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(verifyPlivoSignatureV2({ authToken: "", url: "not-a-url", nonce: "1", signature: "" })),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(verifyTwilioSignature({ authToken: "tok", url: "not-a-url", params: [], signature: "" })),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(verifyPlivoSignatureV2({ authToken: "tok", url: "not-a-url", nonce: "1", signature: "" })),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // 5. createSmsClient validates validityPeriod, senderTypes, and providerOptions spec
+    const base = memory({ name: "a" });
+    expect(() =>
+      createSmsClient({
+        adapters: [{ ...base, capabilities: { ...base.capabilities, validityPeriod: { minSec: 0, maxSec: 10 } } }],
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [{ ...base, capabilities: { ...base.capabilities, validityPeriod: { minSec: 100, maxSec: 10 } } }],
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [
+          {
+            ...base,
+            capabilities: { ...base.capabilities, senderTypes: ["long-code" as unknown as "long_code"] },
+          },
+        ],
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [
+          {
+            ...base,
+            providerOptions: { options: { a: { type: "enum", wire: "a", values: "xyz" } }, reserved: [] } as unknown as NonNullable<
+              typeof base.providerOptions
+            >,
+          },
+        ],
+      }),
+    ).toThrow(ConfigurationError);
+
+    // 6. paramsToRecord keeps __proto__ as own property without mutating prototype; extra.__proto__ is rejected
+    const rec = paramsToRecord([
+      ["__proto__", "first"],
+      ["__proto__", "second"],
+    ]);
+    expect(Object.hasOwn(rec, "__proto__")).toBe(true);
+    expect(rec["__proto__"]).toBe("first");
+    expect(Object.getPrototypeOf(rec)).toBe(Object.prototype);
+
+    const extraClient = createSmsClient({
+      adapters: [
+        {
+          ...base,
+          providerOptions: { options: {}, reserved: [] },
+        },
+      ],
+    });
+    const result = extraClient.validate({
+      to: "+14155550123",
+      body: "hi",
+      providerOptions: { a: { extra: JSON.parse('{"__proto__":"x"}') } } as NonNullable<SmsSendInput["providerOptions"]>,
+    });
+    expect(result.issues.length).toBeGreaterThan(0);
   });
 });
