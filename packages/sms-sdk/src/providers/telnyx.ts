@@ -9,6 +9,7 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  MessageLookupOutcome,
   ProviderOptionValue,
   ProviderOptionsOf,
   ProviderOptionsSpec,
@@ -21,7 +22,10 @@ import type {
 import { ConfigurationError } from "../core/errors.js";
 import {
   exchange,
+  foundMessage,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
@@ -112,7 +116,8 @@ export type TelnyxMessageRequest = {
  *
  * Sends JSON to `POST /v2/messages` with `Authorization: Bearer <apiKey>`.
  * A `{ messagingService }` sender is sent as `messaging_profile_id` with no
- * `from`, which uses the profile's number pool.
+ * `from`, which uses the profile's number pool. `getMessage` fetches
+ * `GET /v2/messages/{id}`.
  *
  * @throws {ConfigurationError} when `apiKey` is empty.
  */
@@ -151,6 +156,18 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
         return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretTelnyxResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${url}/${encodeURIComponent(providerId)}`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretTelnyxLookup(providerId, response.status, response.text, response.headers);
     },
   };
 }
@@ -236,6 +253,38 @@ export function interpretTelnyxResponse(status: number, text: string, headers: H
   }
 
   return unknownForStatus("telnyx", status, requestId);
+}
+
+/** Maps a Telnyx message retrieve response to a lookup outcome. A 404 is `not_found`. */
+export function interpretTelnyxLookup(providerId: string, status: number, text: string, headers: Headers): MessageLookupOutcome {
+  const requestId = headers.get("x-request-id");
+  const body = parseJson(text);
+  if (status >= 200 && status < 300) {
+    const data = isRecord(body) && isRecord(body["data"]) ? body["data"] : undefined;
+    if (data === undefined || readString(data, "id") === undefined) {
+      return malformedLookup("telnyx", status, requestId);
+    }
+    const providerStatus = firstRecipientStatus(data);
+    const firstError = firstTelnyxError(data);
+    return foundMessage({
+      provider: "telnyx",
+      providerId,
+      delivery: telnyxDelivery(providerStatus),
+      providerStatus,
+      errorCode: firstError === undefined ? undefined : readCode(firstError, "code"),
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  const firstError = firstTelnyxError(body);
+  return lookupFailureForStatus({
+    provider: "telnyx",
+    status,
+    requestId,
+    code: firstError === undefined ? undefined : readCode(firstError, "code"),
+    message: firstError === undefined ? undefined : (readString(firstError, "detail") ?? readString(firstError, "title")),
+  });
 }
 
 /**

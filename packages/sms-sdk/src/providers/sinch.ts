@@ -9,6 +9,7 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  MessageLookupOutcome,
   ProviderOptionValue,
   ProviderOptionsOf,
   ProviderOptionsSpec,
@@ -21,7 +22,10 @@ import type {
 import { ConfigurationError } from "../core/errors.js";
 import {
   exchange,
+  foundMessage,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
@@ -104,7 +108,8 @@ export type SinchBatchRequest = {
 
 /**
  * Creates a Sinch adapter. Each send is a single-recipient batch; the batch
- * ID is the `providerId`.
+ * ID is the `providerId`. `getMessage` reads the batch's summary delivery
+ * report, `GET /xms/v1/{servicePlanId}/batches/{batchId}/delivery_report`.
  *
  * @throws {ConfigurationError} when `servicePlanId` or `apiToken` is missing or empty.
  */
@@ -114,6 +119,7 @@ export function sinch(options: SinchOptions): SmsAdapter {
   const baseUrl = (options.baseUrl ?? "https://sms.api.sinch.com").replace(/\/+$/, "");
   const url = `${baseUrl}/xms/v1/${encodeURIComponent(servicePlanId)}/batches`;
   const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const authorization = `Bearer ${apiToken}`;
 
   return {
     name: "sinch",
@@ -130,7 +136,7 @@ export function sinch(options: SinchOptions): SmsAdapter {
       const response = await exchange(fetcher, url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${apiToken}`,
+          Authorization: authorization,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
@@ -141,6 +147,18 @@ export function sinch(options: SinchOptions): SmsAdapter {
         return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretSinchResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${url}/${encodeURIComponent(providerId)}/delivery_report?type=summary`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretSinchLookup(providerId, response.status, response.text, response.headers);
     },
   };
 }
@@ -208,6 +226,42 @@ export function interpretSinchResponse(status: number, text: string, headers: He
   }
 
   return unknownForStatus("sinch", status, requestId);
+}
+
+/**
+ * Maps a Sinch summary delivery report to a lookup outcome. A batch with no
+ * reports yet is found with delivery `unknown`. A 404 is `not_found`.
+ */
+export function interpretSinchLookup(providerId: string, status: number, text: string, headers: Headers): MessageLookupOutcome {
+  const body = parseJson(text);
+  const requestId = headers.get("x-request-id");
+  if (status >= 200 && status < 300) {
+    const statuses = isRecord(body) ? body["statuses"] : undefined;
+    if (!Array.isArray(statuses)) {
+      return malformedLookup("sinch", status, requestId);
+    }
+    // Each send is a single-recipient batch, so the summary has at most one status.
+    const first: unknown = statuses[0];
+    const providerStatus = isRecord(first) ? readString(first, "status") : undefined;
+    return foundMessage({
+      provider: "sinch",
+      providerId,
+      delivery: sinchDelivery(providerStatus),
+      providerStatus,
+      errorCode: isRecord(first) ? readCode(first, "code") : undefined,
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  const error = isRecord(body) ? body : undefined;
+  return lookupFailureForStatus({
+    provider: "sinch",
+    status,
+    requestId,
+    code: error === undefined ? undefined : readCode(error, "code"),
+    message: error === undefined ? undefined : (readString(error, "text") ?? readString(error, "message")),
+  });
 }
 
 /** Rejection category for a Sinch 4xx. Unlisted codes are `request`. */

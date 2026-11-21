@@ -9,6 +9,7 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  MessageLookupOutcome,
   ProviderOptionsOf,
   ProviderOptionsSpec,
   RejectionCategory,
@@ -22,7 +23,10 @@ import { hasTrueField } from "../core/provider-options.js";
 import {
   basicAuthorization,
   exchange,
+  foundMessage,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
@@ -158,7 +162,8 @@ declare module "../index.js" {
  * Sends `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` with HTTP Basic
  * auth and a form-encoded body. A `{ messagingService }` sender becomes
  * `MessagingServiceSid`; every other sender becomes `From`. `sendAt` requires a
- * Messaging Service sender, per Twilio.
+ * Messaging Service sender, per Twilio. `getMessage` fetches
+ * `GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`.
  *
  * @throws {ConfigurationError} when the account SID or credentials are malformed.
  */
@@ -171,7 +176,8 @@ export function twilio(options: TwilioOptions): SmsAdapter {
       ? basicAuthorization(options.accountSid, requireSecret(options.authToken, "authToken"))
       : basicAuthorization(requireSecret(options.apiKeySid, "apiKeySid"), requireSecret(options.apiKeySecret, "apiKeySecret"));
   const baseUrl = (options.baseUrl ?? "https://api.twilio.com").replace(/\/+$/, "");
-  const url = `${baseUrl}/2010-04-01/Accounts/${options.accountSid}/Messages.json`;
+  const messagesUrl = `${baseUrl}/2010-04-01/Accounts/${options.accountSid}/Messages`;
+  const url = `${messagesUrl}.json`;
   const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
 
   return {
@@ -200,6 +206,18 @@ export function twilio(options: TwilioOptions): SmsAdapter {
         return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretTwilioResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${messagesUrl}/${encodeURIComponent(providerId)}.json`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretTwilioLookup(providerId, response.status, response.text, response.headers);
     },
   };
 }
@@ -304,6 +322,35 @@ export function interpretTwilioResponse(status: number, text: string, headers: H
   }
 
   return unknownForStatus("twilio", status, requestId);
+}
+
+/** Maps a Twilio Message fetch response to a lookup outcome. A 404 is `not_found`. */
+export function interpretTwilioLookup(providerId: string, status: number, text: string, headers: Headers): MessageLookupOutcome {
+  const requestId = headers.get("twilio-request-id");
+  const body = parseJson(text);
+  if (status >= 200 && status < 300) {
+    const providerStatus = isRecord(body) ? readString(body, "status") : undefined;
+    if (!isRecord(body) || readString(body, "sid") === undefined || providerStatus === undefined) {
+      return malformedLookup("twilio", status, requestId);
+    }
+    return foundMessage({
+      provider: "twilio",
+      providerId,
+      delivery: twilioDelivery(providerStatus),
+      providerStatus,
+      errorCode: readCode(body, "error_code"),
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  return lookupFailureForStatus({
+    provider: "twilio",
+    status,
+    requestId,
+    code: isRecord(body) ? readCode(body, "code") : undefined,
+    message: isRecord(body) ? readString(body, "message") : undefined,
+  });
 }
 
 /**

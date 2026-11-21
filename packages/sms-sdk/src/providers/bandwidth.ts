@@ -8,6 +8,8 @@
 import type {
   AdapterMessage,
   AdapterSendOutcome,
+  Delivery,
+  MessageLookupOutcome,
   ProviderOptionsOf,
   ProviderOptionsSpec,
   RejectionCategory,
@@ -20,7 +22,10 @@ import { ConfigurationError } from "../core/errors.js";
 import {
   basicAuthorization,
   exchange,
+  foundMessage,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
@@ -104,7 +109,8 @@ export type BandwidthMessageRequest = {
  * Creates a Bandwidth adapter.
  *
  * Sends JSON to `POST /api/v2/users/{userId}/messages` with HTTP Basic auth
- * (API token and secret).
+ * (API token and secret). `getMessage` uses the List Messages endpoint,
+ * `GET /api/v2/users/{userId}/messages?messageId={id}`.
  *
  * @throws {ConfigurationError} when a credential or the application ID is missing or empty.
  */
@@ -138,6 +144,19 @@ export function bandwidth(options: BandwidthOptions): SmsAdapter {
         return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretBandwidthResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const query = new URLSearchParams({ messageId: providerId }).toString();
+      const response = await exchange(fetcher, `${url}?${query}`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretBandwidthLookup(providerId, response.status, response.text, response.headers);
     },
   };
 }
@@ -217,6 +236,65 @@ export function interpretBandwidthResponse(status: number, text: string, headers
   }
 
   return unknownForStatus("bandwidth", status, requestId);
+}
+
+/**
+ * Maps a Bandwidth List Messages response to a lookup outcome. An empty list,
+ * or one without this message ID, is `not_found`.
+ */
+export function interpretBandwidthLookup(
+  providerId: string,
+  status: number,
+  text: string,
+  headers: Headers,
+): MessageLookupOutcome {
+  const body = parseJson(text);
+  const record = isRecord(body) ? body : undefined;
+  const requestId = headers.get("x-request-id") ?? headers.get("x-correlation-id");
+  if (status >= 200 && status < 300) {
+    const messages = record?.["messages"];
+    if (!Array.isArray(messages)) {
+      return malformedLookup("bandwidth", status, requestId);
+    }
+    const match: unknown = messages.find((item: unknown) => isRecord(item) && readString(item, "messageId") === providerId);
+    if (!isRecord(match)) {
+      return { kind: "not_found" };
+    }
+    const providerStatus = readString(match, "messageStatus");
+    return foundMessage({
+      provider: "bandwidth",
+      providerId,
+      delivery: bandwidthDelivery(providerStatus),
+      providerStatus,
+      errorCode: readCode(match, "errorCode"),
+    });
+  }
+  return lookupFailureForStatus({
+    provider: "bandwidth",
+    status,
+    requestId,
+    code: record === undefined ? undefined : readCode(record, "errorCode"),
+    message: record === undefined ? undefined : (readString(record, "description") ?? readString(record, "error")),
+  });
+}
+
+/** Delivery value for a Bandwidth `messageStatus`, such as `DELIVERED`. */
+export function bandwidthDelivery(status: string | undefined): Delivery {
+  switch (status) {
+    case "ACCEPTED":
+    case "QUEUED":
+    case "SENDING":
+      return "queued";
+    case "SENT":
+      return "sent";
+    case "DELIVERED":
+      return "delivered";
+    case "FAILED":
+    case "UNDELIVERED":
+      return "undelivered";
+    default:
+      return "unknown";
+  }
 }
 
 /** Rejection category for a Bandwidth 4xx, from the HTTP status. */

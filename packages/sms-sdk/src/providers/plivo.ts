@@ -8,6 +8,8 @@
 import type {
   AdapterMessage,
   AdapterSendOutcome,
+  Delivery,
+  MessageLookupOutcome,
   ProviderOptionValue,
   ProviderOptionsOf,
   ProviderOptionsSpec,
@@ -20,10 +22,14 @@ import { ConfigurationError } from "../core/errors.js";
 import {
   basicAuthorization,
   exchange,
+  foundMessage,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
+  readCode,
   readString,
   unknownForStatus,
   type FetchLike,
@@ -108,7 +114,8 @@ export type PlivoMessageRequest = {
  * Creates a Plivo adapter.
  *
  * Sends JSON to `POST /v1/Account/{authId}/Message/` with HTTP Basic auth. A
- * `{ messagingService }` sender is sent as `powerpack_uuid`.
+ * `{ messagingService }` sender is sent as `powerpack_uuid`. `getMessage`
+ * fetches `GET /v1/Account/{authId}/Message/{message_uuid}/`.
  *
  * @throws {ConfigurationError} when credentials are empty.
  */
@@ -146,6 +153,18 @@ export function plivo(options: PlivoOptions): SmsAdapter {
         return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretPlivoResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${url}${encodeURIComponent(providerId)}/`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretPlivoLookup(providerId, response.status, response.text);
     },
   };
 }
@@ -216,6 +235,53 @@ export function interpretPlivoResponse(status: number, text: string, headers: He
   }
 
   return unknownForStatus("plivo", status, requestId);
+}
+
+/** Maps a Plivo Message retrieve response to a lookup outcome. A 404 is `not_found`. */
+export function interpretPlivoLookup(providerId: string, status: number, text: string): MessageLookupOutcome {
+  const body = parseJson(text);
+  const requestId = isRecord(body) ? readString(body, "api_id") : undefined;
+  if (status >= 200 && status < 300) {
+    const providerStatus = isRecord(body) ? readString(body, "message_state") : undefined;
+    if (!isRecord(body) || providerStatus === undefined) {
+      return malformedLookup("plivo", status, requestId);
+    }
+    return foundMessage({
+      provider: "plivo",
+      providerId,
+      delivery: plivoDelivery(providerStatus),
+      providerStatus,
+      errorCode: readCode(body, "error_code"),
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  return lookupFailureForStatus({
+    provider: "plivo",
+    status,
+    requestId,
+    message: isRecord(body) ? readString(body, "error") : undefined,
+  });
+}
+
+/** Delivery value for a Plivo `message_state`. */
+export function plivoDelivery(state: string | undefined): Delivery {
+  switch (state) {
+    case "queued":
+      return "queued";
+    case "sent":
+      return "sent";
+    case "delivered":
+      return "delivered";
+    case "undelivered":
+    case "failed":
+      return "undelivered";
+    case "rejected":
+      return "filtered";
+    default:
+      return "unknown";
+  }
 }
 
 /**

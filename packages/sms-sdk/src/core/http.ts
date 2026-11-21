@@ -1,4 +1,4 @@
-import type { AdapterSendOutcome, ProviderErrorInfo } from "./adapters.js";
+import type { AdapterSendOutcome, Delivery, MessageLookupOutcome, ProviderErrorInfo } from "./adapters.js";
 import { ConfigurationError } from "./errors.js";
 import { redactText } from "./redact.js";
 
@@ -160,5 +160,71 @@ export function unknownForStatus(provider: string, status: number, requestId?: s
     kind: "unknown",
     reason: status >= 500 ? "server_error" : "unexpected_status",
     details: providerInfo({ provider, httpStatus: status, requestId }),
+  };
+}
+
+/**
+ * Lookup outcome for a response that is not a documented found or not-found
+ * answer: 401/403 `auth`, 429 `rate_limited`, other 4xx `request`, 5xx
+ * `server_error`, anything else `unexpected_status`.
+ */
+export function lookupFailureForStatus(input: {
+  readonly provider: string;
+  readonly status: number;
+  readonly requestId?: string | null | undefined;
+  readonly code?: string | undefined;
+  readonly message?: string | undefined;
+}): MessageLookupOutcome {
+  const { status } = input;
+  const reason =
+    status === 401 || status === 403
+      ? "auth"
+      : status === 429
+        ? "rate_limited"
+        : status >= 400 && status < 500
+          ? "request"
+          : status >= 500
+            ? "server_error"
+            : "unexpected_status";
+  return {
+    kind: "failed",
+    reason,
+    details: providerInfo({
+      provider: input.provider,
+      httpStatus: status,
+      code: input.code,
+      message: input.message,
+      requestId: input.requestId,
+    }),
+  };
+}
+
+/** Lookup outcome for a 2xx whose body does not have the documented shape. */
+export function malformedLookup(provider: string, status: number, requestId?: string | null): MessageLookupOutcome {
+  return { kind: "failed", reason: "malformed_response", details: providerInfo({ provider, httpStatus: status, requestId }) };
+}
+
+/**
+ * A `found` lookup outcome. `errorCode` is kept only when `delivery` is
+ * `undelivered` or `filtered`: providers also send placeholder codes such as
+ * `0` for messages that did not fail.
+ */
+export function foundMessage(input: {
+  readonly provider: string;
+  readonly providerId: string;
+  readonly delivery: Delivery;
+  readonly providerStatus: string | undefined;
+  readonly errorCode: string | undefined;
+}): MessageLookupOutcome {
+  const failed = input.delivery === "undelivered" || input.delivery === "filtered";
+  return {
+    kind: "found",
+    status: {
+      provider: input.provider,
+      providerId: input.providerId,
+      delivery: input.delivery,
+      ...(input.providerStatus === undefined ? {} : { providerStatus: input.providerStatus }),
+      ...(failed && input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+    },
   };
 }

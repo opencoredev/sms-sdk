@@ -14,6 +14,9 @@
 import type {
   AdapterMessage,
   AdapterSendOutcome,
+  Delivery,
+  LookupContext,
+  MessageLookupOutcome,
   ProviderOptionValue,
   ProviderOptionsOf,
   ProviderOptionsSpec,
@@ -28,7 +31,10 @@ import { ConfigurationError } from "../core/errors.js";
 import {
   basicAuthorization,
   exchange,
+  foundMessage,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
@@ -64,10 +70,19 @@ export type VonageBasicAuthOptions = VonageCommonOptions & {
   readonly privateKey?: never;
 };
 
+/** API key and secret for the Reports API, which accepts only Basic auth. */
+export type VonageReportsCredentials = { readonly apiKey: string; readonly apiSecret: string };
+
 /** JWT auth with a Vonage application ID and its RSA private key (PKCS#8 PEM). */
 export type VonageJwtAuthOptions = VonageCommonOptions & {
   readonly applicationId: string;
   readonly privateKey: string;
+  /**
+   * Enables `getMessage`, which reads the Reports API. That API accepts only
+   * the account API key and secret, not an application JWT. Without it a
+   * JWT-auth adapter has no `getMessage`.
+   */
+  readonly reportsCredentials?: VonageReportsCredentials;
   readonly apiKey?: never;
   readonly apiSecret?: never;
 };
@@ -100,6 +115,7 @@ export const VONAGE_BASIC_CAPABILITIES: SmsCapabilities = {
 export const VONAGE_SUPPORT_NOTES: readonly string[] = [
   "Vonage does not document the HTTP status for each Messages API error code; rejections are classified from the documented 401/402/422 statuses and the error code in the problem `type`/`title`; a 429 is a rate limit only with a documented throttling code.",
   "Short codes and MMS (a separate Messages API channel) are not supported by this adapter.",
+  "The Messages API has no message lookup; getMessage reads the Reports API (`GET /v2/reports/records`, product MESSAGES) with the API key and secret, and only once Vonage has a record for the message.",
 ];
 
 /**
@@ -163,6 +179,8 @@ export type VonageMessageRequest = {
  * Creates a Vonage Messages API adapter.
  *
  * Phone numbers are sent without the leading `+`, as Vonage requires.
+ * `getMessage` exists with Basic auth, or with JWT auth plus
+ * `reportsCredentials`.
  *
  * @throws {ConfigurationError} when credentials are empty.
  */
@@ -172,6 +190,7 @@ export function vonage(options: VonageOptions): SmsAdapter {
   const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
   const authorize = createAuthorizer(options);
   const capabilities = options.apiKey !== undefined ? VONAGE_BASIC_CAPABILITIES : VONAGE_JWT_CAPABILITIES;
+  const reports = reportsAccess(options);
 
   return {
     name: "vonage",
@@ -208,7 +227,104 @@ export function vonage(options: VonageOptions): SmsAdapter {
       }
       return interpretVonageResponse(response.status, response.text, response.headers);
     },
+
+    ...(reports === undefined
+      ? {}
+      : {
+          async getMessage(providerId: string, context: LookupContext): Promise<MessageLookupOutcome> {
+            const query = new URLSearchParams({
+              account_id: reports.apiKey,
+              product: "MESSAGES",
+              direction: "outbound",
+              id: providerId,
+            }).toString();
+            const response = await exchange(fetcher, `${baseUrl}/v2/reports/records?${query}`, {
+              method: "GET",
+              headers: { Authorization: reports.authorization, Accept: "application/json" },
+              signal: context.signal,
+            });
+            if (response.kind === "failed") {
+              return { kind: "failed", reason: response.reason, cause: response.cause };
+            }
+            return interpretVonageLookup(providerId, response.status, response.text, response.headers);
+          },
+        }),
   };
+}
+
+type ReportsAccess = { readonly apiKey: string; readonly authorization: string };
+
+function reportsAccess(options: VonageOptions): ReportsAccess | undefined {
+  const credentials = options.apiKey !== undefined ? options : options.reportsCredentials;
+  if (credentials === undefined) {
+    return undefined;
+  }
+  if (
+    typeof credentials.apiKey !== "string" ||
+    credentials.apiKey.length === 0 ||
+    typeof credentials.apiSecret !== "string" ||
+    credentials.apiSecret.length === 0
+  ) {
+    throw new ConfigurationError("Vonage apiKey and apiSecret are required.");
+  }
+  return { apiKey: credentials.apiKey, authorization: basicAuthorization(credentials.apiKey, credentials.apiSecret) };
+}
+
+/**
+ * Maps a Reports API records response to a lookup outcome. No record with
+ * this message ID is `not_found`; Vonage adds records shortly after sending.
+ */
+export function interpretVonageLookup(providerId: string, status: number, text: string, headers: Headers): MessageLookupOutcome {
+  const requestId = headers.get("x-request-id");
+  const body = parseJson(text);
+  if (status >= 200 && status < 300) {
+    const records = isRecord(body) ? body["records"] : undefined;
+    if (!Array.isArray(records)) {
+      return malformedLookup("vonage", status, requestId);
+    }
+    const match: unknown = records.find(
+      (record: unknown) =>
+        isRecord(record) && (readString(record, "message_id") === providerId || readString(record, "message_uuid") === providerId),
+    );
+    if (!isRecord(match)) {
+      return { kind: "not_found" };
+    }
+    const providerStatus = readString(match, "status");
+    return foundMessage({
+      provider: "vonage",
+      providerId,
+      delivery: vonageDelivery(providerStatus),
+      providerStatus,
+      errorCode: readCode(match, "error_code"),
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  return lookupFailureForStatus({
+    provider: "vonage",
+    status,
+    requestId,
+    message: isRecord(body) ? (readString(body, "detail") ?? readString(body, "title")) : undefined,
+  });
+}
+
+/** Delivery value for a Vonage message `status`, such as `submitted` or `undeliverable`. Case-insensitive. */
+export function vonageDelivery(status: string | undefined): Delivery {
+  switch (status?.toLowerCase()) {
+    case "submitted":
+      return "sent";
+    case "delivered":
+    case "read":
+      return "delivered";
+    case "rejected":
+    case "undeliverable":
+    case "failed":
+    case "expired":
+      return "undelivered";
+    default:
+      return "unknown";
+  }
 }
 
 /** Builds the JSON body for `POST /v1/messages`. */

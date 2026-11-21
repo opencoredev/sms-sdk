@@ -1,4 +1,4 @@
-import type { SmsAdapter, ValidationIssue } from "./adapters.js";
+import type { SmsAdapter, SmsMessageStatus, ValidationIssue } from "./adapters.js";
 import { checkAdapter, issueToError, MESSAGE_NOT_OBJECT_ISSUE, validateMessage } from "./capabilities.js";
 import { maskPhoneNumber } from "./e164.js";
 import { estimateSegments, type SegmentPreview } from "./encoding.js";
@@ -7,6 +7,7 @@ import {
   HandoffUnknownError,
   IdempotencyConflictError,
   IdempotencyInProgressError,
+  MessageLookupError,
   PolicyRejectedError,
   SendAbortedError,
   SmsError,
@@ -16,11 +17,13 @@ import { isRecord } from "./http.js";
 import { runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
+import { lookupOnce } from "./lookup.js";
 import { resolveRetryOptions } from "./retry.js";
 import type {
   SmsAdapterInfo,
   SmsClient,
   SmsClientOptions,
+  SmsGetMessageOptions,
   SmsSendInput,
   SmsSendOptions,
   SmsSendResult,
@@ -347,15 +350,53 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     return result;
   };
 
+  const getMessage = async (
+    providerId: string,
+    lookupOptions: SmsGetMessageOptions = {},
+  ): Promise<SmsMessageStatus | undefined> => {
+    if (typeof providerId !== "string" || providerId.length === 0) {
+      throw new ConfigurationError("getMessage needs a non-empty providerId.");
+    }
+    const name = lookupOptions.adapter ?? adapters[0].name;
+    const adapter = adapters.find((candidate) => candidate.name === name);
+    if (adapter === undefined) {
+      throw new ConfigurationError(`getMessage: no adapter named "${name}" is configured.`);
+    }
+    if (adapter.getMessage === undefined) {
+      throw new ConfigurationError(`getMessage: the ${name} adapter cannot look up messages.`);
+    }
+    const outcome = await lookupOnce({ adapter, providerId, timeoutMs, signal: lookupOptions.signal });
+    switch (outcome.kind) {
+      case "found":
+        return outcome.status;
+      case "not_found":
+        return undefined;
+      case "failed":
+        throw new MessageLookupError({
+          reason: outcome.reason,
+          providerName: name,
+          providerId,
+          ...(outcome.details === undefined ? {} : { provider: outcome.details }),
+          cause: outcome.cause,
+        });
+      default: {
+        const _exhaustive: never = outcome;
+        return _exhaustive;
+      }
+    }
+  };
+
   return {
     send,
     validate,
+    getMessage,
     capabilities(): readonly SmsAdapterInfo[] {
       return adapters.map((adapter) => ({
         name: adapter.name,
         capabilities: adapter.capabilities,
         support: adapter.support,
         defaultFrom: adapter.defaultFrom,
+        messageLookup: adapter.getMessage !== undefined,
       }));
     },
   };

@@ -2,8 +2,8 @@
  * SMS SDK: one typed send API over the built-in SMS providers.
  *
  * Adapters live in subpaths (`@opencoredev/sms-sdk/twilio`, `/telnyx`,
- * `/plivo`, `/vonage`), webhooks in `/webhooks`, test helpers in `/testing`,
- * and segment math in `/encoding`.
+ * `/plivo`, `/vonage`, `/bandwidth`, `/sinch`), webhooks in `/webhooks`, test
+ * helpers in `/testing`, and segment math in `/encoding`.
  *
  * @packageDocumentation
  */
@@ -25,6 +25,7 @@ export {
   InvalidSenderError,
   isFallbackEligible,
   isSmsError,
+  MessageLookupError,
   PolicyRejectedError,
   ProviderAuthError,
   ProviderRateLimitedError,
@@ -42,6 +43,9 @@ export type {
   AdapterSupport,
   Delivery,
   Handoff,
+  LookupContext,
+  LookupFailureReason,
+  MessageLookupOutcome,
   ProviderErrorInfo,
   ProviderExtra,
   ProviderOptionField,
@@ -56,6 +60,7 @@ export type {
   SmsCapabilities,
   SmsEncoding,
   SmsFrom,
+  SmsMessageStatus,
   SmsSender,
   UnknownReason,
   ValidationField,
@@ -92,6 +97,7 @@ export type {
   SmsAdapterInfo,
   SmsClient,
   SmsClientOptions,
+  SmsGetMessageOptions,
   SmsSendInput,
   SmsSendOptions,
   SmsSendResult,

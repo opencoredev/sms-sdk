@@ -55,6 +55,20 @@ export const twilioFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 201, body: { status: "queued" } },
   serverError: { status: 503, body: { message: "Service Unavailable", status: 503 } },
+  lookup: {
+    providerId: TWILIO_MESSAGE_SID,
+    request: {
+      url: `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages/${TWILIO_MESSAGE_SID}.json`,
+      headers: { authorization: AUTH, accept: "application/json" },
+    },
+    found: {
+      response: { status: 200, body: { sid: TWILIO_MESSAGE_SID, status: "undelivered", error_code: 30003, to: "+14155550123" } },
+      delivery: "undelivered",
+      providerStatus: "undelivered",
+      errorCode: "30003",
+    },
+    notFound: { status: 404, body: { code: 20404, message: "The requested resource was not found", status: 404 } },
+  },
   webhooks: {
     parse: (request) => parseSmsWebhook({ provider: "twilio", request, credentials: { authToken: "test-token" } }),
     cases: [

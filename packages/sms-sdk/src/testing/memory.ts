@@ -43,7 +43,10 @@ export type MemoryAdapterOptions = {
   readonly outcomes?: readonly MemoryOutcome[];
 };
 
-/** An in-memory adapter that records sends and never touches the network. */
+/**
+ * An in-memory adapter that records sends and never touches the network.
+ * `getMessage` finds messages it accepted.
+ */
 export type MemoryAdapter = SmsAdapter & {
   /** Every send, in order, including rejected and unknown ones. */
   readonly sent: readonly MemorySentMessage[];
@@ -100,6 +103,16 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
             : next;
       sent.push({ message, attempt: context.attempt, idempotencyKey: context.idempotencyKey, outcome });
       return outcome;
+    },
+
+    // Finds messages this adapter accepted, with the delivery it reported then.
+    async getMessage(providerId) {
+      const accepted = sent.find((entry) => entry.outcome.kind === "accepted" && entry.outcome.providerId === providerId);
+      if (accepted === undefined || accepted.outcome.kind !== "accepted") {
+        return { kind: "not_found" };
+      }
+      const delivery = accepted.outcome.delivery;
+      return { kind: "found", status: { provider: name, providerId, delivery, providerStatus: delivery } };
     },
 
     enqueue(...outcomes) {

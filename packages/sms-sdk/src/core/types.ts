@@ -5,6 +5,7 @@ import type {
   SmsCapabilities,
   SmsEncoding,
   SmsFrom,
+  SmsMessageStatus,
   ValidationIssue,
 } from "./adapters.js";
 import type { E164 } from "./e164.js";
@@ -143,12 +144,25 @@ export type SmsSendOptions = {
   readonly signal?: AbortSignal;
 };
 
+/** Options for a single `getMessage()` call. */
+export type SmsGetMessageOptions = {
+  /**
+   * Name of the adapter to ask, such as `result.provider` from the send that
+   * returned the ID. Default: the primary adapter.
+   */
+  readonly adapter?: string;
+  /** Cancels the lookup. */
+  readonly signal?: AbortSignal;
+};
+
 /** Public metadata of a configured adapter. */
 export type SmsAdapterInfo = {
   readonly name: string;
   readonly capabilities: SmsCapabilities;
   readonly support: AdapterSupport;
   readonly defaultFrom: SmsFrom | undefined;
+  /** The adapter implements `getMessage`. */
+  readonly messageLookup: boolean;
 };
 
 /** The SMS client returned by {@link createSmsClient}. */
@@ -167,6 +181,21 @@ export interface SmsClient {
   send(input: SmsSendInput, options?: SmsSendOptions): Promise<SmsSendResult>;
   /** Local preflight: E.164, sender, body, capabilities, and segment estimate. Never sends. */
   validate(input: SmsSendInput): SmsValidationResult;
+  /**
+   * Looks up one message by the provider's message ID, such as
+   * `SmsSendResult.providerId` or a webhook event's `providerId`. Read-only:
+   * it never sends. Use it to check delivery when a status webhook is late or
+   * lost. The request uses the client's `timeoutMs`.
+   *
+   * It cannot reconcile a {@link HandoffUnknownError} by itself: an unknown
+   * outcome has no provider ID. Find those by recipient and time in the
+   * provider console, or wait for a status webhook.
+   *
+   * @returns The provider's record, or `undefined` when the provider has no message with that ID.
+   * @throws {ConfigurationError} when `providerId` is empty, or the adapter is not configured or has no `getMessage`.
+   * @throws {MessageLookupError} when the provider could not answer. Never a reason to resend.
+   */
+  getMessage(providerId: string, options?: SmsGetMessageOptions): Promise<SmsMessageStatus | undefined>;
   /** Configured adapters with their capabilities and support status. */
   capabilities(): readonly SmsAdapterInfo[];
 }

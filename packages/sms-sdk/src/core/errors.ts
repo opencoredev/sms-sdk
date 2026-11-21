@@ -1,4 +1,10 @@
-import type { ProviderErrorInfo, RejectionCategory, UnknownReason, ValidationField } from "./adapters.js";
+import type {
+  LookupFailureReason,
+  ProviderErrorInfo,
+  RejectionCategory,
+  UnknownReason,
+  ValidationField,
+} from "./adapters.js";
 import type { SendAttempt } from "./events.js";
 
 /** Stable machine-readable error codes. One per error class. */
@@ -18,7 +24,8 @@ export type SmsErrorCode =
   | "idempotency_conflict"
   | "idempotency_in_progress"
   | "webhook_signature"
-  | "webhook_payload";
+  | "webhook_payload"
+  | "message_lookup_failed";
 
 /** JSON shape produced by `SmsError#toJSON()`. Contains no secrets, bodies, or full numbers. */
 export type SerializedSmsError = {
@@ -307,6 +314,40 @@ export class IdempotencyInProgressError extends SmsError {
     });
     this.name = "IdempotencyInProgressError";
     this.idempotencyKey = idempotencyKey;
+  }
+}
+
+/**
+ * `getMessage` could not read the provider's record of a message: a network
+ * error, timeout, 5xx, malformed response, or a provider 4xx such as bad
+ * credentials. `reason` says which.
+ *
+ * `retrySafe: false`: a failed lookup proves nothing about whether the message
+ * was sent, so it is never a reason to resend. Calling `getMessage` again is safe.
+ */
+export class MessageLookupError extends SmsError {
+  readonly reason: LookupFailureReason;
+  readonly providerName: string;
+  readonly providerId: string;
+
+  constructor(options: {
+    readonly reason: LookupFailureReason;
+    readonly providerName: string;
+    readonly providerId: string;
+    readonly provider?: ProviderErrorInfo;
+    readonly cause?: unknown;
+  }) {
+    const detail = options.provider?.message === undefined ? "" : `: ${options.provider.message}`;
+    super(`The ${options.providerName} message lookup failed (${options.reason.replace("_", " ")})${detail}`, {
+      code: "message_lookup_failed",
+      retrySafe: false,
+      ...(options.provider === undefined ? {} : { provider: options.provider }),
+      cause: options.cause,
+    });
+    this.name = "MessageLookupError";
+    this.reason = options.reason;
+    this.providerName = options.providerName;
+    this.providerId = options.providerId;
   }
 }
 
