@@ -264,6 +264,14 @@ export class HandoffUnknownError extends SmsError {
     this.reason = options.reason;
     this.providerName = options.providerName;
   }
+
+  override toJSON(): SerializedSmsError {
+    return {
+      ...super.toJSON(),
+      reason: this.reason,
+      ...(this.providerName === undefined ? {} : { providerName: this.providerName }),
+    };
+  }
 }
 
 /**

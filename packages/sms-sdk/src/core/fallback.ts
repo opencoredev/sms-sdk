@@ -71,7 +71,7 @@ export async function runSendChain(input: ChainInput): Promise<ChainResult> {
       case "unknown":
         return { kind: "failed", error: run.error, attempts };
       case "aborted":
-        return { kind: "failed", error: new SendAbortedError([...attempts]), attempts };
+        return { kind: "failed", error: new SendAbortedError([...attempts], input.signal?.reason), attempts };
       case "rejected":
         rejections.push(run.error);
         if (!input.fallback || !run.error.fallbackEligible) {

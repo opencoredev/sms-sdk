@@ -150,7 +150,7 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
  * `fromByAdapter` follows the same rule: only when present, after a
  * `providerOptions` slot (`null` when absent) so the two cannot be confused.
  */
-export async function fingerprintMessage(fields: {
+export type FingerprintFields = {
   readonly to: string;
   readonly from: unknown;
   readonly body: string;
@@ -160,7 +160,10 @@ export async function fingerprintMessage(fields: {
   readonly webhookUrl: string | null;
   readonly providerOptions?: unknown;
   readonly fromByAdapter?: unknown;
-}): Promise<string> {
+};
+
+/** Synchronous canonical serialization of the fields hashed by {@link fingerprintMessage}. */
+export function canonicalMessageKey(fields: FingerprintFields): string {
   const parts: unknown[] = [
     fields.to,
     fields.from ?? null,
@@ -176,7 +179,11 @@ export async function fingerprintMessage(fields: {
   if (fields.fromByAdapter !== undefined) {
     parts.push(sortKeys(fields.fromByAdapter));
   }
-  const canonical = JSON.stringify(parts);
+  return JSON.stringify(parts);
+}
+
+export async function fingerprintMessage(fields: FingerprintFields): Promise<string> {
+  const canonical = canonicalMessageKey(fields);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

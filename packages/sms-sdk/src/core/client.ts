@@ -23,7 +23,12 @@ import { emitHook, type SendAttempt, type SmsHookEventBase } from "./events.js";
 import { freezeCapabilities, freezeProviderOptionsSpec, freezeSender, isPlainObject, isRecord, sanitizeProviderDetails } from "./http.js";
 import { DELIVERIES, UNKNOWN_REASONS, runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
-import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
+import {
+  canonicalMessageKey,
+  fingerprintMessage,
+  type FinalIdempotencyRecord,
+  type IdempotencyStore,
+} from "./idempotency.js";
 import { lookupOnce } from "./lookup.js";
 import { resolveRetryOptions } from "./retry.js";
 import type {
@@ -42,12 +47,10 @@ const DEFAULT_TTL_SEC = 86_400;
 const DEFAULT_STALE_RESERVATION_SEC = 300;
 
 type InFlight = {
-  readonly fingerprint: Promise<string>;
+  readonly payloadKey: string;
   readonly promise: Promise<SmsSendResult>;
   readonly controller: AbortController;
   waiters: number;
-  abortedWaiter: boolean;
-  lastAbortReason: unknown;
 };
 
 type IdempotencyConfig = {
@@ -543,7 +546,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       return execute({ input, candidates, preview, signal, id: newId(), reservation: undefined });
     }
 
-    const fingerprintPromise = fingerprintMessage({
+    const fingerprintFields = {
       to: input.to,
       from: input.from ?? null,
       body: input.body,
@@ -553,39 +556,26 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       webhookUrl: input.webhookUrl ?? null,
       providerOptions: canonicalProviderOptions(adapters, input.providerOptions),
       fromByAdapter: canonicalFromByAdapter(adapters, input),
-    });
-
-    const releaseEntry = (entry: InFlight, aborted: boolean, reason?: unknown): boolean => {
-      entry.waiters -= 1;
-      if (aborted) {
-        entry.abortedWaiter = true;
-        entry.lastAbortReason = reason;
-      }
-      if (entry.waiters === 0 && entry.abortedWaiter && !entry.controller.signal.aborted) {
-        if (inFlight.get(key) === entry) {
-          inFlight.delete(key);
-        }
-        entry.controller.abort(entry.lastAbortReason);
-        return true;
-      }
-      return false;
     };
+    const payloadKey = canonicalMessageKey(fingerprintFields);
 
-    const awaitShared = (
-      entry: InFlight,
-      replayed: boolean | undefined,
-      alreadyCounted: boolean,
-    ): Promise<SmsSendResult> => {
-      if (!alreadyCounted) {
-        entry.waiters += 1;
-      }
+    const awaitShared = (entry: InFlight, replayed: boolean | undefined): Promise<SmsSendResult> => {
+      entry.waiters += 1;
       let released = false;
       const release = (aborted: boolean, reason?: unknown): boolean => {
         if (released) {
           return false;
         }
         released = true;
-        return releaseEntry(entry, aborted, reason);
+        entry.waiters -= 1;
+        if (aborted && entry.waiters === 0 && !entry.controller.signal.aborted) {
+          if (inFlight.get(key) === entry) {
+            inFlight.delete(key);
+          }
+          entry.controller.abort(reason);
+          return true;
+        }
+        return false;
       };
 
       const waitOnEntry = (): Promise<SmsSendResult> =>
@@ -656,20 +646,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
     const running = inFlight.get(key);
     if (running !== undefined && !running.controller.signal.aborted) {
-      running.waiters += 1;
-      let runningFingerprint: string;
-      let fingerprint: string;
-      try {
-        [runningFingerprint, fingerprint] = await Promise.all([running.fingerprint, fingerprintPromise]);
-      } catch (error) {
-        releaseEntry(running, false);
-        throw error;
-      }
-      if (runningFingerprint !== fingerprint) {
-        releaseEntry(running, false);
+      if (running.payloadKey !== payloadKey) {
         throw new IdempotencyConflictError(key);
       }
-      return awaitShared(running, true, true);
+      return awaitShared(running, true);
     }
 
     const controller = new AbortController();
@@ -678,7 +658,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         inFlight.delete(key);
       }
     };
-    const promise = fingerprintPromise
+    const promise = fingerprintMessage(fingerprintFields)
       .then((fingerprint) =>
         sendWithKey({ input, candidates, preview, signal: controller.signal, key, fingerprint }),
       )
@@ -693,16 +673,14 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         },
       );
     const entry: InFlight = {
-      fingerprint: fingerprintPromise,
+      payloadKey,
       promise,
       controller,
       waiters: 0,
-      abortedWaiter: false,
-      lastAbortReason: undefined,
     };
     inFlight.set(key, entry);
     void promise.catch(() => undefined);
-    return awaitShared(entry, undefined, false);
+    return awaitShared(entry, undefined);
   };
 
   /** Validates and builds the ordered candidates, throwing for the primary adapter's first issue. */
@@ -848,6 +826,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       });
       throw error;
     };
+
+    if (args.signal?.aborted === true) {
+      return fail(new SendAbortedError([], args.signal.reason));
+    }
 
     if (beforeSend !== undefined) {
       let rawDecision: unknown;

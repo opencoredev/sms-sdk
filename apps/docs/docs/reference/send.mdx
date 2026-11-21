@@ -27,7 +27,7 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 ### Parameters
 
 - `input: SmsSendInput`, the message. Fields below.
-- `options?: { signal?: AbortSignal }`. Aborting before any request, or during a rate-limit backoff, throws `SendAbortedError`. Aborting while a request is in flight throws `HandoffUnknownError` with `reason: "aborted"`.
+- `options?: { signal?: AbortSignal }`. Aborting before any request, or during a rate-limit backoff, throws `SendAbortedError`. Aborting while a request is in flight (or while another caller keeps a coalesced same-key send active) throws `HandoffUnknownError` with `reason: "aborted"`.
 
 ## `SmsSendInput`
 
@@ -145,10 +145,12 @@ Each entry has typed options in camelCase, which the adapter sends under the pro
 
 ```ts ignore="type listing"
 interface SmsProviderOptions {
-  twilio?: TwilioSendOptions;   // added by "@opencoredev/sms-sdk/twilio"
-  telnyx?: TelnyxSendOptions;   // added by "@opencoredev/sms-sdk/telnyx"
-  plivo?: PlivoSendOptions;     // added by "@opencoredev/sms-sdk/plivo"
-  vonage?: VonageSendOptions;   // added by "@opencoredev/sms-sdk/vonage"
+  twilio?: TwilioSendOptions;       // added by "@opencoredev/sms-sdk/twilio"
+  telnyx?: TelnyxSendOptions;       // added by "@opencoredev/sms-sdk/telnyx"
+  plivo?: PlivoSendOptions;         // added by "@opencoredev/sms-sdk/plivo"
+  vonage?: VonageSendOptions;       // added by "@opencoredev/sms-sdk/vonage"
+  bandwidth?: BandwidthSendOptions; // added by "@opencoredev/sms-sdk/bandwidth"
+  sinch?: SinchSendOptions;         // added by "@opencoredev/sms-sdk/sinch"
 }
 
 type TwilioSendOptions = {
@@ -159,7 +161,7 @@ type TwilioSendOptions = {
 };
 ```
 
-Each provider page lists its options and wire names: [Twilio](/providers/twilio#provider-options), [Telnyx](/providers/telnyx#provider-options), [Plivo](/providers/plivo#provider-options), and [Vonage](/providers/vonage#provider-options).
+Each provider page lists its options and wire names: [Twilio](/providers/twilio#provider-options), [Telnyx](/providers/telnyx#provider-options), [Plivo](/providers/plivo#provider-options), [Vonage](/providers/vonage#provider-options), [Bandwidth](/providers/bandwidth#provider-options), and [Sinch](/providers/sinch#provider-options).
 
 Rules:
 

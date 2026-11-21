@@ -4,6 +4,7 @@ import {
   AllProvidersRejectedError,
   ConfigurationError,
   HandoffUnknownError,
+  IdempotencyConflictError,
   PolicyRejectedError,
   ProviderAuthError,
   ProviderRateLimitedError,
@@ -1810,6 +1811,116 @@ describe("send: fromByAdapter", () => {
     expect(backoffAttempts).toBe(1);
     expect(backoffErr).toBeInstanceOf(SendAbortedError);
     expect((backoffErr as SendAbortedError).attempts).toHaveLength(1);
+    expect(((backoffErr as SendAbortedError).cause as Error).message).toBe("backoff-abort");
     expect(failureCodes).toEqual(["aborted"]);
+
+    // R28: immediate peer abort rejects peer while leader succeeds (even on synchronous memory adapter)
+    const syncClient = createSmsClient({ adapters: [memory()] });
+    const acFastPeer = new AbortController();
+    const fastInput = { to: "+14155550123" as const, body: "hi", idempotencyKey: "k-r28-peer" };
+    const pFastLeader = syncClient.send(fastInput);
+    const pFastPeer = syncClient.send(fastInput, { signal: acFastPeer.signal });
+    acFastPeer.abort(new Error("fast-peer"));
+    const [rFastLeader, rFastPeer] = await Promise.allSettled([pFastLeader, pFastPeer]);
+    expect(rFastLeader.status).toBe("fulfilled");
+    expect(rFastPeer.status).toBe("rejected");
+    if (rFastPeer.status === "rejected") {
+      expect(rFastPeer.reason).toBeInstanceOf(HandoffUnknownError);
+      expect((rFastPeer.reason as HandoffUnknownError).reason).toBe("aborted");
+    }
+
+    // R28: same-tick leader abort + conflicting peer dispatches 0 adapter calls
+    adapterCalls = 0;
+    const cConflict = makeSlowClient();
+    const acConflict = new AbortController();
+    const pConfLeader = cConflict.send(
+      { to: "+14155550123", body: "A", idempotencyKey: "k-r28-conflict" },
+      { signal: acConflict.signal },
+    );
+    const pConfPeer = cConflict.send({ to: "+14155550123", body: "B", idempotencyKey: "k-r28-conflict" });
+    acConflict.abort(new Error("abort-conflict-leader"));
+    const [rConfLeader, rConfPeer] = await Promise.allSettled([pConfLeader, pConfPeer]);
+    expect(adapterCalls).toBe(0);
+    expect(rConfLeader.status).toBe("rejected");
+    expect(rConfLeader.status === "rejected" && rConfLeader.reason).toBeInstanceOf(SendAbortedError);
+    expect(rConfPeer.status).toBe("rejected");
+    expect(rConfPeer.status === "rejected" && rConfPeer.reason).toBeInstanceOf(IdempotencyConflictError);
+
+    // R28: both leader and matching peer abort in same tick -> 0 adapter calls, both reject
+    adapterCalls = 0;
+    const cBothImm = makeSlowClient();
+    const acBoth1 = new AbortController();
+    const acBoth2 = new AbortController();
+    const pBoth1 = cBothImm.send(
+      { to: "+14155550123", body: "same", idempotencyKey: "k-r28-both" },
+      { signal: acBoth1.signal },
+    );
+    const pBoth2 = cBothImm.send(
+      { to: "+14155550123", body: "same", idempotencyKey: "k-r28-both" },
+      { signal: acBoth2.signal },
+    );
+    acBoth1.abort(new Error("both-1"));
+    acBoth2.abort(new Error("both-2"));
+    const [rBoth1, rBoth2] = await Promise.allSettled([pBoth1, pBoth2]);
+    expect(adapterCalls).toBe(0);
+    expect(rBoth1.status).toBe("rejected");
+    expect(rBoth2.status).toBe("rejected");
+    expect(rBoth2.status === "rejected" && rBoth2.reason).toBeInstanceOf(SendAbortedError);
+
+    // R28: abort during async reserve() does not invoke beforeSend and finalizes as rejected
+    let beforeSendCalls = 0;
+    let finalizedState: string | undefined;
+    let resolveReserve!: (value: { kind: "reserved"; reservationId: string }) => void;
+    let markReserveStarted!: () => void;
+    const reserveStarted = new Promise<void>((resolve) => {
+      markReserveStarted = resolve;
+    });
+    const acReserve = new AbortController();
+    const cReserve = createSmsClient({
+      adapters: [memory()],
+      beforeSend() {
+        beforeSendCalls += 1;
+        return { kind: "reject", reason: "should-not-run" };
+      },
+      idempotency: {
+        store: {
+          async get() {
+            return null;
+          },
+          reserve() {
+            markReserveStarted();
+            return new Promise((resolve) => {
+              resolveReserve = resolve;
+            });
+          },
+          async finalize({ record }) {
+            finalizedState = record.state;
+            return { kind: "finalized" };
+          },
+        },
+      },
+    });
+    const pReserve = cReserve.send(
+      { to: "+14155550123", body: "hi", idempotencyKey: "k-r28-reserve" },
+      { signal: acReserve.signal },
+    );
+    await reserveStarted;
+    acReserve.abort(new Error("during-reserve"));
+    resolveReserve({ kind: "reserved", reservationId: "res-1" });
+    const reserveErr = await rejection(pReserve);
+    expect(beforeSendCalls).toBe(0);
+    expect(finalizedState).toBe("rejected");
+    expect(reserveErr).toBeInstanceOf(SendAbortedError);
+
+    // R28: HandoffUnknownError#toJSON includes reason and providerName, and overflowing Retry-After clamps finite so retry stops
+    const hu = new HandoffUnknownError("timed out", {
+      reason: "timeout",
+      providerName: "twilio",
+      attempts: [],
+    });
+    expect(hu.toJSON()).toMatchObject({ reason: "timeout", providerName: "twilio" });
+    const { parseRetryAfter } = await import("../../src/core/http.js");
+    const hugeRetry = parseRetryAfter("9".repeat(400));
+    expect(hugeRetry).toBe(Number.MAX_SAFE_INTEGER);
   });
 });
