@@ -52,15 +52,9 @@ export async function computeTwilioSignature(input: {
     throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
   }
   validateTwilioUrl(url);
-  if (!Array.isArray(params)) {
-    throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
-  }
+  const safeParams = snapshotTwilioParams(params);
   const grouped = new Map<string, string[]>();
-  for (const pair of params) {
-    if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string" || typeof pair[1] !== "string") {
-      throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] string pairs.");
-    }
-    const [key, value] = pair;
+  for (const [key, value] of safeParams) {
     grouped.set(key, [...(grouped.get(key) ?? []), value]);
   }
   let data = url as string;
@@ -70,6 +64,32 @@ export async function computeTwilioSignature(input: {
     }
   }
   return toBase64(await hmac("SHA-1", authToken, data));
+}
+
+function snapshotTwilioParams(rawParams: unknown): readonly (readonly [string, string])[] {
+  try {
+    if (!Array.isArray(rawParams)) {
+      throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
+    }
+    const pairs: Array<readonly [string, string]> = [];
+    for (const pair of rawParams) {
+      if (!Array.isArray(pair) || pair.length !== 2) {
+        throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] string pairs.");
+      }
+      const key: unknown = pair[0];
+      const value: unknown = pair[1];
+      if (typeof key !== "string" || typeof value !== "string") {
+        throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] string pairs.");
+      }
+      pairs.push([key, value]);
+    }
+    return pairs;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] string pairs.");
+  }
 }
 
 /**
@@ -103,9 +123,7 @@ export async function verifyTwilioSignature(input: {
   if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
   }
-  if (!Array.isArray(params)) {
-    throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
-  }
+  const safeParams = snapshotTwilioParams(params);
   if (typeof signature !== "string") {
     throw new ConfigurationError("Twilio signature verification requires a string signature.");
   }
@@ -113,7 +131,7 @@ export async function verifyTwilioSignature(input: {
     const expected = await computeTwilioSignature({
       authToken,
       url: candidateUrl,
-      params: params as ReadonlyArray<readonly [string, string]>,
+      params: safeParams,
     });
     if (timingSafeEqual(expected, signature)) {
       return true;

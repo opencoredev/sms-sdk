@@ -23,6 +23,7 @@ import {
   basicAuthorization,
   exchange,
   foundMessage,
+  freezeCapabilities,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -53,7 +54,7 @@ export type PlivoOptions = {
 };
 
 /** Static capabilities of the Plivo adapter. */
-export const PLIVO_CAPABILITIES: SmsCapabilities = {
+export const PLIVO_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: false,
@@ -63,13 +64,13 @@ export const PLIVO_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
 /** Notes explaining why Plivo is marked `partial`. */
-export const PLIVO_SUPPORT_NOTES: readonly string[] = [
+export const PLIVO_SUPPORT_NOTES: readonly string[] = Object.freeze([
   "Plivo does not document its API error body, so 4xx rejections other than 401 and 429 are classified as `request` (no fallback).",
   "Plivo documents no timestamp in callback signatures, so webhook replay protection relies on your deduplication.",
-];
+]);
 
 /**
  * Plivo Message API parameters accepted in `providerOptions.plivo`, from the
@@ -138,7 +139,7 @@ export function plivo(options: PlivoOptions): SmsAdapter {
     rawFetch = options.fetch;
     rawFrom = freezeSender(options.from);
   } catch {
-    throw new ConfigurationError("Plivo options must be an object.");
+    throw new ConfigurationError("Plivo options could not be read.");
   }
   if (typeof authId !== "string" || authId.length === 0) {
     throw new ConfigurationError("Plivo authId is required.");

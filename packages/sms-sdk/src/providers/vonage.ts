@@ -44,6 +44,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeCapabilities,
   freezeSender,
 } from "../core/http.js";
 
@@ -94,7 +95,7 @@ export type VonageJwtAuthOptions = VonageCommonOptions & {
 export type VonageOptions = VonageBasicAuthOptions | VonageJwtAuthOptions;
 
 /** Capabilities with JWT auth (application-linked numbers, webhooks enabled). */
-export const VONAGE_JWT_CAPABILITIES: SmsCapabilities = {
+export const VONAGE_JWT_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: false,
   scheduling: false,
@@ -104,22 +105,22 @@ export const VONAGE_JWT_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "alphanumeric"],
   nativeIdempotency: false,
-};
+});
 
 /** Capabilities with Basic auth, which Vonage documents as not supporting webhooks. */
-export const VONAGE_BASIC_CAPABILITIES: SmsCapabilities = {
+export const VONAGE_BASIC_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   ...VONAGE_JWT_CAPABILITIES,
   webhookUrlOverride: false,
   inbound: false,
   deliveryReceipts: false,
-};
+});
 
 /** Notes explaining why Vonage is marked `partial`. */
-export const VONAGE_SUPPORT_NOTES: readonly string[] = [
+export const VONAGE_SUPPORT_NOTES: readonly string[] = Object.freeze([
   "Vonage does not document the HTTP status for each Messages API error code; rejections are classified from the documented 401/402/422 statuses and the error code in the problem `type`/`title`; a 429 is a rate limit only with a documented throttling code.",
   "Short codes and MMS (a separate Messages API channel) are not supported by this adapter.",
   "The Messages API has no message lookup; getMessage reads the Reports API (`GET /v2/reports/records`, product MESSAGES) with the API key and secret, and only once Vonage has a record for the message.",
-];
+]);
 
 /**
  * Messages API SMS parameters accepted in `providerOptions.vonage`, from the
@@ -195,11 +196,37 @@ export function vonage(options: VonageOptions): SmsAdapter {
   }
   let snapshot: VonageOptions;
   let rawFrom: SmsFrom | undefined;
+  let rawReportsCredentials: { readonly apiKey: unknown; readonly apiSecret: unknown } | undefined;
+  let hasReportsCredentials = false;
   try {
-    snapshot = { ...options };
+    const source = options as unknown as Record<string, unknown>;
+    const reportsCreds = source["reportsCredentials"];
+    if (reportsCreds !== undefined) {
+      hasReportsCredentials = true;
+      if (isRecord(reportsCreds)) {
+        rawReportsCredentials = {
+          apiKey: reportsCreds["apiKey"],
+          apiSecret: reportsCreds["apiSecret"],
+        };
+      }
+    }
+    snapshot = {
+      apiKey: source["apiKey"],
+      apiSecret: source["apiSecret"],
+      applicationId: source["applicationId"],
+      privateKey: source["privateKey"],
+      ...(hasReportsCredentials ? { reportsCredentials: rawReportsCredentials } : {}),
+      region: source["region"],
+      baseUrl: source["baseUrl"],
+      fetch: source["fetch"],
+      from: source["from"],
+    } as unknown as VonageOptions;
     rawFrom = freezeSender(snapshot.from);
-  } catch {
-    throw new ConfigurationError("Vonage options must be an object.");
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Vonage options could not be read.");
   }
   const region = snapshot.region === undefined ? "api" : snapshot.region;
   if (typeof region !== "string" || !VONAGE_REGIONS.has(region)) {
@@ -210,7 +237,7 @@ export function vonage(options: VonageOptions): SmsAdapter {
   const fetcher: FetchLike = resolveFetcher(snapshot.fetch, "Vonage");
   const authorize = createAuthorizer(snapshot);
   const capabilities = snapshot.apiKey !== undefined ? VONAGE_BASIC_CAPABILITIES : VONAGE_JWT_CAPABILITIES;
-  const reports = reportsAccess(snapshot);
+  const reports = reportsAccess(snapshot, hasReportsCredentials, rawReportsCredentials);
 
   return {
     name: "vonage",
@@ -274,21 +301,38 @@ export function vonage(options: VonageOptions): SmsAdapter {
 
 type ReportsAccess = { readonly apiKey: string; readonly authorization: string };
 
-function reportsAccess(options: VonageOptions): ReportsAccess | undefined {
-  const credentials = options.apiKey !== undefined ? options : options.reportsCredentials;
-  if (credentials === undefined) {
+function reportsAccess(
+  options: VonageOptions,
+  hasReportsCredentials: boolean,
+  rawReportsCredentials: { readonly apiKey: unknown; readonly apiSecret: unknown } | undefined,
+): ReportsAccess | undefined {
+  if (options.apiKey !== undefined) {
+    if (
+      typeof options.apiKey !== "string" ||
+      options.apiKey.length === 0 ||
+      typeof options.apiSecret !== "string" ||
+      options.apiSecret.length === 0
+    ) {
+      throw new ConfigurationError("Vonage apiKey and apiSecret are required.");
+    }
+    return { apiKey: options.apiKey, authorization: basicAuthorization(options.apiKey, options.apiSecret) };
+  }
+  if (!hasReportsCredentials) {
     return undefined;
   }
   if (
-    !isRecord(credentials) ||
-    typeof credentials.apiKey !== "string" ||
-    credentials.apiKey.length === 0 ||
-    typeof credentials.apiSecret !== "string" ||
-    credentials.apiSecret.length === 0
+    rawReportsCredentials === undefined ||
+    typeof rawReportsCredentials.apiKey !== "string" ||
+    rawReportsCredentials.apiKey.length === 0 ||
+    typeof rawReportsCredentials.apiSecret !== "string" ||
+    rawReportsCredentials.apiSecret.length === 0
   ) {
     throw new ConfigurationError("Vonage apiKey and apiSecret are required.");
   }
-  return { apiKey: credentials.apiKey, authorization: basicAuthorization(credentials.apiKey, credentials.apiSecret) };
+  return {
+    apiKey: rawReportsCredentials.apiKey,
+    authorization: basicAuthorization(rawReportsCredentials.apiKey, rawReportsCredentials.apiSecret),
+  };
 }
 
 /**

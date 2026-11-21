@@ -23,6 +23,7 @@ import {
   basicAuthorization,
   exchange,
   foundMessage,
+  freezeCapabilities,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -59,7 +60,7 @@ export type BandwidthOptions = {
 };
 
 /** Static capabilities of the Bandwidth adapter. */
-export const BANDWIDTH_CAPABILITIES: SmsCapabilities = {
+export const BANDWIDTH_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: false,
   scheduling: false,
@@ -69,13 +70,13 @@ export const BANDWIDTH_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code"],
   nativeIdempotency: false,
-};
+});
 
 /** Notes explaining why Bandwidth is marked `partial`. */
-export const BANDWIDTH_SUPPORT_NOTES: readonly string[] = [
+export const BANDWIDTH_SUPPORT_NOTES: readonly string[] = Object.freeze([
   "Bandwidth does not sign messaging callbacks. The webhook parser requires the Basic credentials set on your Bandwidth application, and there is no replay window, so deduplicate events with `dedupeKey`.",
   "The adapter intentionally supports the SMS endpoint only; Bandwidth MMS media is not enabled through this adapter.",
-];
+]);
 
 /** Bandwidth message parameters accepted in `providerOptions.bandwidth`. Parameters the SDK sets are reserved. */
 export const BANDWIDTH_PROVIDER_OPTIONS = {
@@ -137,7 +138,7 @@ export function bandwidth(options: BandwidthOptions): SmsAdapter {
     rawFetch = options.fetch;
     rawFrom = freezeSender(options.from);
   } catch {
-    throw new ConfigurationError("Bandwidth options must be an object.");
+    throw new ConfigurationError("Bandwidth options could not be read.");
   }
   const userId = requireValue(rawUserId, "userId");
   const apiToken = requireValue(rawApiToken, "apiToken");

@@ -572,4 +572,177 @@ describe("send: fromByAdapter", () => {
       }),
     ).toThrow(ConfigurationError);
   });
+
+  test("hardens frozen capability constants, stateful class hooks, vonage class/reportsCredentials, providerOptions scoping, Object.prototype adapter names, beforeSend thenables, and Twilio params", async () => {
+    const { TWILIO_CAPABILITIES, twilio } = await import("../../src/providers/twilio.js");
+    const { vonage } = await import("../../src/providers/vonage.js");
+    const { computeTwilioSignature, verifyTwilioSignature } = await import("../../src/webhooks/twilio.js");
+
+    // 1. Exported capability constants and capabilities() output are deep-frozen
+    expect(Object.isFrozen(TWILIO_CAPABILITIES)).toBe(true);
+    expect(Object.isFrozen(TWILIO_CAPABILITIES.senderTypes)).toBe(true);
+    expect(Object.isFrozen(TWILIO_CAPABILITIES.validityPeriod)).toBe(true);
+    const baseMem = memory({ from: { senderId: "ACME" } });
+    const caps = createSmsClient({ adapters: [baseMem] }).capabilities();
+    expect(Object.isFrozen(caps)).toBe(true);
+    expect(Object.isFrozen(caps[0])).toBe(true);
+    expect(Object.isFrozen(caps[0]?.capabilities)).toBe(true);
+    expect(Object.isFrozen(caps[0]?.capabilities.senderTypes)).toBe(true);
+
+    // Mutating caller-supplied from object does not mutate memory() defaultFrom
+    const senderObj = { senderId: "ACME" };
+    const memAdapter = memory({ from: senderObj });
+    senderObj.senderId = "EVIL";
+    const memClient = createSmsClient({ adapters: [memAdapter] });
+    await memClient.send({ to: "+14155550123", body: "hi" });
+    expect(memAdapter.sent[0]?.message.from).toEqual({ kind: "alphanumeric", value: "ACME" });
+
+    // 2. Stateful class-instance hooks work with bound `this` and known hook getters are read once
+    class StatefulHooks {
+      accepted: string[] = [];
+      onAccepted(e: { providerId: string }) {
+        this.accepted.push(e.providerId);
+      }
+    }
+    const statefulHooks = new StatefulHooks();
+    const hookClient = createSmsClient({ adapters: [memory()], hooks: statefulHooks });
+    await hookClient.send({ to: "+14155550123", body: "hi" });
+    expect(statefulHooks.accepted).toHaveLength(1);
+
+    let hookReads = 0;
+    const singleReadHooks = {};
+    Object.defineProperty(singleReadHooks, "onAccepted", {
+      enumerable: true,
+      get() {
+        hookReads += 1;
+        if (hookReads > 1) throw new Error("read twice");
+        return () => {};
+      },
+    });
+    createSmsClient({ adapters: [memory()], hooks: singleReadHooks });
+    expect(hookReads).toBe(1);
+
+    // 3. Vonage accepts class-instance options and single-reads/guards reportsCredentials
+    class VonageBasicClass {
+      get apiKey() {
+        return "key12345";
+      }
+      get apiSecret() {
+        return "sec1234567890";
+      }
+      get from() {
+        return "+14155550100";
+      }
+    }
+    const vonageFromClass = vonage(new VonageBasicClass() as unknown as Parameters<typeof vonage>[0]);
+    expect(vonageFromClass.name).toBe("vonage");
+
+    const pem = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----";
+    expect(() =>
+      vonage({
+        applicationId: "app-1",
+        privateKey: pem,
+        reportsCredentials: {
+          get apiKey(): string {
+            throw new Error("reports boom");
+          },
+          apiSecret: "sec",
+        },
+      }),
+    ).toThrow(ConfigurationError);
+
+    let reportKeyReads = 0;
+    vonage({
+      applicationId: "app-1",
+      privateKey: pem,
+      reportsCredentials: {
+        get apiKey() {
+          reportKeyReads += 1;
+          return "goodkey";
+        },
+        apiSecret: "sec",
+      },
+    });
+    expect(reportKeyReads).toBe(1);
+
+    // 4. Unconfigured providerOptions keys with throwing getters are ignored
+    const memOnly = createSmsClient({ adapters: [memory()] });
+    const res = memOnly.validate({
+      to: "+14155550123",
+      body: "hi",
+      providerOptions: {
+        get unconfigured() {
+          throw new Error("should not read");
+        },
+      } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
+    });
+    expect(res.supported).toBe(true);
+
+    // 5. Adapter named "toString" does not trip Object.prototype in fromByAdapter
+    const protoNamed = createSmsClient({ adapters: [memory({ name: "toString" })] });
+    expect(protoNamed.validate({ to: "+14155550123", body: "hi", fromByAdapter: {} }).supported).toBe(true);
+
+    // 6. Revoked Proxy for adapters, from, and missing adapter.support throw ConfigurationError
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(() => createSmsClient({ adapters: revoked.proxy as unknown as [ReturnType<typeof memory>] })).toThrow(
+      ConfigurationError,
+    );
+    expect(() =>
+      twilio({
+        accountSid: `AC${"a".repeat(32)}`,
+        authToken: "tok",
+        from: revoked.proxy as unknown as NonNullable<SmsSendInput["from"]>,
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [{ ...memory(), support: undefined as unknown as ReturnType<typeof memory>["support"] }],
+      }),
+    ).toThrow(ConfigurationError);
+
+    // 7. beforeSend returning a throwing thenable or revoked Proxy fails closed with PolicyRejectedError
+    const badThenableClient = createSmsClient({
+      adapters: [memory()],
+      beforeSend: () =>
+        ({
+          get then() {
+            throw new Error("then-boom");
+          },
+        }) as unknown as { kind: "allow" },
+    });
+    await expect(badThenableClient.send({ to: "+14155550123", body: "hi" })).rejects.toThrow(PolicyRejectedError);
+
+    const revokedPolicyClient = createSmsClient({
+      adapters: [memory()],
+      beforeSend: () => revoked.proxy as unknown as { kind: "allow" },
+    });
+    await expect(revokedPolicyClient.send({ to: "+14155550123", body: "hi" })).rejects.toThrow(PolicyRejectedError);
+
+    // 8. Twilio verify/compute reject revoked or throwing params with ConfigurationError
+    await expect(
+      computeTwilioSignature({
+        authToken: "tok",
+        url: "https://example.com/hook",
+        params: revoked.proxy as unknown as Array<[string, string]>,
+      }),
+    ).rejects.toThrow(ConfigurationError);
+
+    const throwingParams: Array<[string, string]> = [];
+    Object.defineProperty(throwingParams, 0, {
+      enumerable: true,
+      get() {
+        throw new Error("param boom");
+      },
+    });
+    Object.defineProperty(throwingParams, "length", { value: 1 });
+    await expect(
+      verifyTwilioSignature({
+        authToken: "tok",
+        url: "https://example.com/hook",
+        params: throwingParams,
+        signature: "abc",
+      }),
+    ).rejects.toThrow(ConfigurationError);
+  });
 });

@@ -165,14 +165,18 @@ const SENDER_KEYS = ["senderId", "shortCode", "messagingService"] as const;
 
 /** Freezes an object sender by copying only recognized sender keys (preserving class getters). */
 export function freezeSender<T>(value: T): T {
-  if (!isRecord(value)) {
+  if (typeof value !== "object" || value === null) {
     return value;
   }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
   const copy: Record<string, unknown> = {};
   for (const key of SENDER_KEYS) {
-    if (key in value) {
+    if (key in record) {
       Object.defineProperty(copy, key, {
-        value: value[key],
+        value: record[key],
         enumerable: true,
         writable: true,
         configurable: true,
@@ -180,6 +184,17 @@ export function freezeSender<T>(value: T): T {
     }
   }
   return Object.freeze(copy) as T;
+}
+
+/** Returns a deep-frozen copy of an adapter's capabilities object. */
+export function freezeCapabilities<T extends { readonly senderTypes: readonly unknown[]; readonly validityPeriod: { readonly minSec: number; readonly maxSec: number } | null }>(
+  capabilities: T,
+): T {
+  return Object.freeze({
+    ...capabilities,
+    senderTypes: Object.freeze([...capabilities.senderTypes]),
+    validityPeriod: capabilities.validityPeriod === null ? null : Object.freeze({ ...capabilities.validityPeriod }),
+  });
 }
 
 /** Reads a non-empty string property. */

@@ -23,6 +23,7 @@ import { ConfigurationError } from "../core/errors.js";
 import {
   exchange,
   foundMessage,
+  freezeCapabilities,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -56,7 +57,7 @@ export type TelnyxOptions = {
 };
 
 /** Static capabilities of the Telnyx adapter. */
-export const TELNYX_CAPABILITIES: SmsCapabilities = {
+export const TELNYX_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: true,
@@ -66,7 +67,7 @@ export const TELNYX_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
 /**
  * Telnyx `POST /v2/messages` parameters accepted in `providerOptions.telnyx`,
@@ -140,7 +141,7 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
     rawFetch = options.fetch;
     rawFrom = freezeSender(options.from);
   } catch {
-    throw new ConfigurationError("Telnyx options must be an object.");
+    throw new ConfigurationError("Telnyx options could not be read.");
   }
   if (typeof rawApiKey !== "string" || rawApiKey.length === 0) {
     throw new ConfigurationError("Telnyx apiKey is required.");

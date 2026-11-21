@@ -23,6 +23,7 @@ import { ConfigurationError } from "../core/errors.js";
 import {
   exchange,
   foundMessage,
+  freezeCapabilities,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -53,7 +54,7 @@ export type SinchOptions = {
 };
 
 /** Static capabilities of the Sinch adapter. */
-export const SINCH_CAPABILITIES: SmsCapabilities = {
+export const SINCH_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: false,
   scheduling: true,
@@ -63,13 +64,13 @@ export const SINCH_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric"],
   nativeIdempotency: false,
-};
+});
 
 /** Notes explaining why Sinch is marked `partial`. */
-export const SINCH_SUPPORT_NOTES: readonly string[] = [
+export const SINCH_SUPPORT_NOTES: readonly string[] = Object.freeze([
   "Sinch documents Basic and OAuth 2.0 callback authentication for SMS and sets up HMAC through your account manager without publishing its format. The webhook parser requires Basic credentials or an HMAC secret; OAuth 2.0 callbacks are not supported.",
   "Sinch reports are per-recipient and can be retried or reordered; deduplicate using the batch, recipient, and status key.",
-];
+]);
 
 /** Sinch batch parameters accepted in `providerOptions.sinch`. Parameters the SDK sets are reserved. */
 export const SINCH_PROVIDER_OPTIONS = {
@@ -132,7 +133,7 @@ export function sinch(options: SinchOptions): SmsAdapter {
     rawFetch = options.fetch;
     rawFrom = freezeSender(options.from);
   } catch {
-    throw new ConfigurationError("Sinch options must be an object.");
+    throw new ConfigurationError("Sinch options could not be read.");
   }
   const servicePlanId = requireValue(rawServicePlanId, "servicePlanId");
   const apiToken = requireValue(rawApiToken, "apiToken");

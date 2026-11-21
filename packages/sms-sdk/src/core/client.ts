@@ -20,7 +20,7 @@ import {
   SmsError,
 } from "./errors.js";
 import { emitHook, type SendAttempt, type SmsHookEventBase } from "./events.js";
-import { freezeSender, isPlainObject, isRecord } from "./http.js";
+import { freezeCapabilities, freezeSender, isPlainObject, isRecord } from "./http.js";
 import { runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
@@ -135,25 +135,32 @@ function freezeShallowPlainRecord(value: unknown): unknown {
   return Object.freeze(copy);
 }
 
+function hasKey(record: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(record, key) || (key in record && !(key in Object.prototype));
+}
+
 function freezeFromByAdapter(value: unknown, configuredNames: readonly string[]): unknown {
   if (!isRecord(value)) {
     return value;
   }
   const copy: Record<string, unknown> = {};
   for (const key of configuredNames) {
-    if (key in value) {
+    if (hasKey(value, key)) {
       defineOwn(copy, key, freezeSender(value[key]));
     }
   }
   return Object.freeze(copy);
 }
 
-function freezeProviderOptions(value: unknown): unknown {
+function freezeProviderOptions(value: unknown, configuredNames: readonly string[]): unknown {
   if (!isRecord(value)) {
     return value;
   }
   const copy: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
+  for (const key of configuredNames) {
+    if (!hasKey(value, key)) {
+      continue;
+    }
     const entry = value[key];
     if (isPlainObject(entry)) {
       const entryCopy: Record<string, unknown> = {};
@@ -216,7 +223,7 @@ function snapshotSendInput(raw: SmsSendInput, configuredNames: readonly string[]
     snapshot["idempotencyKey"] = idempotencyKey;
   }
   if (providerOptions !== undefined) {
-    snapshot["providerOptions"] = freezeProviderOptions(providerOptions);
+    snapshot["providerOptions"] = freezeProviderOptions(providerOptions, configuredNames);
   }
   return Object.freeze(snapshot) as unknown as SmsSendInput;
 }
@@ -237,6 +244,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   let rawFallback: unknown;
   let rawHooks: unknown;
   let rawIdempotency: unknown;
+  let rawAdapterList: unknown[];
   try {
     rawAdapters = options.adapters;
     beforeSend = options.beforeSend;
@@ -245,47 +253,75 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     rawFallback = options.fallback;
     rawHooks = options.hooks;
     rawIdempotency = options.idempotency;
+    if (!Array.isArray(rawAdapters) || rawAdapters.length === 0) {
+      throw new ConfigurationError("createSmsClient needs at least one adapter.");
+    }
+    rawAdapterList = [...rawAdapters];
   } catch (error) {
     if (error instanceof ConfigurationError) {
       throw error;
     }
     throw new ConfigurationError("createSmsClient options must be an object.");
   }
-  if (!Array.isArray(rawAdapters) || rawAdapters.length === 0) {
-    throw new ConfigurationError("createSmsClient needs at least one adapter.");
-  }
-  const adapters = [...rawAdapters] as [SmsAdapter, ...SmsAdapter[]];
-  for (const adapter of adapters) {
+  const validatedAdapters: SmsAdapter[] = [];
+  for (const rawAdapter of rawAdapterList) {
     try {
       if (
-        !isRecord(adapter) ||
-        typeof adapter["name"] !== "string" ||
-        adapter["name"].length === 0 ||
-        typeof adapter["send"] !== "function" ||
-        !isRecord(adapter["capabilities"]) ||
-        !Array.isArray(adapter["capabilities"]["senderTypes"]) ||
-        !adapter["capabilities"]["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
-        (adapter["capabilities"]["validityPeriod"] !== null &&
-          (!isRecord(adapter["capabilities"]["validityPeriod"]) ||
-            typeof adapter["capabilities"]["validityPeriod"]["minSec"] !== "number" ||
-            !Number.isInteger(adapter["capabilities"]["validityPeriod"]["minSec"]) ||
-            adapter["capabilities"]["validityPeriod"]["minSec"] <= 0 ||
-            typeof adapter["capabilities"]["validityPeriod"]["maxSec"] !== "number" ||
-            !Number.isInteger(adapter["capabilities"]["validityPeriod"]["maxSec"]) ||
-            adapter["capabilities"]["validityPeriod"]["maxSec"] < adapter["capabilities"]["validityPeriod"]["minSec"])) ||
-        (adapter["providerOptions"] !== undefined && !isValidProviderOptionsSpec(adapter["providerOptions"])) ||
-        (adapter["validate"] !== undefined && typeof adapter["validate"] !== "function") ||
-        (adapter["getMessage"] !== undefined && typeof adapter["getMessage"] !== "function")
+        !isRecord(rawAdapter) ||
+        typeof rawAdapter["name"] !== "string" ||
+        rawAdapter["name"].length === 0 ||
+        typeof rawAdapter["send"] !== "function" ||
+        !isRecord(rawAdapter["capabilities"]) ||
+        !Array.isArray(rawAdapter["capabilities"]["senderTypes"]) ||
+        !rawAdapter["capabilities"]["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
+        (rawAdapter["capabilities"]["validityPeriod"] !== null &&
+          (!isRecord(rawAdapter["capabilities"]["validityPeriod"]) ||
+            typeof rawAdapter["capabilities"]["validityPeriod"]["minSec"] !== "number" ||
+            !Number.isInteger(rawAdapter["capabilities"]["validityPeriod"]["minSec"]) ||
+            rawAdapter["capabilities"]["validityPeriod"]["minSec"] <= 0 ||
+            typeof rawAdapter["capabilities"]["validityPeriod"]["maxSec"] !== "number" ||
+            !Number.isInteger(rawAdapter["capabilities"]["validityPeriod"]["maxSec"]) ||
+            rawAdapter["capabilities"]["validityPeriod"]["maxSec"] < rawAdapter["capabilities"]["validityPeriod"]["minSec"])) ||
+        !isRecord(rawAdapter["support"]) ||
+        (rawAdapter["support"]["status"] !== "supported" && rawAdapter["support"]["status"] !== "partial") ||
+        !Array.isArray(rawAdapter["support"]["notes"]) ||
+        !rawAdapter["support"]["notes"].every((n) => typeof n === "string") ||
+        (rawAdapter["providerOptions"] !== undefined && !isValidProviderOptionsSpec(rawAdapter["providerOptions"])) ||
+        (rawAdapter["validate"] !== undefined && typeof rawAdapter["validate"] !== "function") ||
+        (rawAdapter["getMessage"] !== undefined && typeof rawAdapter["getMessage"] !== "function")
       ) {
-        throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
+        throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, support, and send().");
       }
+      const typed = rawAdapter as unknown as SmsAdapter;
+      const frozenCaps = freezeCapabilities(typed.capabilities);
+      const frozenSupport = Object.freeze({
+        status: typed.support.status,
+        notes: Object.freeze([...typed.support.notes]),
+      });
+      const frozenDefaultFrom = freezeSender(typed.defaultFrom);
+      const sendFn = typed.send.bind(typed);
+      const validateFn = typed.validate?.bind(typed);
+      const getMessageFn = typed.getMessage?.bind(typed);
+      validatedAdapters.push(
+        Object.freeze({
+          name: typed.name,
+          capabilities: frozenCaps,
+          support: frozenSupport,
+          ...(typed.providerOptions === undefined ? {} : { providerOptions: typed.providerOptions }),
+          ...(frozenDefaultFrom === undefined ? {} : { defaultFrom: frozenDefaultFrom }),
+          send: sendFn,
+          ...(validateFn === undefined ? {} : { validate: validateFn }),
+          ...(getMessageFn === undefined ? {} : { getMessage: getMessageFn }),
+        }),
+      );
     } catch (error) {
       if (error instanceof ConfigurationError) {
         throw error;
       }
-      throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
+      throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, support, and send().");
     }
   }
+  const adapters = validatedAdapters as [SmsAdapter, ...SmsAdapter[]];
   if (beforeSend !== undefined && typeof beforeSend !== "function") {
     throw new ConfigurationError("beforeSend must be a function.");
   }
@@ -321,7 +357,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       throw new ConfigurationError("hooks must be an object of callback functions.");
     }
     try {
-      const seenHookKeys = new Set<string>(["onAttempt", "onAccepted", "onFailure"]);
       for (const hookName of ["onAttempt", "onAccepted", "onFailure"] as const) {
         if (hookName in rawHooks) {
           const hookFn = rawHooks[hookName];
@@ -331,14 +366,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             }
             hooks[hookName] = hookFn.bind(rawHooks) as never;
           }
-        }
-      }
-      for (const [hookName, hookFn] of Object.entries(rawHooks)) {
-        if (seenHookKeys.has(hookName)) {
-          continue;
-        }
-        if (hookFn !== undefined && typeof hookFn !== "function") {
-          throw new ConfigurationError(`hooks.${hookName} must be a function.`);
         }
       }
     } catch (error) {
@@ -627,13 +654,13 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     };
 
     if (beforeSend !== undefined) {
-      let decision: unknown;
+      let rawDecision: unknown;
       try {
         const policyMessage: SmsSendInput =
           input.sendAt instanceof Date
             ? Object.freeze({ ...input, sendAt: new Date(input.sendAt.getTime()) })
             : input;
-        decision = await beforeSend({
+        rawDecision = beforeSend({
           id,
           message: policyMessage,
           encoding: preview.encoding,
@@ -645,6 +672,29 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         // The caller gets the original exception; hooks see it as a policy failure.
         emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
         throw cause;
+      }
+      let isRealPromise = false;
+      try {
+        isRealPromise = rawDecision instanceof Promise;
+      } catch {
+        return fail(new PolicyRejectedError("beforeSend returned an unreadable decision."));
+      }
+      let decision: unknown;
+      if (isRealPromise) {
+        try {
+          decision = await rawDecision;
+        } catch (cause) {
+          const policyError = new PolicyRejectedError("beforeSend threw");
+          await finalize({ state: "rejected", fingerprint: reservation?.fingerprint ?? "", error: policyError.toJSON() });
+          emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
+          throw cause;
+        }
+      } else {
+        try {
+          decision = await rawDecision;
+        } catch {
+          return fail(new PolicyRejectedError("beforeSend returned an unreadable decision."));
+        }
       }
       let isObj = false;
       let kind: unknown;
@@ -785,23 +835,20 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     validate,
     getMessage,
     capabilities(): readonly SmsAdapterInfo[] {
-      return adapters.map((adapter) => ({
-        name: adapter.name,
-        capabilities: Object.freeze({
-          ...adapter.capabilities,
-          senderTypes: Object.freeze([...adapter.capabilities.senderTypes]),
-          validityPeriod:
-            adapter.capabilities.validityPeriod === null
-              ? null
-              : Object.freeze({ ...adapter.capabilities.validityPeriod }),
-        }),
-        support: Object.freeze({
-          ...adapter.support,
-          notes: Object.freeze([...adapter.support.notes]),
-        }),
-        defaultFrom: freezeSender(adapter.defaultFrom),
-        messageLookup: adapter.getMessage !== undefined,
-      }));
+      return Object.freeze(
+        adapters.map((adapter) =>
+          Object.freeze({
+            name: adapter.name,
+            capabilities: freezeCapabilities(adapter.capabilities),
+            support: Object.freeze({
+              ...adapter.support,
+              notes: Object.freeze([...adapter.support.notes]),
+            }),
+            defaultFrom: freezeSender(adapter.defaultFrom),
+            messageLookup: adapter.getMessage !== undefined,
+          }),
+        ),
+      );
     },
   };
 }

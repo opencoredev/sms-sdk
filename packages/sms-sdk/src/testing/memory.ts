@@ -11,6 +11,8 @@ import type {
   SmsFrom,
   UnknownReason,
 } from "../core/adapters.js";
+import { ConfigurationError } from "../core/errors.js";
+import { freezeCapabilities, freezeSender } from "../core/http.js";
 
 /** A scripted outcome, or a function that computes one per send. */
 export type MemoryOutcome =
@@ -56,7 +58,7 @@ export type MemoryAdapter = SmsAdapter & {
   reset(): void;
 };
 
-const MEMORY_CAPABILITIES: SmsCapabilities = {
+const MEMORY_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: true,
@@ -66,9 +68,12 @@ const MEMORY_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: false,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
-const MEMORY_SUPPORT: AdapterSupport = { status: "supported", notes: ["Test adapter: records sends in memory."] };
+const MEMORY_SUPPORT: AdapterSupport = Object.freeze({
+  status: "supported",
+  notes: Object.freeze(["Test adapter: records sends in memory."]),
+});
 
 /**
  * Creates an in-memory adapter for tests and local development.
@@ -83,13 +88,19 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
   const sent: MemorySentMessage[] = [];
   const queue: MemoryOutcome[] = [...(options.outcomes ?? [])];
   let counter = 0;
+  let defaultFrom: SmsFrom;
+  try {
+    defaultFrom = freezeSender(options.from ?? "+15005550006");
+  } catch {
+    throw new ConfigurationError("Memory adapter from option could not be read.");
+  }
 
   return {
     name,
-    capabilities: { ...MEMORY_CAPABILITIES, ...options.capabilities },
+    capabilities: freezeCapabilities({ ...MEMORY_CAPABILITIES, ...options.capabilities }),
     support: MEMORY_SUPPORT,
     ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }),
-    defaultFrom: options.from ?? "+15005550006",
+    defaultFrom,
     sent,
 
     async send(message, context) {

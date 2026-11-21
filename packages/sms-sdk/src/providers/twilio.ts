@@ -24,6 +24,7 @@ import {
   basicAuthorization,
   exchange,
   foundMessage,
+  freezeCapabilities,
   isRecord,
   lookupFailureForStatus,
   malformedLookup,
@@ -74,7 +75,7 @@ export type TwilioApiKeyOptions = TwilioCommonOptions & {
 export type TwilioOptions = TwilioAuthTokenOptions | TwilioApiKeyOptions;
 
 /** Static capabilities of the Twilio adapter. */
-export const TWILIO_CAPABILITIES: SmsCapabilities = {
+export const TWILIO_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: true,
@@ -84,7 +85,7 @@ export const TWILIO_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
 /**
  * Twilio Message create parameters accepted in `providerOptions.twilio`, from
@@ -190,7 +191,7 @@ export function twilio(options: TwilioOptions): SmsAdapter {
     rawFetch = options.fetch;
     rawFrom = freezeSender(options.from);
   } catch {
-    throw new ConfigurationError("Twilio options must be an object.");
+    throw new ConfigurationError("Twilio options could not be read.");
   }
   if (typeof accountSid !== "string" || !ACCOUNT_SID_PATTERN.test(accountSid)) {
     throw new ConfigurationError("Twilio accountSid must be AC followed by 32 hex characters.");
