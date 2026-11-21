@@ -204,7 +204,7 @@ export function vonage(options: VonageOptions): SmsAdapter {
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretVonageResponse(response.status, response.text, response.headers);
     },

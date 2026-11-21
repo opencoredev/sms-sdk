@@ -1,30 +1,77 @@
 import type { AdapterSendOutcome, ProviderErrorInfo } from "./adapters.js";
+import { ConfigurationError } from "./errors.js";
 import { redactText } from "./redact.js";
 
 /** A `fetch`-compatible function. Adapters accept one for testing and custom runtimes. */
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
-/** Outcome of one HTTP exchange. `failed` means no complete response was read. */
-export type HttpExchange =
-  | { readonly kind: "response"; readonly status: number; readonly headers: Headers; readonly text: string }
-  | { readonly kind: "failed"; readonly cause: unknown };
+/** Largest provider response body read, in bytes. Provider JSON is a few kilobytes. */
+export const MAX_RESPONSE_BYTES = 1_048_576;
 
 /**
- * Performs one request and reads the whole body. Never throws: a network
- * error, abort, or body read failure becomes `failed`, which adapters must
- * treat as an unknown outcome.
+ * Outcome of one HTTP exchange. `failed` means no complete, readable response:
+ * `reason` is `network` for a transport error or abort, and
+ * `malformed_response` for a body over {@link MAX_RESPONSE_BYTES}.
  */
-export async function exchange(
-  fetcher: FetchLike,
-  url: string,
-  init: { readonly method: "POST"; readonly headers: Record<string, string>; readonly body: string; readonly signal: AbortSignal },
-): Promise<HttpExchange> {
+export type HttpExchange =
+  | { readonly kind: "response"; readonly status: number; readonly headers: Headers; readonly text: string }
+  | { readonly kind: "failed"; readonly reason: "network" | "malformed_response"; readonly cause: unknown };
+
+/** A request {@link exchange} can send. */
+export type HttpRequest = {
+  readonly method: "GET" | "POST";
+  readonly headers: Record<string, string>;
+  readonly body?: string;
+  readonly signal: AbortSignal;
+};
+
+/**
+ * Performs one request and reads the body, up to {@link MAX_RESPONSE_BYTES}.
+ * Never throws: a network error, abort, body read failure, or oversized body
+ * becomes `failed`, which adapters must treat as an unknown outcome.
+ */
+export async function exchange(fetcher: FetchLike, url: string, init: HttpRequest): Promise<HttpExchange> {
   try {
     const response = await fetcher(url, init);
-    const text = await response.text();
+    const text = await readBoundedText(response, MAX_RESPONSE_BYTES);
+    if (text === undefined) {
+      return {
+        kind: "failed",
+        reason: "malformed_response",
+        cause: new RangeError(`Provider response body exceeded ${MAX_RESPONSE_BYTES} bytes.`),
+      };
+    }
     return { kind: "response", status: response.status, headers: response.headers, text };
   } catch (cause) {
-    return { kind: "failed", cause };
+    return { kind: "failed", reason: "network", cause };
+  }
+}
+
+/** Reads a response body as UTF-8, or returns `undefined` (and cancels the stream) once it passes `maxBytes`. */
+async function readBoundedText(response: Response, maxBytes: number): Promise<string | undefined> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    return undefined;
+  }
+  if (response.body === null) {
+    return "";
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return text + decoder.decode();
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    text += decoder.decode(value, { stream: true });
   }
 }
 
@@ -73,9 +120,18 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
   return Number.isNaN(date) ? undefined : Math.max(0, date - now);
 }
 
-/** `Basic` authorization header value for ASCII credentials. */
+/**
+ * `Basic` authorization header value.
+ *
+ * @throws {ConfigurationError} when a credential has a character outside
+ * Latin-1, which HTTP Basic auth as sent here cannot encode.
+ */
 export function basicAuthorization(username: string, password: string): string {
-  return `Basic ${btoa(`${username}:${password}`)}`;
+  try {
+    return `Basic ${btoa(`${username}:${password}`)}`;
+  } catch {
+    throw new ConfigurationError("Basic auth credentials must contain only Latin-1 characters.");
+  }
 }
 
 /** Builds redacted {@link ProviderErrorInfo}. */

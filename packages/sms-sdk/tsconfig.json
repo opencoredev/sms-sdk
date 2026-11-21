@@ -31,6 +31,12 @@
       "@opencoredev/sms-sdk/vonage": [
         "./src/providers/vonage.ts"
       ],
+      "@opencoredev/sms-sdk/bandwidth": [
+        "./src/providers/bandwidth.ts"
+      ],
+      "@opencoredev/sms-sdk/sinch": [
+        "./src/providers/sinch.ts"
+      ],
       "@opencoredev/sms-sdk/webhooks": [
         "./src/webhooks/index.ts"
       ],

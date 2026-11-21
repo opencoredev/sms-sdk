@@ -138,7 +138,7 @@ export function sinch(options: SinchOptions): SmsAdapter {
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretSinchResponse(response.status, response.text, response.headers);
     },

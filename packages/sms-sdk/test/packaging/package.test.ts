@@ -42,15 +42,40 @@ describe("published package", () => {
   });
 
   test("every export target is in the tarball", () => {
-    const manifest: { exports: Record<string, string | { types: string; import: string }> } = JSON.parse(
+    const manifest: { exports: Record<string, string | { types: string; import: string; default: string }> } = JSON.parse(
       readFileSync(join(PACKAGE_DIR, "package.json"), "utf8"),
     );
     for (const target of Object.values(manifest.exports)) {
-      const paths = typeof target === "string" ? [target] : [target.types, target.import];
+      const paths = typeof target === "string" ? [target] : [target.types, target.import, target.default];
       for (const path of paths) {
         expect(packedFiles).toContain(path.replace(/^\.\//, ""));
       }
     }
+  });
+
+  test("is ESM only: every subpath has a default condition equal to import and no require build", () => {
+    const manifest: { exports: Record<string, string | Record<string, string>> } = JSON.parse(
+      readFileSync(join(PACKAGE_DIR, "package.json"), "utf8"),
+    );
+    for (const [subpath, target] of Object.entries(manifest.exports)) {
+      if (typeof target === "string") {
+        continue;
+      }
+      expect({ subpath, keys: Object.keys(target) }).toEqual({ subpath, keys: ["types", "import", "default"] });
+      expect(target["default"]).toBe(target["import"]);
+    }
+  });
+
+  test("tools that resolve without the import condition still find every subpath", () => {
+    // require.resolve uses the require/node/default conditions. Without a
+    // default condition this failed with ERR_PACKAGE_PATH_NOT_EXPORTED.
+    const script = `
+      const subpaths = ${JSON.stringify(SUBPATHS)};
+      const out = subpaths.map((subpath) => require.resolve("@opencoredev/sms-sdk" + subpath).includes("/dist/"));
+      console.log(JSON.stringify(out));
+    `;
+    const resolved: boolean[] = JSON.parse(run("node", ["--input-type=commonjs", "-e", script], consumerDir));
+    expect(resolved).toEqual(SUBPATHS.map(() => true));
   });
 
   test("has zero runtime and peer dependencies", () => {

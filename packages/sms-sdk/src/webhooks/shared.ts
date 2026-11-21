@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "../core/crypto.js";
 import { ConfigurationError, WebhookPayloadError } from "../core/errors.js";
+import { basicAuthorization } from "../core/http.js";
 import type { SmsEvent, WebhookProvider } from "./events.js";
 
 /** Options shared by every provider's webhook parser. */
@@ -116,12 +117,16 @@ export function requireField(provider: WebhookProvider, fields: Record<string, s
 /** HTTP Basic credentials a provider sends on its callback requests. */
 export type BasicCallbackCredentials = { readonly username: string; readonly password: string };
 
-/** Checks an `Authorization` header against Basic credentials in constant time. */
+/**
+ * Checks an `Authorization` header against Basic credentials in constant time.
+ *
+ * @throws {ConfigurationError} when the credentials are not Latin-1.
+ */
 export function hasBasicAuthorization(header: string | null, credentials: BasicCallbackCredentials): boolean {
   if (header === null) {
     return false;
   }
-  return timingSafeEqual(header, `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`);
+  return timingSafeEqual(header, basicAuthorization(credentials.username, credentials.password));
 }
 
 /** Parses a date string, returning `undefined` when absent or invalid. */

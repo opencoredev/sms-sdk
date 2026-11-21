@@ -197,7 +197,7 @@ export function twilio(options: TwilioOptions): SmsAdapter {
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretTwilioResponse(response.status, response.text, response.headers);
     },

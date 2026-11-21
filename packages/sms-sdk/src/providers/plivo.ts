@@ -143,7 +143,7 @@ export function plivo(options: PlivoOptions): SmsAdapter {
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretPlivoResponse(response.status, response.text, response.headers);
     },
