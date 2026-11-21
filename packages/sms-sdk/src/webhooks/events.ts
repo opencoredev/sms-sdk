@@ -79,10 +79,17 @@ export type UnrecognizedEvent = SmsEventBase & {
 export type SmsEvent = MessageReceivedEvent | MessageStatusEvent | RecipientKeywordEvent | UnrecognizedEvent;
 
 /** Whole-message keywords treated as opt-out requests. */
-export const OPT_OUT_KEYWORDS: readonly string[] = ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"];
+export const OPT_OUT_KEYWORDS: readonly string[] = Object.freeze([
+  "STOP",
+  "STOPALL",
+  "UNSUBSCRIBE",
+  "CANCEL",
+  "END",
+  "QUIT",
+]);
 
 /** Whole-message keywords treated as help requests. */
-export const HELP_KEYWORDS: readonly string[] = ["HELP", "INFO"];
+export const HELP_KEYWORDS: readonly string[] = Object.freeze(["HELP", "INFO"]);
 
 /** A keyword match from {@link detectKeyword}. */
 export type KeywordMatch = { readonly kind: "opted_out" | "help"; readonly keyword: string };

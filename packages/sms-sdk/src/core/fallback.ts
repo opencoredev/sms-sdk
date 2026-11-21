@@ -281,8 +281,8 @@ function normalizeOutcome(outcome: unknown, adapterName: string): AdapterSendOut
         kind: "rejected",
         category: category as Extract<AdapterSendOutcome, { kind: "rejected" }>["category"],
         details: sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName),
-        ...(typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0
-          ? { retryAfterMs }
+        ...(typeof retryAfterMs === "number" && retryAfterMs >= 0
+          ? { retryAfterMs: Number.isFinite(retryAfterMs) ? retryAfterMs : Number.MAX_SAFE_INTEGER }
           : {}),
       };
     }

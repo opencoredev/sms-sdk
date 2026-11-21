@@ -1922,5 +1922,56 @@ describe("send: fromByAdapter", () => {
     const { parseRetryAfter } = await import("../../src/core/http.js");
     const hugeRetry = parseRetryAfter("9".repeat(400));
     expect(hugeRetry).toBe(Number.MAX_SAFE_INTEGER);
+
+    // R29: Infinity retryAfterMs from custom adapter stops retrying; throwing/malformed adapter.validate() fails closed; keyword arrays are frozen
+    let infCalls = 0;
+    const infClient = createSmsClient({
+      retry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 100 },
+      adapters: [
+        {
+          name: "inf-rl",
+          capabilities: memory().capabilities,
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            infCalls += 1;
+            return {
+              kind: "rejected",
+              category: "rate_limited",
+              retryAfterMs: Infinity,
+              details: { provider: "inf-rl", httpStatus: 429 },
+            };
+          },
+        },
+      ],
+    });
+    const infErr = await rejection(infClient.send({ to: "+14155550123", body: "hi" }));
+    expect(infErr).toBeInstanceOf(ProviderRateLimitedError);
+    expect(infCalls).toBe(1);
+
+    const badValClient = createSmsClient({
+      adapters: [
+        {
+          name: "bad-val",
+          capabilities: memory().capabilities,
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          validate() {
+            throw new Error("validator-boom");
+          },
+          async send() {
+            return { kind: "accepted", providerId: "x", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    expect(badValClient.validate({ to: "+14155550123", body: "hi" }).supported).toBe(false);
+    await expect(badValClient.send({ to: "+14155550123", body: "hi" })).rejects.toMatchObject({
+      code: "invalid_message",
+    });
+
+    const { OPT_OUT_KEYWORDS, HELP_KEYWORDS } = await import("../../src/webhooks/events.js");
+    expect(Object.isFrozen(OPT_OUT_KEYWORDS)).toBe(true);
+    expect(Object.isFrozen(HELP_KEYWORDS)).toBe(true);
   });
 });

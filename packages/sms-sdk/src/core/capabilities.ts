@@ -273,7 +273,49 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
   };
 
   if (issues.length === 0 && adapter.validate !== undefined) {
-    issues.push(...adapter.validate(message).map((issue) => ({ ...issue, provider })));
+    try {
+      const rawIssues: unknown = adapter.validate(message);
+      if (!Array.isArray(rawIssues)) {
+        issues.push({
+          code: "invalid_field",
+          field: "body",
+          provider,
+          message: `Adapter "${provider}" validate() returned a malformed issue list.`,
+        });
+      } else {
+        for (const item of rawIssues) {
+          if (
+            isRecord(item) &&
+            typeof item["code"] === "string" &&
+            typeof item["field"] === "string" &&
+            typeof item["message"] === "string" &&
+            VALID_ISSUE_CODES.has(item["code"]) &&
+            VALID_ISSUE_FIELDS.has(item["field"])
+          ) {
+            issues.push({
+              code: item["code"] as ValidationIssue["code"],
+              field: item["field"] as ValidationIssue["field"],
+              message: item["message"],
+              provider,
+            });
+          } else {
+            issues.push({
+              code: "invalid_field",
+              field: "body",
+              provider,
+              message: `Adapter "${provider}" validate() returned a malformed issue.`,
+            });
+          }
+        }
+      }
+    } catch {
+      issues.push({
+        code: "invalid_field",
+        field: "body",
+        provider,
+        message: `Adapter "${provider}" validate() threw an unexpected error.`,
+      });
+    }
   }
   return issues.length === 0 ? { kind: "ok", message } : { kind: "issues", issues };
 }
@@ -305,6 +347,28 @@ function providerOptionsEntry(input: SmsSendInput, adapterName: string): unknown
   const all: unknown = input.providerOptions;
   return isRecord(all) && Object.hasOwn(all, adapterName) ? all[adapterName] : undefined;
 }
+
+const VALID_ISSUE_CODES: ReadonlySet<string> = new Set([
+  "invalid_recipient",
+  "invalid_sender",
+  "missing_sender",
+  "empty_body",
+  "invalid_field",
+  "unsupported_field",
+]);
+
+const VALID_ISSUE_FIELDS: ReadonlySet<string> = new Set([
+  "to",
+  "from",
+  "fromByAdapter",
+  "body",
+  "mediaUrls",
+  "sendAt",
+  "validityPeriodSec",
+  "webhookUrl",
+  "idempotencyKey",
+  "providerOptions",
+]);
 
 /** Converts a validation issue into the error `send()` throws for it. */
 export function issueToError(issue: ValidationIssue): SmsError {

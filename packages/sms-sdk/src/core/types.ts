@@ -77,7 +77,7 @@ export type SmsSendResult = {
   readonly attemptedProviders: readonly string[];
   /** Every provider request made, in order. */
   readonly attempts: readonly SendAttempt[];
-  /** True when this result came from the idempotency store instead of a new send. */
+  /** True when this result came from the idempotency store or a coalesced in-flight send instead of a new send. */
   readonly replayed: boolean;
 };
 

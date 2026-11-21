@@ -230,7 +230,7 @@ type SendAttempt =
 | `IdempotencyConflictError` | `idempotency_conflict` | false | Key reused with a different payload or sender |
 | `IdempotencyInProgressError` | `idempotency_in_progress` | true | Another process holds a fresh reservation |
 
-[Errors](/reference/errors) has details and the action for each. An error thrown by your `beforeSend` propagates unchanged.
+[Errors](/reference/errors) has details and the action for each. An error thrown or rejected via a native `Promise` by your `beforeSend` propagates unchanged; malformed decisions and rejecting non-native thenables fail closed with `PolicyRejectedError`.
 
 ## Types
 
