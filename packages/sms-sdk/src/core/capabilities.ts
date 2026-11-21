@@ -47,21 +47,24 @@ export function resolveSender(from: SmsFrom | undefined): SenderResolution {
     return { kind: "invalid", message: "Sender must be an E.164 string or a sender object." };
   }
   if ("senderId" in from) {
-    return typeof from.senderId === "string" && SENDER_ID_PATTERN.test(from.senderId)
-      ? { kind: "ok", sender: { kind: "alphanumeric", value: from.senderId } }
+    const senderId = from.senderId;
+    return typeof senderId === "string" && SENDER_ID_PATTERN.test(senderId)
+      ? { kind: "ok", sender: { kind: "alphanumeric", value: senderId } }
       : {
           kind: "invalid",
           message: "Alphanumeric sender IDs are 1-11 letters, digits, or spaces and contain at least one letter.",
         };
   }
   if ("shortCode" in from) {
-    return typeof from.shortCode === "string" && SHORT_CODE_PATTERN.test(from.shortCode)
-      ? { kind: "ok", sender: { kind: "short_code", value: from.shortCode } }
+    const shortCode = from.shortCode;
+    return typeof shortCode === "string" && SHORT_CODE_PATTERN.test(shortCode)
+      ? { kind: "ok", sender: { kind: "short_code", value: shortCode } }
       : { kind: "invalid", message: "Short codes are 3-8 digits." };
   }
   if ("messagingService" in from) {
-    return typeof from.messagingService === "string" && from.messagingService.trim().length > 0
-      ? { kind: "ok", sender: { kind: "messaging_service", value: from.messagingService } }
+    const messagingService = from.messagingService;
+    return typeof messagingService === "string" && messagingService.trim().length > 0
+      ? { kind: "ok", sender: { kind: "messaging_service", value: messagingService } }
       : { kind: "invalid", message: "Messaging service identifiers must be non-empty." };
   }
   return { kind: "invalid", message: "Unrecognized sender object." };
@@ -88,6 +91,17 @@ export function senderTypesFor(sender: SmsSender): readonly SenderType[] {
 /** True when the adapter declares at least one sender type that fits `sender`. */
 export function supportsSender(capabilities: SmsCapabilities, sender: SmsSender): boolean {
   return senderTypesFor(sender).some((type) => capabilities.senderTypes.includes(type));
+}
+
+function isValidDate(value: unknown): value is Date {
+  if (!(value instanceof Date)) {
+    return false;
+  }
+  try {
+    return Number.isFinite(Date.prototype.getTime.call(value));
+  } catch {
+    return false;
+  }
 }
 
 /** Reported when the value passed as a message is not an object at all. */
@@ -154,7 +168,7 @@ export function validateMessage(
       }
     }
   }
-  if (input.sendAt !== undefined && !(input.sendAt instanceof Date && Number.isFinite(input.sendAt.getTime()))) {
+  if (input.sendAt !== undefined && !isValidDate(input.sendAt)) {
     issues.push({ code: "invalid_field", field: "sendAt", message: "sendAt must be a valid Date." });
   }
   if (

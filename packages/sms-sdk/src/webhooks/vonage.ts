@@ -2,7 +2,15 @@ import { fromBase64, hmac, sha256Hex, timingSafeEqual, toBase64Url } from "../co
 import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, readWebhookBody, requireTolerance, skipVerification, type WebhookCommonOptions } from "./shared.js";
+import {
+  parseDate,
+  readHeaderString,
+  readWebhookBody,
+  requireTolerance,
+  skipVerification,
+  snapshotWebhookOptions,
+  type WebhookCommonOptions,
+} from "./shared.js";
 import type { WebhookVerification } from "./telnyx.js";
 
 /**
@@ -39,10 +47,13 @@ export async function verifyVonageSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
-  if (typeof input.signatureSecret !== "string" || input.signatureSecret.length === 0) {
+  if (!isRecord(input) || typeof input.signatureSecret !== "string" || input.signatureSecret.length === 0) {
     throw new ConfigurationError("Vonage webhook signatureSecret must be a non-empty string.");
   }
   const tolerance = requireTolerance(input.toleranceSec, VONAGE_DEFAULT_TOLERANCE_SEC);
+  if (input.authorization !== null && typeof input.authorization !== "string") {
+    return { valid: false, reason: "missing_signature" };
+  }
   const token = input.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (token === undefined || token.length === 0) {
     return { valid: false, reason: "missing_signature" };
@@ -85,7 +96,15 @@ export async function verifyVonageSignature(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parseVonageWebhook(options: VonageWebhookOptions): Promise<SmsEvent> {
+export async function parseVonageWebhook(rawOptions: VonageWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<VonageWebhookOptions>(rawOptions, [
+    "request",
+    "credentials",
+    "toleranceSec",
+    "unsafeSkipVerification",
+    "detectKeywords",
+    "now",
+  ]);
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "vonage");
 
@@ -99,7 +118,7 @@ export async function parseVonageWebhook(options: VonageWebhookOptions): Promise
     }
     const verification = await verifyVonageSignature({
       signatureSecret: options.credentials.signatureSecret,
-      authorization: options.request.headers.get("authorization"),
+      authorization: readHeaderString(options.request.headers, "authorization", "vonage"),
       rawBody,
       ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
       now: (options.now ?? Date.now)(),

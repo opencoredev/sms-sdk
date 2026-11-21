@@ -10,7 +10,12 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (baseUrl === undefined) {
     return fallback;
   }
-  if (typeof baseUrl !== "string" || baseUrl.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(baseUrl)) {
+  if (
+    typeof baseUrl !== "string" ||
+    baseUrl.length === 0 ||
+    /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(baseUrl) ||
+    !/^https?:\/\/[^\\/?#]/i.test(baseUrl)
+  ) {
     throw new ConfigurationError(`${provider} baseUrl must be a valid http or https URL.`);
   }
   if (baseUrl.includes("?") || baseUrl.includes("#")) {
@@ -28,7 +33,7 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (
     parsed.username.length > 0 ||
     parsed.password.length > 0 ||
-    /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(baseUrl)
+    /^https?:[\\/]*[^\\/?#]*@/i.test(baseUrl)
   ) {
     throw new ConfigurationError(`${provider} baseUrl must not include credentials.`);
   }

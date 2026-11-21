@@ -37,7 +37,10 @@ export async function readWebhookBody(request: Request, provider: WebhookProvide
     ) {
       throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
     }
-    headers.get("content-length");
+    const probe = headers.get("content-length");
+    if (probe !== null && typeof probe !== "string") {
+      throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+    }
     if (body !== null) {
       const locked =
         body instanceof ReadableStream && readableStreamLockedGetter !== undefined
@@ -107,6 +110,67 @@ export type SignedUrlOptions = {
 };
 
 /**
+ * Snapshots a webhook parser's top-level options object once inside a boundary guard,
+ * converting throwing getters or non-object inputs into {@link ConfigurationError}.
+ */
+export function snapshotWebhookOptions<T extends Record<string, unknown>>(
+  options: unknown,
+  keys: readonly (keyof T & string)[],
+): T {
+  try {
+    if (!isRecord(options)) {
+      throw new ConfigurationError("Webhook options must be an object.");
+    }
+    const copy: Record<string, unknown> = {};
+    for (const key of keys) {
+      const value = options[key];
+      if (value !== undefined) {
+        if (key === "credentials" && isRecord(value)) {
+          const creds: Record<string, unknown> = {};
+          for (const credKey of Object.keys(value)) {
+            Object.defineProperty(creds, credKey, {
+              value: value[credKey],
+              enumerable: true,
+              writable: true,
+              configurable: true,
+            });
+          }
+          copy[key] = Object.freeze(creds);
+        } else {
+          copy[key] = value;
+        }
+      }
+    }
+    return Object.freeze(copy) as T;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Webhook options must be an object.");
+  }
+}
+
+/**
+ * Reads a header string safely, failing with {@link ConfigurationError} if a spoofed
+ * Headers implementation returns a non-string value.
+ */
+export function readHeaderString(headers: Headers, name: string, provider: WebhookProvider): string | null {
+  let value: unknown;
+  try {
+    value = headers.get(name);
+  } catch {
+    throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+  }
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+  }
+  return value;
+}
+
+/**
  * True when the caller asked to skip verification.
  *
  * @throws {ConfigurationError} when skipping is requested and `NODE_ENV` is `"production"`.
@@ -114,13 +178,24 @@ export type SignedUrlOptions = {
 export function skipVerification(
   options: Pick<WebhookCommonOptions, "unsafeSkipVerification" | "now">,
 ): boolean {
-  if (!isRecord(options)) {
+  let now: unknown;
+  let unsafeSkip: unknown;
+  try {
+    if (!isRecord(options)) {
+      throw new ConfigurationError("Webhook options must be an object.");
+    }
+    now = options.now;
+    unsafeSkip = options.unsafeSkipVerification;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
     throw new ConfigurationError("Webhook options must be an object.");
   }
-  if (options.now !== undefined && typeof options.now !== "function") {
+  if (now !== undefined && typeof now !== "function") {
     throw new ConfigurationError("Webhook now option must be a function.");
   }
-  if (options.unsafeSkipVerification !== true) {
+  if (unsafeSkip !== true) {
     return false;
   }
   if (readNodeEnv()?.trim().toLowerCase() === "production") {
@@ -161,7 +236,12 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     throw new ConfigurationError("The webhook request has an invalid URL.");
   }
   if (options.publicUrl !== undefined) {
-    if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(options.publicUrl)) {
+    if (
+      typeof options.publicUrl !== "string" ||
+      options.publicUrl.length === 0 ||
+      /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(options.publicUrl) ||
+      !/^https?:\/\/[^\\/?#]/i.test(options.publicUrl)
+    ) {
       throw new ConfigurationError("publicUrl must be a valid http or https URL.");
     }
     if (options.publicUrl.includes("#")) {
@@ -179,7 +259,7 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     if (
       parsed.username.length > 0 ||
       parsed.password.length > 0 ||
-      /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(options.publicUrl)
+      /^https?:[\\/]*[^\\/?#]*@/i.test(options.publicUrl)
     ) {
       throw new ConfigurationError("publicUrl must not include credentials.");
     }
@@ -311,6 +391,9 @@ export function parseDate(value: string | undefined): Date | undefined {
 }
 
 function firstHeaderValue(value: string | null): string | undefined {
-  const first = value?.split(",")[0]?.trim();
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const first = value.split(",")[0]?.replace(/^[ \t]+|[ \t]+$/g, "");
   return first === undefined || first.length === 0 ? undefined : first;
 }

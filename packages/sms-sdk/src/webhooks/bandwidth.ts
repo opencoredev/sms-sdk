@@ -5,9 +5,11 @@ import {
   hasBasicAuthorization,
   onlyEvent,
   parseDate,
+  readHeaderString,
   readWebhookBody,
   requireBasicCredentials,
   skipVerification,
+  snapshotWebhookOptions,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -40,12 +42,19 @@ export async function parseBandwidthWebhook(options: BandwidthWebhookOptions): P
  * Parses a Bandwidth Messaging callback into every event it carries.
  * Bandwidth sends a JSON array, which can hold more than one event.
  */
-export async function parseBandwidthWebhooks(options: BandwidthWebhookOptions): Promise<SmsEvent[]> {
+export async function parseBandwidthWebhooks(rawOptions: BandwidthWebhookOptions): Promise<SmsEvent[]> {
+  const options = snapshotWebhookOptions<BandwidthWebhookOptions>(rawOptions, [
+    "request",
+    "credentials",
+    "unsafeSkipVerification",
+    "detectKeywords",
+    "now",
+  ]);
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "bandwidth");
   if (!skip) {
     requireBasicCredentials(options.credentials);
-    const header = options.request.headers.get("authorization");
+    const header = readHeaderString(options.request.headers, "authorization", "bandwidth");
     if (!hasBasicAuthorization(header, options.credentials)) {
       throw new WebhookSignatureError("Bandwidth webhook Basic authorization failed.", {
         reason: header === null ? "missing_signature" : "invalid_signature",

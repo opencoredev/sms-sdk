@@ -6,10 +6,12 @@ import {
   hasBasicAuthorization,
   onlyEvent,
   parseDate,
+  readHeaderString,
   readWebhookBody,
   requireBasicCredentials,
   requireTolerance,
   skipVerification,
+  snapshotWebhookOptions,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -50,7 +52,7 @@ export async function verifySinchSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<SinchWebhookVerification> {
-  if (typeof input.webhookSecret !== "string" || input.webhookSecret.length === 0) {
+  if (!isRecord(input) || typeof input.webhookSecret !== "string" || input.webhookSecret.length === 0) {
     throw new ConfigurationError("Sinch webhook webhookSecret must be a non-empty string.");
   }
   const tolerance = requireTolerance(input.toleranceSec, SINCH_DEFAULT_TOLERANCE_SEC);
@@ -82,7 +84,15 @@ export async function parseSinchWebhook(options: SinchWebhookOptions): Promise<S
  * Parses a Sinch callback into every event it carries: one per entry of
  * `recipient_delivery_report`, or a single event otherwise.
  */
-export async function parseSinchWebhooks(options: SinchWebhookOptions): Promise<SmsEvent[]> {
+export async function parseSinchWebhooks(rawOptions: SinchWebhookOptions): Promise<SmsEvent[]> {
+  const options = snapshotWebhookOptions<SinchWebhookOptions>(rawOptions, [
+    "request",
+    "credentials",
+    "toleranceSec",
+    "unsafeSkipVerification",
+    "detectKeywords",
+    "now",
+  ]);
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "sinch");
   if (!skip) {
@@ -105,7 +115,7 @@ async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string)
   switch (credentials.kind) {
     case "basic": {
       requireBasicCredentials(credentials);
-      const header = request.headers.get("authorization");
+      const header = readHeaderString(request.headers, "authorization", "sinch");
       if (!hasBasicAuthorization(header, credentials)) {
         throw new WebhookSignatureError("Sinch webhook Basic authorization failed.", {
           reason: header === null ? "missing_signature" : "invalid_signature",
@@ -121,9 +131,9 @@ async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string)
       const verification = await verifySinchSignature({
         webhookSecret: credentials.webhookSecret,
         rawBody,
-        signature: request.headers.get("x-sinch-webhook-signature"),
-        nonce: request.headers.get("x-sinch-webhook-signature-nonce"),
-        timestamp: request.headers.get("x-sinch-webhook-signature-timestamp"),
+        signature: readHeaderString(request.headers, "x-sinch-webhook-signature", "sinch"),
+        nonce: readHeaderString(request.headers, "x-sinch-webhook-signature-nonce", "sinch"),
+        timestamp: readHeaderString(request.headers, "x-sinch-webhook-signature-timestamp", "sinch"),
         ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
         now: (options.now ?? Date.now)(),
       });

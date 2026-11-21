@@ -48,11 +48,6 @@ type IdempotencyConfig = {
   readonly staleReservationSec: number;
 };
 
-/**
- * Creates an SMS client over one or more adapters.
- *
- * @throws {ConfigurationError} when no adapters are given, names repeat, or numeric options are invalid.
- */
 const VALID_SENDER_TYPES = new Set([
   "long_code",
   "toll_free",
@@ -60,6 +55,22 @@ const VALID_SENDER_TYPES = new Set([
   "alphanumeric",
   "messaging_service",
 ]);
+
+const regexpSourceGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get;
+const regexpFlagsGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get;
+
+function isRealRegExp(value: unknown): value is RegExp {
+  if (!(value instanceof RegExp)) {
+    return false;
+  }
+  try {
+    regexpSourceGetter?.call(value);
+    regexpFlagsGetter?.call(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function isValidProviderOptionField(field: unknown): boolean {
   if (!isRecord(field) || typeof field["wire"] !== "string" || field["wire"].length === 0) {
@@ -72,7 +83,7 @@ function isValidProviderOptionField(field: unknown): boolean {
       return (
         (field["maxLength"] === undefined ||
           (typeof field["maxLength"] === "number" && Number.isInteger(field["maxLength"]) && field["maxLength"] > 0)) &&
-        (field["pattern"] === undefined || field["pattern"] instanceof RegExp)
+        (field["pattern"] === undefined || isRealRegExp(field["pattern"]))
       );
     case "integer": {
       const min = field["min"];
@@ -108,14 +119,118 @@ function isValidProviderOptionsSpec(spec: unknown): boolean {
   return Object.values(spec["options"]).every(isValidProviderOptionField);
 }
 
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+function freezeShallowRecord(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    defineOwn(copy, key, value[key]);
+  }
+  return Object.freeze(copy);
+}
+
+function freezeFromByAdapter(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    defineOwn(copy, key, freezeShallowRecord(value[key]));
+  }
+  return Object.freeze(copy);
+}
+
+function freezeProviderOptions(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const entry = value[key];
+    if (isRecord(entry)) {
+      const entryCopy: Record<string, unknown> = {};
+      for (const optKey of Object.keys(entry)) {
+        const optVal = entry[optKey];
+        defineOwn(entryCopy, optKey, optKey === "extra" ? freezeShallowRecord(optVal) : optVal);
+      }
+      defineOwn(copy, key, Object.freeze(entryCopy));
+    } else {
+      defineOwn(copy, key, entry);
+    }
+  }
+  return Object.freeze(copy);
+}
+
+function snapshotSendAt(value: unknown): unknown {
+  if (!(value instanceof Date)) {
+    return value;
+  }
+  try {
+    return new Date(Date.prototype.getTime.call(value));
+  } catch {
+    return new Date(Number.NaN);
+  }
+}
+
+function snapshotSendInput(raw: SmsSendInput): SmsSendInput {
+  const source = raw as unknown as Record<string, unknown>;
+  const from = source["from"];
+  const fromByAdapter = source["fromByAdapter"];
+  const mediaUrls = source["mediaUrls"];
+  const sendAt = source["sendAt"];
+  const validityPeriodSec = source["validityPeriodSec"];
+  const webhookUrl = source["webhookUrl"];
+  const idempotencyKey = source["idempotencyKey"];
+  const providerOptions = source["providerOptions"];
+  const snapshot: Record<string, unknown> = {
+    to: source["to"],
+    body: source["body"],
+  };
+  if (from !== undefined) {
+    snapshot["from"] = freezeShallowRecord(from);
+  }
+  if (fromByAdapter !== undefined) {
+    snapshot["fromByAdapter"] = freezeFromByAdapter(fromByAdapter);
+  }
+  if (mediaUrls !== undefined) {
+    snapshot["mediaUrls"] = Array.isArray(mediaUrls) ? Object.freeze([...mediaUrls]) : mediaUrls;
+  }
+  if (sendAt !== undefined) {
+    snapshot["sendAt"] = snapshotSendAt(sendAt);
+  }
+  if (validityPeriodSec !== undefined) {
+    snapshot["validityPeriodSec"] = validityPeriodSec;
+  }
+  if (webhookUrl !== undefined) {
+    snapshot["webhookUrl"] = webhookUrl;
+  }
+  if (idempotencyKey !== undefined) {
+    snapshot["idempotencyKey"] = idempotencyKey;
+  }
+  if (providerOptions !== undefined) {
+    snapshot["providerOptions"] = freezeProviderOptions(providerOptions);
+  }
+  return Object.freeze(snapshot) as unknown as SmsSendInput;
+}
+
+/**
+ * Creates an SMS client over one or more adapters.
+ *
+ * @throws {ConfigurationError} when no adapters are given, names repeat, or numeric options are invalid.
+ */
 export function createSmsClient(options: SmsClientOptions): SmsClient {
   if (!isRecord(options)) {
     throw new ConfigurationError("createSmsClient options must be an object.");
   }
-  const adapters = options.adapters;
-  if (!Array.isArray(adapters) || adapters.length === 0) {
+  if (!Array.isArray(options.adapters) || options.adapters.length === 0) {
     throw new ConfigurationError("createSmsClient needs at least one adapter.");
   }
+  const adapters = [...options.adapters];
   for (const adapter of adapters) {
     if (
       !isRecord(adapter) ||
@@ -196,77 +311,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         };
   const inFlight = new Map<string, InFlight>();
   const configuredAdapters = new Set(adapters.map((adapter) => adapter.name));
-
-function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-}
-
-function freezeShallowRecord(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return value;
-  }
-  const copy: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    defineOwn(copy, key, value[key]);
-  }
-  return Object.freeze(copy);
-}
-
-function freezeProviderOptions(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return value;
-  }
-  const copy: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    const entry = value[key];
-    if (isRecord(entry)) {
-      const entryCopy: Record<string, unknown> = {};
-      for (const optKey of Object.keys(entry)) {
-        const optVal = entry[optKey];
-        defineOwn(entryCopy, optKey, optKey === "extra" ? freezeShallowRecord(optVal) : optVal);
-      }
-      defineOwn(copy, key, Object.freeze(entryCopy));
-    } else {
-      defineOwn(copy, key, entry);
-    }
-  }
-  return Object.freeze(copy);
-}
-
-function snapshotSendInput(raw: SmsSendInput): SmsSendInput {
-  const source = raw as unknown as Record<string, unknown>;
-  const mediaUrls = source["mediaUrls"];
-  const sendAt = source["sendAt"];
-  const snapshot: Record<string, unknown> = {
-    to: source["to"],
-    body: source["body"],
-  };
-  if (source["from"] !== undefined) {
-    snapshot["from"] = source["from"];
-  }
-  if (source["fromByAdapter"] !== undefined) {
-    snapshot["fromByAdapter"] = freezeShallowRecord(source["fromByAdapter"]);
-  }
-  if (mediaUrls !== undefined) {
-    snapshot["mediaUrls"] = Array.isArray(mediaUrls) ? Object.freeze([...mediaUrls]) : mediaUrls;
-  }
-  if (sendAt !== undefined) {
-    snapshot["sendAt"] = sendAt instanceof Date ? new Date(sendAt.getTime()) : sendAt;
-  }
-  if (source["validityPeriodSec"] !== undefined) {
-    snapshot["validityPeriodSec"] = source["validityPeriodSec"];
-  }
-  if (source["webhookUrl"] !== undefined) {
-    snapshot["webhookUrl"] = source["webhookUrl"];
-  }
-  if (source["idempotencyKey"] !== undefined) {
-    snapshot["idempotencyKey"] = source["idempotencyKey"];
-  }
-  if (source["providerOptions"] !== undefined) {
-    snapshot["providerOptions"] = freezeProviderOptions(source["providerOptions"]);
-  }
-  return Object.freeze(snapshot) as unknown as SmsSendInput;
-}
 
   const validate = (rawInput: SmsSendInput): SmsValidationResult => {
     if (!isRecord(rawInput)) {

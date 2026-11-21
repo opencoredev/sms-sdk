@@ -2,7 +2,15 @@ import { fromBase64, utf8 } from "../core/crypto.js";
 import { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, readWebhookBody, requireTolerance, skipVerification, type WebhookCommonOptions } from "./shared.js";
+import {
+  parseDate,
+  readHeaderString,
+  readWebhookBody,
+  requireTolerance,
+  skipVerification,
+  snapshotWebhookOptions,
+  type WebhookCommonOptions,
+} from "./shared.js";
 
 /** Default replay window for `telnyx-timestamp`, matching Telnyx's guidance of 5 minutes. */
 export const TELNYX_DEFAULT_TOLERANCE_SEC = 300;
@@ -33,7 +41,7 @@ export async function verifyTelnyxSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
-  if (typeof input.publicKey !== "string" || input.publicKey.length === 0) {
+  if (!isRecord(input) || typeof input.publicKey !== "string" || input.publicKey.length === 0) {
     throw new ConfigurationError("Telnyx webhook publicKey must be a non-empty string.");
   }
   const tolerance = requireTolerance(input.toleranceSec, TELNYX_DEFAULT_TOLERANCE_SEC);
@@ -73,7 +81,15 @@ export async function verifyTelnyxSignature(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise<SmsEvent> {
+export async function parseTelnyxWebhook(rawOptions: TelnyxWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<TelnyxWebhookOptions>(rawOptions, [
+    "request",
+    "credentials",
+    "toleranceSec",
+    "unsafeSkipVerification",
+    "detectKeywords",
+    "now",
+  ]);
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "telnyx");
 
@@ -84,8 +100,8 @@ export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,
       rawBody,
-      signature: options.request.headers.get("telnyx-signature-ed25519"),
-      timestamp: options.request.headers.get("telnyx-timestamp"),
+      signature: readHeaderString(options.request.headers, "telnyx-signature-ed25519", "telnyx"),
+      timestamp: readHeaderString(options.request.headers, "telnyx-timestamp", "telnyx"),
       ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
       now: (options.now ?? Date.now)(),
     });

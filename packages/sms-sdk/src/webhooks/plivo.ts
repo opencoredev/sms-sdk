@@ -5,10 +5,12 @@ import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase 
 import {
   paramsToRecord,
   readFormParams,
+  readHeaderString,
   readWebhookBody,
   requireField,
   resolveSignedUrl,
   skipVerification,
+  snapshotWebhookOptions,
   type SignedUrlOptions,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -67,7 +69,16 @@ export async function verifyPlivoSignatureV2(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<SmsEvent> {
+export async function parsePlivoWebhook(rawOptions: PlivoWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<PlivoWebhookOptions>(rawOptions, [
+    "request",
+    "credentials",
+    "publicUrl",
+    "trustProxy",
+    "unsafeSkipVerification",
+    "detectKeywords",
+    "now",
+  ]);
   const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "plivo");
@@ -77,10 +88,11 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
     if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
       throw new ConfigurationError("Plivo webhook credentials require a non-empty authToken.");
     }
-    const nonce = request.headers.get("x-plivo-signature-v2-nonce");
-    const signatures = [request.headers.get("x-plivo-signature-v2"), request.headers.get("x-plivo-signature-ma-v2")].filter(
-      (value): value is string => value !== null && value.length > 0,
-    );
+    const nonce = readHeaderString(request.headers, "x-plivo-signature-v2-nonce", "plivo");
+    const signatures = [
+      readHeaderString(request.headers, "x-plivo-signature-v2", "plivo"),
+      readHeaderString(request.headers, "x-plivo-signature-ma-v2", "plivo"),
+    ].filter((value): value is string => value !== null && value.length > 0);
     if (nonce === null || nonce.length === 0 || signatures.length === 0) {
       throw new WebhookSignatureError("Missing X-Plivo-Signature-V2 or its nonce.", {
         reason: "missing_signature",
@@ -170,7 +182,7 @@ function plivoMediaUrls(fields: Record<string, string>): string[] {
 }
 
 function plivoBaseUrl(url: unknown): string {
-  if (typeof url !== "string" || url.length === 0) {
+  if (typeof url !== "string" || url.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url)) {
     throw new ConfigurationError("Plivo signature verification requires a valid URL.");
   }
   let parsed: URL;

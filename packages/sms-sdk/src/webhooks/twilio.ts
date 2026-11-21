@@ -5,10 +5,12 @@ import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase 
 import {
   paramsToRecord,
   readFormParams,
+  readHeaderString,
   readWebhookBody,
   requireField,
   resolveSignedUrl,
   skipVerification,
+  snapshotWebhookOptions,
   type SignedUrlOptions,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -38,7 +40,11 @@ export async function computeTwilioSignature(input: {
     throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
   }
   const grouped = new Map<string, string[]>();
-  for (const [key, value] of input.params) {
+  for (const pair of input.params) {
+    if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string" || typeof pair[1] !== "string") {
+      throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] string pairs.");
+    }
+    const [key, value] = pair;
     grouped.set(key, [...(grouped.get(key) ?? []), value]);
   }
   let data = input.url;
@@ -89,13 +95,23 @@ export async function verifyTwilioSignature(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise<SmsEvent> {
+export async function parseTwilioWebhook(rawOptions: TwilioWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<TwilioWebhookOptions>(rawOptions, [
+    "request",
+    "credentials",
+    "publicUrl",
+    "trustProxy",
+    "unsafeSkipVerification",
+    "detectKeywords",
+    "now",
+  ]);
   const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "twilio");
   const url = resolveSignedUrl(request, options, "twilio");
   const bodyHash = new URL(url).searchParams.get("bodySHA256");
-  const isJson = (request.headers.get("content-type") ?? "").toLowerCase().includes("application/json");
+  const contentType = readHeaderString(request.headers, "content-type", "twilio") ?? "";
+  const isJson = contentType.toLowerCase().includes("application/json");
   const jsonMode = isJson && bodyHash !== null;
 
   // JSON signatures cover the URL alone, so the body is parsed only after the
@@ -106,7 +122,7 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
     if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
       throw new ConfigurationError("Twilio webhook credentials require a non-empty authToken.");
     }
-    const signature = request.headers.get("x-twilio-signature");
+    const signature = readHeaderString(request.headers, "x-twilio-signature", "twilio");
     if (signature === null || signature.length === 0) {
       throw new WebhookSignatureError("Missing X-Twilio-Signature header.", { reason: "missing_signature", provider: "twilio" });
     }
@@ -230,7 +246,7 @@ function jsonParams(rawBody: string): Array<[string, string]> {
 }
 
 function validateTwilioUrl(url: unknown): URL {
-  if (typeof url !== "string" || url.length === 0) {
+  if (typeof url !== "string" || url.length === 0 || /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url)) {
     throw new ConfigurationError("Twilio signature verification requires a valid URL.");
   }
   let parsed: URL;
