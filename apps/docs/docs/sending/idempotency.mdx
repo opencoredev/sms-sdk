@@ -55,7 +55,7 @@ Without a store, keys still help a little: two `send()` calls with the same key 
 
 ## What happens on a repeat key
 
-The SDK compares the new send with the stored one by a SHA-256 fingerprint of `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, and any `providerOptions` for adapters the client has.
+The SDK compares the new send with the stored one by a SHA-256 fingerprint of `to`, `from`, `fromByAdapter`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, and any `providerOptions` for adapters the client has.
 
 | Stored record | Same message | Different message |
 | --- | --- | --- |

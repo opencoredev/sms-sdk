@@ -192,7 +192,8 @@ export function buildSinchRequest(message: AdapterMessage): SinchBatchRequest {
     request.send_at = message.sendAt.toISOString();
   }
   if (message.validityPeriodSec !== undefined) {
-    request.expire_at = new Date(Date.now() + message.validityPeriodSec * 1000).toISOString();
+    const startMs = message.sendAt?.getTime() ?? Date.now();
+    request.expire_at = new Date(startMs + message.validityPeriodSec * 1000).toISOString();
   }
   if (message.webhookUrl !== undefined) {
     request.callback_url = message.webhookUrl;

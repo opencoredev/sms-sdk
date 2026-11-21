@@ -1,3 +1,5 @@
+import { ConfigurationError } from "./errors.js";
+import { isRecord } from "./http.js";
 import type { BeforeSendContext, PolicyDecision } from "./types.js";
 
 /**
@@ -29,7 +31,23 @@ export type MemorySuppressionList = SuppressionList & {
  * production, back {@link SuppressionList} with your database.
  */
 export function memorySuppressionList(initial: Iterable<string> = []): MemorySuppressionList {
-  const numbers = new Set(initial);
+  const numbers = new Set<string>();
+  try {
+    if (typeof initial === "string") {
+      throw new ConfigurationError("memorySuppressionList() requires an iterable of phone number strings.");
+    }
+    for (const entry of initial) {
+      if (typeof entry !== "string") {
+        throw new ConfigurationError("memorySuppressionList() requires an iterable of phone number strings.");
+      }
+      numbers.add(entry);
+    }
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("memorySuppressionList() requires an iterable of phone number strings.");
+  }
   return {
     has: (phoneNumber) => numbers.has(phoneNumber),
     add: (phoneNumber) => {
@@ -71,15 +89,32 @@ export async function applySuppressionEvent(
   list: SuppressionList,
   event: SuppressionEventInput,
 ): Promise<"added" | "removed" | "ignored"> {
-  if (event.from === undefined || event.from.length === 0) {
+  if (!isRecord(list) || typeof list.add !== "function" || typeof list.remove !== "function") {
+    throw new ConfigurationError("applySuppressionEvent() requires a valid SuppressionList.");
+  }
+  let from: unknown;
+  let type: unknown;
+  try {
+    if (!isRecord(event)) {
+      throw new ConfigurationError("applySuppressionEvent() requires an event object.");
+    }
+    from = event.from;
+    type = event.type;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("applySuppressionEvent() requires an event object.");
+  }
+  if (typeof from !== "string" || from.length === 0) {
     return "ignored";
   }
-  switch (event.type) {
+  switch (type) {
     case "recipient.opted_out":
-      await list.add(event.from);
+      await list.add(from);
       return "added";
     case "recipient.opted_in":
-      await list.remove(event.from);
+      await list.remove(from);
       return "removed";
     default:
       return "ignored";

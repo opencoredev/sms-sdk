@@ -102,7 +102,11 @@ export async function readBoundedText(
 ): Promise<string | undefined> {
   const declared = Number(source.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
-    void source.body?.cancel().catch(() => undefined);
+    try {
+      void Promise.resolve(source.body?.cancel?.()).catch(() => undefined);
+    } catch {
+      // Ignore cancel errors once the body is already rejected as oversized.
+    }
     return undefined;
   }
   if (source.body === null) {
@@ -119,7 +123,11 @@ export async function readBoundedText(
     }
     total += value.byteLength;
     if (total > maxBytes) {
-      void reader.cancel().catch(() => undefined);
+      try {
+        void Promise.resolve(reader.cancel?.()).catch(() => undefined);
+      } catch {
+        // Ignore cancel errors once the body is already rejected as oversized.
+      }
       return undefined;
     }
     text += decoder.decode(value, { stream: true });
@@ -333,7 +341,7 @@ export function basicAuthorization(username: string, password: string): string {
 }
 
 const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
-const PHONE_LENGTH_DIGITS = /^\d{8,}$/;
+const PHONE_LENGTH_DIGITS = /\d{8,}/;
 
 /** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, PII, or phone-length digit runs. */
 function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | undefined {

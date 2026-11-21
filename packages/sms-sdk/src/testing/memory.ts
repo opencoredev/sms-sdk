@@ -103,7 +103,7 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
     if (rawOutcomes !== undefined && !Array.isArray(rawOutcomes)) {
       throw new ConfigurationError("Memory adapter outcomes must be an array.");
     }
-    queue = rawOutcomes === undefined ? [] : rawOutcomes.map(snapshotMemoryOutcome);
+    queue = rawOutcomes === undefined ? [] : Array.from(rawOutcomes, snapshotMemoryOutcome);
     const sourceCaps = options.capabilities;
     const rawCaps = sourceCaps === undefined ? undefined : snapshotMemoryCapabilities(sourceCaps);
     capabilities = freezeCapabilities({
@@ -173,7 +173,7 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
     },
 
     enqueue(...outcomes) {
-      const snapped = outcomes.map(snapshotMemoryOutcome);
+      const snapped = Array.from(outcomes, snapshotMemoryOutcome);
       queue.push(...snapped);
     },
 
@@ -222,13 +222,14 @@ function snapshotMemoryCapabilities(value: unknown): Partial<SmsCapabilities> {
   if ("senderTypes" in value) {
     const senderTypes = value["senderTypes"];
     if (senderTypes !== undefined) {
+      const copied = Array.isArray(senderTypes) ? Array.from(senderTypes) : undefined;
       if (
-        !Array.isArray(senderTypes) ||
-        !senderTypes.every((item) => typeof item === "string" && MEMORY_CAPABILITIES.senderTypes.includes(item as never))
+        copied === undefined ||
+        !copied.every((item) => typeof item === "string" && MEMORY_CAPABILITIES.senderTypes.includes(item as never))
       ) {
         throw new ConfigurationError("Memory adapter capabilities.senderTypes must contain recognized sender types.");
       }
-      copy["senderTypes"] = [...senderTypes];
+      copy["senderTypes"] = copied;
     }
   }
   if ("validityPeriod" in value) {
@@ -366,10 +367,13 @@ function snapshotMemoryOutcome(value: unknown): MemoryOutcome {
                   ...(typeof requestId === "string" ? { requestId } : {}),
                 });
               })();
+        const hasCause = "cause" in value;
+        const cause = hasCause ? value["cause"] : undefined;
         return Object.freeze({
           kind: "unknown",
           reason: reason as UnknownReason,
           ...(details === undefined ? {} : { details }),
+          ...(hasCause ? { cause } : {}),
         });
       }
       default:

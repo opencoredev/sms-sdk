@@ -94,7 +94,7 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
       entries.delete(key);
       return null;
     }
-    return entry.record;
+    return structuredClone(entry.record);
   };
 
   return {
@@ -125,7 +125,7 @@ export function memoryIdempotencyStore(): MemoryIdempotencyStore {
       }
 
       const expiresAt = record.state === "unknown" ? null : now + ttlSec * 1000;
-      entries.set(key, { record, expiresAt });
+      entries.set(key, { record: structuredClone(record), expiresAt });
       return { kind: "finalized" };
     },
 

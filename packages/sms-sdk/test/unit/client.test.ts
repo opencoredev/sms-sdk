@@ -1281,5 +1281,118 @@ describe("send: fromByAdapter", () => {
     expect(headerReads).toBe(1);
     expect(urlReads).toBe(1);
     expect(methodReads).toBe(1);
+
+    // 24. Diagnostic tokens drop phone-length digit runs anywhere in token; hooks/callers cannot mutate stored idempotency records; reserve() errors normalize to ConfigurationError
+    const phoneTokenClient = createSmsClient({
+      adapters: [
+        {
+          name: "phone-tok",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return {
+              kind: "rejected",
+              category: "request",
+              details: { provider: "phone-tok", code: "recipient:14155550123", requestId: "to-14155550123" },
+            };
+          },
+        },
+      ],
+    });
+    const phoneTokErr = (await rejection(phoneTokenClient.send({ to: "+14155550123", body: "hi" }))) as Error;
+    expect(JSON.stringify(phoneTokErr)).not.toContain("14155550123");
+
+    const isoStore = memoryIdempotencyStore();
+    const isoClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: { store: isoStore },
+      hooks: {
+        onAccepted: (e) => {
+          (e.attempts as unknown[]).length = 0;
+        },
+      },
+    });
+    const firstIso = await isoClient.send({ to: "+14155550123", body: "iso", idempotencyKey: "k-iso" });
+    (firstIso as { providerId: string }).providerId = "TAMPERED";
+    const replayIso = await isoClient.send({ to: "+14155550123", body: "iso", idempotencyKey: "k-iso" });
+    expect(firstIso.attempts).toHaveLength(1);
+    expect(replayIso.attempts).toHaveLength(1);
+    expect(replayIso.providerId).toBe("memory_1");
+
+    const throwingReserveClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: {
+        store: {
+          async get() {
+            return null;
+          },
+          async reserve() {
+            throw new Error("db offline");
+          },
+          async finalize() {
+            return { kind: "finalized" };
+          },
+        },
+      },
+    });
+    await expect(
+      throwingReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-db" }),
+    ).rejects.toBeInstanceOf(ConfigurationError);
+
+    // 25. memory() preserves unknown.cause and rejects sparse arrays; Sinch expire_at anchors to sendAt
+    const causeErr = new Error("socket reset");
+    const causeClient = createSmsClient({
+      adapters: [memory({ outcomes: [{ kind: "unknown", reason: "network", cause: causeErr }] })],
+    });
+    const unknownOut = (await rejection(causeClient.send({ to: "+14155550123", body: "hi" }))) as HandoffUnknownError;
+    expect(unknownOut).toBeInstanceOf(HandoffUnknownError);
+    expect(unknownOut.cause).toBe(causeErr);
+    expect(() => memory({ outcomes: new Array(1) as unknown as never })).toThrow(ConfigurationError);
+    expect(() => memory({ capabilities: { senderTypes: new Array(1) as unknown as never } })).toThrow(ConfigurationError);
+
+    const { buildSinchRequest } = await import("../../src/providers/sinch.js");
+    const futureSendAt = new Date("2030-01-01T12:00:00.000Z");
+    const sinchReq = buildSinchRequest({
+      to: "+14155550123",
+      from: { kind: "phone_number", value: "+15005550006" },
+      body: "hi",
+      mediaUrls: [],
+      sendAt: futureSendAt,
+      validityPeriodSec: 3600,
+    });
+    expect(sinchReq.send_at).toBe("2030-01-01T12:00:00.000Z");
+    expect(sinchReq.expire_at).toBe("2030-01-01T13:00:00.000Z");
+
+    // 26. Oversized duck-typed webhook body without cancel() still reports body_too_large
+    const { parseSmsWebhook } = await import("../../src/webhooks/index.js");
+    const { WebhookPayloadError } = await import("../../src/core/errors.js");
+    const noCancelErr = await rejection(
+      parseSmsWebhook({
+        provider: "twilio",
+        request: {
+          headers: new Headers({ "content-length": "2000000" }),
+          url: "https://example.com/wh/twilio",
+          method: "POST",
+          body: {
+            locked: false,
+            getReader() {
+              throw new Error("should not read");
+            },
+          },
+          bodyUsed: false,
+        } as unknown as Request,
+        credentials: { authToken: "secret" },
+      }),
+    );
+    expect(noCancelErr).toBeInstanceOf(WebhookPayloadError);
+    expect((noCancelErr as { reason?: string }).reason).toBe("body_too_large");
+
+    // 27. Suppression helpers validate malformed inputs with ConfigurationError
+    const { memorySuppressionList, applySuppressionEvent } = await import("../../src/core/suppression.js");
+    expect(() => memorySuppressionList(123 as unknown as Iterable<string>)).toThrow(ConfigurationError);
+    await expect(applySuppressionEvent(memorySuppressionList(), null as unknown as never)).rejects.toBeInstanceOf(
+      ConfigurationError,
+    );
   });
 });

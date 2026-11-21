@@ -189,7 +189,7 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 ### `IdempotencyConflictError`
 
 - `code`: `idempotency_conflict`. `retrySafe`: false. Extra field: `idempotencyKey: string`.
-- The key was already used with a different `to`, `from`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or `providerOptions`. Nothing was sent.
+- The key was already used with a different `to`, `from`, `fromByAdapter`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, or `providerOptions`. Nothing was sent.
 - Use a new key for a new message, such as a version suffix (`:v2`). Retrying with the same key and payload will keep failing.
 
 ### `IdempotencyInProgressError`

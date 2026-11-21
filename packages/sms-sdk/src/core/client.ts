@@ -20,7 +20,7 @@ import {
   SmsError,
 } from "./errors.js";
 import { emitHook, type SendAttempt, type SmsHookEventBase } from "./events.js";
-import { freezeCapabilities, freezeProviderOptionsSpec, freezeSender, isPlainObject, isRecord } from "./http.js";
+import { freezeCapabilities, freezeProviderOptionsSpec, freezeSender, isPlainObject, isRecord, sanitizeProviderDetails } from "./http.js";
 import { DELIVERIES, runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
@@ -411,18 +411,27 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         throw new ConfigurationError("idempotency must be an object with a valid store.");
       }
       const store = rawIdempotency["store"];
+      if (!isRecord(store)) {
+        throw new ConfigurationError("idempotency must be an object with a valid store.");
+      }
+      const storeGet = store["get"];
+      const storeReserve = store["reserve"];
+      const storeFinalize = store["finalize"];
       if (
-        !isRecord(store) ||
-        typeof store["get"] !== "function" ||
-        typeof store["reserve"] !== "function" ||
-        typeof store["finalize"] !== "function"
+        typeof storeGet !== "function" ||
+        typeof storeReserve !== "function" ||
+        typeof storeFinalize !== "function"
       ) {
         throw new ConfigurationError("idempotency must be an object with a valid store.");
       }
       const rawTtl = rawIdempotency["ttlSec"];
       const rawStale = rawIdempotency["staleReservationSec"];
       idempotency = {
-        store: store as unknown as IdempotencyStore,
+        store: Object.freeze({
+          get: (storeGet as IdempotencyStore["get"]).bind(store),
+          reserve: (storeReserve as IdempotencyStore["reserve"]).bind(store),
+          finalize: (storeFinalize as IdempotencyStore["finalize"]).bind(store),
+        }),
         ttlSec: requirePositiveSeconds((rawTtl === undefined ? DEFAULT_TTL_SEC : rawTtl) as number, "ttlSec"),
         staleReservationSec: requirePositiveSeconds(
           (rawStale === undefined ? DEFAULT_STALE_RESERVATION_SEC : rawStale) as number,
@@ -599,7 +608,15 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     }
 
     const now = Date.now();
-    const rawReserved: unknown = await idempotency.store.reserve({ key: args.key, fingerprint: args.fingerprint, now });
+    let rawReserved: unknown;
+    try {
+      rawReserved = await idempotency.store.reserve({ key: args.key, fingerprint: args.fingerprint, now });
+    } catch (error) {
+      if (error instanceof SmsError) {
+        throw error;
+      }
+      throw new ConfigurationError("idempotency.store.reserve() could not complete. Nothing was sent by this call.");
+    }
     const reserved = snapshotReserveResult(rawReserved);
     if (reserved.kind === "reserved") {
       return execute({
@@ -678,7 +695,12 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     const fail = async (error: SmsError): Promise<never> => {
       const state = error instanceof HandoffUnknownError ? "unknown" : "rejected";
       await finalize({ state, fingerprint: reservation?.fingerprint ?? "", error: error.toJSON() });
-      emitHook(hooks.onFailure, { ...base, errorCode: error.code, retrySafe: error.retrySafe, attempts: error.attempts });
+      emitHook(hooks.onFailure, {
+        ...base,
+        errorCode: error.code,
+        retrySafe: error.retrySafe,
+        attempts: error.attempts.map((attempt) => ({ ...attempt })),
+      });
       throw error;
     };
 
@@ -762,7 +784,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         idempotencyKey: input.idempotencyKey,
         onAttempt: (attempt) => {
           attempts.push(attempt);
-          emitHook(hooks.onAttempt, { ...base, attempt });
+          emitHook(hooks.onAttempt, { ...base, attempt: { ...attempt } });
         },
       });
     } catch (cause) {
@@ -796,7 +818,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       ...base,
       provider: result.provider,
       providerId: result.providerId,
-      attempts: result.attempts,
+      attempts: result.attempts.map((attempt) => ({ ...attempt })),
     });
     return result;
   };
@@ -936,7 +958,10 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
         const delivery = r["delivery"];
         const encoding = r["encoding"];
         const segments = r["segments"];
-        const attemptedProviders = r["attemptedProviders"];
+        const rawAttemptedProviders = r["attemptedProviders"];
+        const attemptedProviders = Array.isArray(rawAttemptedProviders)
+          ? Array.from(rawAttemptedProviders)
+          : undefined;
         const attempts = r["attempts"];
         const replayed = r["replayed"];
         if (
@@ -952,7 +977,7 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
           typeof segments !== "number" ||
           !Number.isSafeInteger(segments) ||
           segments < 0 ||
-          !Array.isArray(attemptedProviders) ||
+          attemptedProviders === undefined ||
           !attemptedProviders.every((name) => typeof name === "string") ||
           !Array.isArray(attempts) ||
           typeof replayed !== "boolean"
@@ -972,8 +997,8 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
               delivery: delivery as SmsSendResult["delivery"],
               encoding: encoding as SmsSendResult["encoding"],
               segments,
-              attemptedProviders: Object.freeze([...(attemptedProviders as string[])]),
-              attempts: Object.freeze([...(attempts as SendAttempt[])]),
+              attemptedProviders: Object.freeze(attemptedProviders as string[]),
+              attempts: snapshotStoredAttempts(attempts),
               replayed: true,
             },
           },
@@ -987,7 +1012,7 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
           record: {
             state,
             fingerprint,
-            attempts: Array.isArray(attempts) ? Object.freeze([...(attempts as SendAttempt[])]) : [],
+            attempts: Array.isArray(attempts) ? snapshotStoredAttempts(attempts) : [],
           },
         };
       }
@@ -1009,6 +1034,105 @@ function snapshotReserveResult(raw: unknown): ReserveSnapshot {
     }
     throw malformed("unreadable");
   }
+}
+
+const STORED_REJECTION_CATEGORIES: ReadonlySet<unknown> = new Set([
+  "auth",
+  "rate_limited",
+  "sender",
+  "account",
+  "recipient",
+  "compliance",
+  "request",
+]);
+
+const STORED_UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
+  "network",
+  "timeout",
+  "aborted",
+  "malformed_response",
+  "server_error",
+  "unexpected_status",
+  "adapter_exception",
+  "stale_reservation",
+  "replayed_unknown",
+]);
+
+/** Copies and validates persisted attempt entries at the store boundary. */
+function snapshotStoredAttempts(raw: unknown[]): readonly SendAttempt[] {
+  const invalid = (): never => {
+    throw new ConfigurationError("idempotency store returned malformed attempts.");
+  };
+  return Object.freeze(
+    Array.from(raw, (entry: unknown): SendAttempt => {
+      if (!isRecord(entry)) return invalid();
+      const provider = entry["provider"];
+      const attempt = entry["attempt"];
+      const outcome = entry["outcome"];
+      const durationMs = entry["durationMs"];
+      if (
+        typeof provider !== "string" ||
+        provider.length === 0 ||
+        typeof attempt !== "number" ||
+        !Number.isSafeInteger(attempt) ||
+        attempt < 1 ||
+        typeof durationMs !== "number" ||
+        !Number.isFinite(durationMs) ||
+        durationMs < 0
+      ) {
+        return invalid();
+      }
+      const base = { provider, attempt, durationMs };
+      if (outcome === "accepted") {
+        const providerId = entry["providerId"];
+        const delivery = entry["delivery"];
+        if (typeof providerId !== "string" || providerId.length === 0 || !DELIVERIES.has(delivery)) {
+          return invalid();
+        }
+        return Object.freeze({
+          ...base,
+          outcome,
+          providerId,
+          delivery: delivery as SmsSendResult["delivery"],
+        });
+      }
+      const details = sanitizeProviderDetails(
+        { httpStatus: entry["httpStatus"], code: entry["providerCode"] },
+        provider,
+      );
+      const http = details.httpStatus === undefined ? {} : { httpStatus: details.httpStatus };
+      if (outcome === "unknown") {
+        const reason = entry["reason"];
+        if (!STORED_UNKNOWN_REASONS.has(reason)) return invalid();
+        return Object.freeze({
+          ...base,
+          outcome,
+          ...http,
+          reason: reason as Extract<SendAttempt, { outcome: "unknown" }>["reason"],
+        });
+      }
+      if (outcome === "rejected") {
+        const category = entry["category"];
+        const retryAfterMs = entry["retryAfterMs"];
+        if (
+          !STORED_REJECTION_CATEGORIES.has(category) ||
+          (retryAfterMs !== undefined &&
+            (typeof retryAfterMs !== "number" || !Number.isFinite(retryAfterMs) || retryAfterMs < 0))
+        ) {
+          return invalid();
+        }
+        return Object.freeze({
+          ...base,
+          outcome,
+          ...http,
+          category: category as Extract<SendAttempt, { outcome: "rejected" }>["category"],
+          ...(details.code === undefined ? {} : { providerCode: details.code }),
+          ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+        });
+      }
+      return invalid();
+    }),
+  );
 }
 
 const MAX_IDEMPOTENCY_SECONDS = Math.floor(Number.MAX_SAFE_INTEGER / 1000);
