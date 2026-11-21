@@ -54,7 +54,7 @@ export type MessageStatusEvent = SmsEventBase & {
  * `source: "provider"` means the provider flagged it (for example Twilio
  * `OptOutType`). `source: "keyword"` means this SDK matched the whole message
  * against a keyword list; carriers and providers may apply different rules.
- * The original inbound text is in `body`.
+ * The original inbound text is in `body`, and any media in `mediaUrls`.
  */
 export type RecipientKeywordEvent = SmsEventBase & {
   readonly type: "recipient.opted_out" | "recipient.opted_in" | "recipient.help";
@@ -62,6 +62,8 @@ export type RecipientKeywordEvent = SmsEventBase & {
   readonly from: string;
   readonly to: string;
   readonly body: string;
+  /** Media sent with the keyword message, such as an MMS whose caption is "STOP". Empty for plain SMS. */
+  readonly mediaUrls: readonly string[];
   readonly source: "provider" | "keyword";
   readonly keyword: string;
 };
@@ -116,7 +118,14 @@ export function inboundEvent(input: {
   readonly providerKeyword?: string;
   readonly detectKeywords: boolean;
 }): MessageReceivedEvent | RecipientKeywordEvent {
-  const common = { ...input.base, providerId: input.providerId, from: input.from, to: input.to, body: input.body };
+  const common = {
+    ...input.base,
+    providerId: input.providerId,
+    from: input.from,
+    to: input.to,
+    body: input.body,
+    mediaUrls: input.mediaUrls,
+  };
   if (input.providerSignal !== undefined) {
     return {
       ...common,
@@ -131,5 +140,5 @@ export function inboundEvent(input: {
       return { ...common, type: `recipient.${match.kind}`, source: "keyword", keyword: match.keyword };
     }
   }
-  return { ...common, type: "message.received", mediaUrls: input.mediaUrls };
+  return { ...common, type: "message.received" };
 }

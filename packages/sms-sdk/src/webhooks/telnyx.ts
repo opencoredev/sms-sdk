@@ -2,7 +2,7 @@ import { fromBase64, utf8 } from "../core/crypto.js";
 import { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, type WebhookCommonOptions } from "./shared.js";
+import { parseDate, skipVerification, type WebhookCommonOptions } from "./shared.js";
 
 /** Default replay window for `telnyx-timestamp`, matching Telnyx's guidance of 5 minutes. */
 export const TELNYX_DEFAULT_TOLERANCE_SEC = 300;
@@ -72,7 +72,7 @@ export async function verifyTelnyxSignature(input: {
 export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise<SmsEvent> {
   const rawBody = await options.request.text();
 
-  if (options.unsafeSkipVerification !== true) {
+  if (!skipVerification(options)) {
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,
       rawBody,

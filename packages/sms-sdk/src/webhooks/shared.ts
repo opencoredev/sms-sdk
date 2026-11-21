@@ -1,14 +1,15 @@
 import { timingSafeEqual } from "../core/crypto.js";
-import { WebhookPayloadError } from "../core/errors.js";
-import type { WebhookProvider } from "./events.js";
+import { ConfigurationError, WebhookPayloadError } from "../core/errors.js";
+import type { SmsEvent, WebhookProvider } from "./events.js";
 
 /** Options shared by every provider's webhook parser. */
 export type WebhookCommonOptions = {
   /** The incoming request. Its body is read once. */
   readonly request: Request;
   /**
-   * Skips signature verification. For local tests only; never enable it in
-   * production. Events parsed this way are not authenticated.
+   * Skips signature verification. For local tests only. Refused with
+   * `ConfigurationError` when `process.env.NODE_ENV` is `"production"`.
+   * Events parsed this way are not authenticated.
    */
   readonly unsafeSkipVerification?: boolean;
   /** Match STOP/HELP keywords in inbound text when the provider sends no signal. Default `true`. */
@@ -33,6 +34,44 @@ export type SignedUrlOptions = {
    */
   readonly trustProxy?: boolean;
 };
+
+/**
+ * True when the caller asked to skip verification.
+ *
+ * @throws {ConfigurationError} when skipping is requested and `NODE_ENV` is `"production"`.
+ */
+export function skipVerification(options: Pick<WebhookCommonOptions, "unsafeSkipVerification">): boolean {
+  if (options.unsafeSkipVerification !== true) {
+    return false;
+  }
+  if (readNodeEnv() === "production") {
+    throw new ConfigurationError(
+      "unsafeSkipVerification is refused when NODE_ENV is production. Verify webhooks with real credentials.",
+    );
+  }
+  return true;
+}
+
+/** `process.env.NODE_ENV`, or `undefined` in runtimes without `process` (browsers, some edge runtimes). */
+function readNodeEnv(): string | undefined {
+  return typeof process === "undefined" ? undefined : process.env?.["NODE_ENV"];
+}
+
+/**
+ * The single event of a batch, for the single-event parsers.
+ *
+ * @throws {WebhookPayloadError} when the payload carries more than one event.
+ */
+export function onlyEvent(provider: WebhookProvider, events: readonly SmsEvent[]): SmsEvent {
+  const [first, ...rest] = events;
+  if (first === undefined || rest.length > 0) {
+    throw new WebhookPayloadError(
+      `The ${provider} webhook carries ${events.length} events; use parseSmsWebhooks to read every event.`,
+      { provider },
+    );
+  }
+  return first;
+}
 
 /** Returns the URL a provider signed, per {@link SignedUrlOptions}. */
 export function resolveSignedUrl(request: Request, options: SignedUrlOptions): string {

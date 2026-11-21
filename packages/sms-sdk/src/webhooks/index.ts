@@ -5,8 +5,8 @@
  */
 
 import type { SmsEvent } from "./events.js";
-import { parseBandwidthWebhook, type BandwidthWebhookOptions } from "./bandwidth.js";
-import { parseSinchWebhook, type SinchWebhookOptions } from "./sinch.js";
+import { parseBandwidthWebhook, parseBandwidthWebhooks, type BandwidthWebhookOptions } from "./bandwidth.js";
+import { parseSinchWebhook, parseSinchWebhooks, type SinchWebhookOptions } from "./sinch.js";
 import { parsePlivoWebhook, type PlivoWebhookOptions } from "./plivo.js";
 import { parseTelnyxWebhook, type TelnyxWebhookOptions } from "./telnyx.js";
 import { parseTwilioWebhook, type TwilioWebhookOptions } from "./twilio.js";
@@ -21,14 +21,18 @@ export type ParseSmsWebhookOptions =
   | ({ readonly provider: "bandwidth" } & BandwidthWebhookOptions)
   | ({ readonly provider: "sinch" } & SinchWebhookOptions);
 
-
 /**
  * Reads the raw request body once, verifies the provider's signature, then
  * returns a normalized {@link SmsEvent}. Nothing is interpreted before
  * verification succeeds.
  *
+ * Bandwidth callbacks and Sinch delivery reports can carry several events in
+ * one request. This function throws `WebhookPayloadError` for those instead of
+ * dropping events; use {@link parseSmsWebhooks} to read every event.
+ *
  * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
- * @throws {WebhookPayloadError} when an authentic payload lacks required fields.
+ * @throws {WebhookPayloadError} when an authentic payload lacks required fields or carries several events.
+ * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
 export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<SmsEvent> {
   switch (options.provider) {
@@ -51,6 +55,35 @@ export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<
   }
 }
 
+/**
+ * Like {@link parseSmsWebhook}, but returns every event the request carries,
+ * in payload order. A Bandwidth callback yields one event per array element
+ * and a Sinch delivery report one per `recipient_delivery_report` entry; every
+ * other provider sends one event per request, so the array has one element.
+ * Deduplicate each event by its own `dedupeKey`.
+ *
+ * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
+ * @throws {WebhookPayloadError} when an authentic payload lacks required fields.
+ * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
+ */
+export async function parseSmsWebhooks(options: ParseSmsWebhookOptions): Promise<SmsEvent[]> {
+  switch (options.provider) {
+    case "bandwidth":
+      return parseBandwidthWebhooks(options);
+    case "sinch":
+      return parseSinchWebhooks(options);
+    case "twilio":
+    case "telnyx":
+    case "plivo":
+    case "vonage":
+      return [await parseSmsWebhook(options)];
+    default: {
+      const _exhaustive: never = options;
+      return _exhaustive;
+    }
+  }
+}
+
 export {
   detectKeyword,
   HELP_KEYWORDS,
@@ -66,8 +99,20 @@ export {
   type WebhookProvider,
 } from "./events.js";
 export type { SignedUrlOptions, WebhookCommonOptions } from "./shared.js";
-export { parseBandwidthWebhook, type BandwidthWebhookCredentials, type BandwidthWebhookOptions } from "./bandwidth.js";
-export { parseSinchWebhook, SINCH_DEFAULT_TOLERANCE_SEC, verifySinchSignature, type SinchWebhookCredentials, type SinchWebhookOptions } from "./sinch.js";
+export {
+  parseBandwidthWebhook,
+  parseBandwidthWebhooks,
+  type BandwidthWebhookCredentials,
+  type BandwidthWebhookOptions,
+} from "./bandwidth.js";
+export {
+  parseSinchWebhook,
+  parseSinchWebhooks,
+  SINCH_DEFAULT_TOLERANCE_SEC,
+  verifySinchSignature,
+  type SinchWebhookCredentials,
+  type SinchWebhookOptions,
+} from "./sinch.js";
 export {
   computeTwilioSignature,
   parseTwilioWebhook,
@@ -93,4 +138,4 @@ export {
   verifyVonageSignature,
   type VonageWebhookOptions,
 } from "./vonage.js";
-export { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
+export { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";

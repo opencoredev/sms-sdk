@@ -6,6 +6,7 @@ import {
   readFormParams,
   requireField,
   resolveSignedUrl,
+  skipVerification,
   type SignedUrlOptions,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -82,7 +83,7 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
   // signature and body hash pass. Form parameters are part of the signature.
   const formParams = jsonMode ? [] : readFormParams(request, rawBody);
 
-  if (options.unsafeSkipVerification !== true) {
+  if (!skipVerification(options)) {
     const signature = request.headers.get("x-twilio-signature");
     if (signature === null || signature.length === 0) {
       throw new WebhookSignatureError("Missing X-Twilio-Signature header.", { reason: "missing_signature", provider: "twilio" });

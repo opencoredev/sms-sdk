@@ -6,6 +6,7 @@ import {
   readFormParams,
   requireField,
   resolveSignedUrl,
+  skipVerification,
   type SignedUrlOptions,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -56,7 +57,7 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
   const { request } = options;
   const rawBody = await request.text();
 
-  if (options.unsafeSkipVerification !== true) {
+  if (!skipVerification(options)) {
     const nonce = request.headers.get("x-plivo-signature-v2-nonce");
     const signatures = [request.headers.get("x-plivo-signature-v2"), request.headers.get("x-plivo-signature-ma-v2")].filter(
       (value): value is string => value !== null && value.length > 0,
