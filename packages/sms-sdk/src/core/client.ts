@@ -104,7 +104,7 @@ function isValidProviderOptionField(field: unknown): boolean {
   }
 }
 
-function isValidProviderOptionsSpec(spec: unknown): boolean {
+export function isValidProviderOptionsSpec(spec: unknown): boolean {
   if (!isRecord(spec) || !isRecord(spec["options"]) || !Array.isArray(spec["reserved"])) {
     return false;
   }
@@ -277,47 +277,54 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       const rawDefaultFrom = rawAdapter["defaultFrom"];
       const rawValidate = rawAdapter["validate"];
       const rawGetMessage = rawAdapter["getMessage"];
+      if (!isRecord(rawCapabilities) || !isRecord(rawSupport)) {
+        throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, support, and send().");
+      }
+      const frozenCaps = freezeCapabilities(rawCapabilities as unknown as SmsAdapter["capabilities"]);
+      const rawSupportStatus = rawSupport["status"];
+      const rawSupportNotes = rawSupport["notes"];
+      const frozenSupport = Object.freeze({
+        status: rawSupportStatus as SmsAdapter["support"]["status"],
+        notes: Array.isArray(rawSupportNotes) ? Object.freeze([...(rawSupportNotes as readonly string[])]) : (rawSupportNotes as readonly string[]),
+      });
+      const frozenProviderOptions =
+        rawProviderOptions === undefined
+          ? undefined
+          : isRecord(rawProviderOptions)
+            ? freezeProviderOptionsSpec(rawProviderOptions as unknown as NonNullable<SmsAdapter["providerOptions"]>)
+            : (rawProviderOptions as NonNullable<SmsAdapter["providerOptions"]>);
+      const caps = frozenCaps as unknown as Record<string, unknown>;
+      const validity = caps["validityPeriod"] as Record<string, unknown> | null;
       if (
         typeof adapterName !== "string" ||
         adapterName.length === 0 ||
         typeof rawSend !== "function" ||
-        !isRecord(rawCapabilities) ||
-        typeof rawCapabilities["sendText"] !== "boolean" ||
-        typeof rawCapabilities["mms"] !== "boolean" ||
-        typeof rawCapabilities["scheduling"] !== "boolean" ||
-        typeof rawCapabilities["webhookUrlOverride"] !== "boolean" ||
-        typeof rawCapabilities["inbound"] !== "boolean" ||
-        typeof rawCapabilities["deliveryReceipts"] !== "boolean" ||
-        typeof rawCapabilities["nativeIdempotency"] !== "boolean" ||
-        !Array.isArray(rawCapabilities["senderTypes"]) ||
-        !rawCapabilities["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
-        (rawCapabilities["validityPeriod"] !== null &&
-          (!isRecord(rawCapabilities["validityPeriod"]) ||
-            typeof rawCapabilities["validityPeriod"]["minSec"] !== "number" ||
-            !Number.isInteger(rawCapabilities["validityPeriod"]["minSec"]) ||
-            rawCapabilities["validityPeriod"]["minSec"] <= 0 ||
-            typeof rawCapabilities["validityPeriod"]["maxSec"] !== "number" ||
-            !Number.isInteger(rawCapabilities["validityPeriod"]["maxSec"]) ||
-            rawCapabilities["validityPeriod"]["maxSec"] < rawCapabilities["validityPeriod"]["minSec"])) ||
-        !isRecord(rawSupport) ||
-        (rawSupport["status"] !== "supported" && rawSupport["status"] !== "partial") ||
-        !Array.isArray(rawSupport["notes"]) ||
-        !rawSupport["notes"].every((n) => typeof n === "string") ||
-        (rawProviderOptions !== undefined && !isValidProviderOptionsSpec(rawProviderOptions)) ||
+        caps["sendText"] !== true ||
+        typeof caps["mms"] !== "boolean" ||
+        typeof caps["scheduling"] !== "boolean" ||
+        typeof caps["webhookUrlOverride"] !== "boolean" ||
+        typeof caps["inbound"] !== "boolean" ||
+        typeof caps["deliveryReceipts"] !== "boolean" ||
+        typeof caps["nativeIdempotency"] !== "boolean" ||
+        !Array.isArray(caps["senderTypes"]) ||
+        !caps["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
+        (validity !== null &&
+          (!isRecord(validity) ||
+            typeof validity["minSec"] !== "number" ||
+            !Number.isInteger(validity["minSec"]) ||
+            validity["minSec"] <= 0 ||
+            typeof validity["maxSec"] !== "number" ||
+            !Number.isInteger(validity["maxSec"]) ||
+            validity["maxSec"] < validity["minSec"])) ||
+        (frozenSupport.status !== "supported" && frozenSupport.status !== "partial") ||
+        !Array.isArray(frozenSupport.notes) ||
+        !frozenSupport.notes.every((n) => typeof n === "string") ||
+        (frozenProviderOptions !== undefined && !isValidProviderOptionsSpec(frozenProviderOptions)) ||
         (rawValidate !== undefined && typeof rawValidate !== "function") ||
         (rawGetMessage !== undefined && typeof rawGetMessage !== "function")
       ) {
         throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, support, and send().");
       }
-      const frozenCaps = freezeCapabilities(rawCapabilities as unknown as SmsAdapter["capabilities"]);
-      const frozenSupport = Object.freeze({
-        status: rawSupport["status"] as SmsAdapter["support"]["status"],
-        notes: Object.freeze([...(rawSupport["notes"] as readonly string[])]),
-      });
-      const frozenProviderOptions =
-        rawProviderOptions === undefined
-          ? undefined
-          : freezeProviderOptionsSpec(rawProviderOptions as unknown as NonNullable<SmsAdapter["providerOptions"]>);
       const frozenDefaultFrom = freezeSender(rawDefaultFrom as SmsAdapter["defaultFrom"]);
       const sendFn = (rawSend as SmsAdapter["send"]).bind(rawAdapter);
       const validateFn =

@@ -291,8 +291,13 @@ describe("send: unexpected chain failure", () => {
     const error = await rejection(sms.send(message));
     expect(error).toBeInstanceOf(HandoffUnknownError);
     expect(error).toMatchObject({ reason: "adapter_exception", retrySafe: false });
-    expect(error).toMatchObject({ attempts: [expect.objectContaining({ provider: "primary", outcome: "rejected" })] });
-    expect(failures[0]?.attempts).toHaveLength(1);
+    expect(error).toMatchObject({
+      attempts: [
+        expect.objectContaining({ provider: "primary", outcome: "rejected" }),
+        expect.objectContaining({ provider: "broken", outcome: "unknown", reason: "adapter_exception" }),
+      ],
+    });
+    expect(failures[0]?.attempts).toHaveLength(2);
   });
 });
 
@@ -827,7 +832,7 @@ describe("send: fromByAdapter", () => {
     expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 11 }).supported).toBe(false);
     expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 5 }).supported).toBe(true);
 
-    // 11. memory() rejects null, revoked Proxy, and throwing option getters with ConfigurationError
+    // 11. memory() rejects null, revoked Proxy, throwing option getters, invalid outcomes, capabilities, and providerOptions
     expect(() => memory(null as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
     expect(() => memory(revoked.proxy as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
     expect(() =>
@@ -837,5 +842,152 @@ describe("send: fromByAdapter", () => {
         },
       }),
     ).toThrow(ConfigurationError);
+    expect(() => memory({ outcomes: [42 as unknown as never] })).toThrow(ConfigurationError);
+    expect(() => memory({ capabilities: { mms: "yes" as unknown as boolean } })).toThrow(ConfigurationError);
+    expect(() => memory({ capabilities: { senderTypes: "abc" as unknown as never } })).toThrow(ConfigurationError);
+    expect(() => memory({ capabilities: { sendText: false as unknown as true } })).toThrow(ConfigurationError);
+    expect(() => memory({ providerOptions: "bad" as unknown as never })).toThrow(ConfigurationError);
+
+    // 12. Class-instance ProviderOptionField preserves prototype getters and __proto__ option key does not mutate prototype
+    class FieldDef {
+      get type() {
+        return "enum" as const;
+      }
+      get wire() {
+        return "mode";
+      }
+      get values() {
+        return ["a", "b"] as const;
+      }
+    }
+    const protoFieldClient = createSmsClient({
+      adapters: [
+        {
+          name: "proto-po",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          providerOptions: { options: { mode: new FieldDef() }, reserved: [] },
+          async send() {
+            return { kind: "accepted", providerId: "1", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    expect(
+      protoFieldClient.validate({
+        to: "+14155550123",
+        body: "hi",
+        providerOptions: { "proto-po": { mode: "a" } } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
+      }).supported,
+    ).toBe(true);
+
+    // 13. Single-read TOCTOU protection on capabilities/support/providerOptions and sendText: true enforcement
+    let mmsReads = 0;
+    const toctouClient = createSmsClient({
+      adapters: [
+        {
+          name: "toctou",
+          capabilities: {
+            sendText: true,
+            get mms() {
+              mmsReads += 1;
+              return mmsReads === 1 ? true : ("INJECTED" as unknown as boolean);
+            },
+            scheduling: false,
+            validityPeriod: null,
+            webhookUrlOverride: false,
+            inbound: false,
+            deliveryReceipts: false,
+            senderTypes: ["long_code"],
+            nativeIdempotency: false,
+          },
+          support: { status: "supported", notes: [] },
+          async send() {
+            return { kind: "accepted", providerId: "1", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    expect(mmsReads).toBe(1);
+    expect(toctouClient.capabilities()[0]?.capabilities.mms).toBe(true);
+    expect(() =>
+      createSmsClient({
+        adapters: [
+          {
+            ...memory(),
+            capabilities: { ...memory().capabilities, sendText: false as unknown as true },
+          },
+        ],
+      }),
+    ).toThrow(ConfigurationError);
+
+    // 14. Malformed send() outcome fails closed as HandoffUnknownError and does not strand idempotency lock
+    const { memoryIdempotencyStore } = await import("../../src/testing/index.js");
+    const badSendStore = memoryIdempotencyStore();
+    const badSendClient = createSmsClient({
+      adapters: [
+        {
+          name: "bad-send",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return { kind: "queued", providerId: "p" } as unknown as never;
+          },
+        },
+      ],
+      idempotency: { store: badSendStore },
+    });
+    await expect(badSendClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad" })).rejects.toBeInstanceOf(
+      HandoffUnknownError,
+    );
+    await expect(badSendClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad" })).rejects.toBeInstanceOf(
+      HandoffUnknownError,
+    );
+
+    // 15. Malformed getMessage() outcome rejects with MessageLookupError
+    const { MessageLookupError } = await import("../../src/core/errors.js");
+    const badLookupClient = createSmsClient({
+      adapters: [
+        {
+          name: "bad-lookup",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return { kind: "accepted", providerId: "1", delivery: "queued" };
+          },
+          async getMessage() {
+            return null as unknown as never;
+          },
+        },
+      ],
+    });
+    await expect(badLookupClient.getMessage("m1")).rejects.toBeInstanceOf(MessageLookupError);
+
+    // 16. Custom adapter rejected details.message does not leak full phone numbers into error.message or toJSON()
+    const leakyRejectClient = createSmsClient({
+      adapters: [
+        {
+          name: "leaky-reject",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return {
+              kind: "rejected",
+              category: "request",
+              details: { provider: "leaky-reject", message: "bad +14155550123 SECRET_BODY" },
+            };
+          },
+        },
+      ],
+    });
+    const leakyErr = (await rejection(leakyRejectClient.send({ to: "+14155550123", body: "hi" }))) as Error;
+    expect(leakyErr.message).not.toContain("+14155550123");
+    expect(leakyErr.message).not.toContain("SECRET_BODY");
+    expect(JSON.stringify(leakyErr)).not.toContain("+14155550123");
+    expect(JSON.stringify(leakyErr)).not.toContain("SECRET_BODY");
   });
 });

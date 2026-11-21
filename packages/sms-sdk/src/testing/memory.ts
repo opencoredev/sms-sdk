@@ -11,8 +11,9 @@ import type {
   SmsFrom,
   UnknownReason,
 } from "../core/adapters.js";
+import { isValidProviderOptionsSpec } from "../core/client.js";
 import { ConfigurationError } from "../core/errors.js";
-import { freezeCapabilities, freezeSender, isRecord } from "../core/http.js";
+import { freezeCapabilities, freezeProviderOptionsSpec, freezeSender, isRecord } from "../core/http.js";
 
 /** A scripted outcome, or a function that computes one per send. */
 export type MemoryOutcome =
@@ -103,10 +104,11 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
       throw new ConfigurationError("Memory adapter outcomes must be an array.");
     }
     queue = rawOutcomes === undefined ? [] : [...rawOutcomes];
-    const rawCaps = options.capabilities;
-    if (rawCaps !== undefined && !isRecord(rawCaps)) {
-      throw new ConfigurationError("Memory adapter capabilities must be an object.");
+    if (!queue.every(isMemoryOutcome)) {
+      throw new ConfigurationError("Memory adapter outcomes must contain valid outcomes or functions.");
     }
+    const sourceCaps = options.capabilities;
+    const rawCaps = sourceCaps === undefined ? undefined : snapshotMemoryCapabilities(sourceCaps);
     capabilities = freezeCapabilities({
       sendText: rawCaps?.sendText ?? MEMORY_CAPABILITIES.sendText,
       mms: rawCaps?.mms ?? MEMORY_CAPABILITIES.mms,
@@ -122,7 +124,16 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
       nativeIdempotency: rawCaps?.nativeIdempotency ?? MEMORY_CAPABILITIES.nativeIdempotency,
     });
     const rawProviderOptions = options.providerOptions;
-    providerOptions = rawProviderOptions === undefined ? undefined : rawProviderOptions;
+    if (rawProviderOptions !== undefined) {
+      if (!isRecord(rawProviderOptions)) {
+        throw new ConfigurationError("Memory adapter providerOptions must be a valid ProviderOptionsSpec.");
+      }
+      const frozenSpec = freezeProviderOptionsSpec(rawProviderOptions);
+      if (!isValidProviderOptionsSpec(frozenSpec)) {
+        throw new ConfigurationError("Memory adapter providerOptions must be a valid ProviderOptionsSpec.");
+      }
+      providerOptions = frozenSpec;
+    }
     defaultFrom = freezeSender(options.from ?? "+15005550006");
   } catch (error) {
     if (error instanceof ConfigurationError) {
@@ -174,6 +185,116 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
       counter = 0;
     },
   };
+}
+
+const MEMORY_BOOLEAN_CAPABILITIES = [
+  "mms",
+  "scheduling",
+  "webhookUrlOverride",
+  "inbound",
+  "deliveryReceipts",
+  "nativeIdempotency",
+] as const;
+
+function snapshotMemoryCapabilities(value: unknown): Partial<SmsCapabilities> {
+  if (!isRecord(value)) {
+    throw new ConfigurationError("Memory adapter capabilities must be an object.");
+  }
+  const copy: Record<string, unknown> = {};
+  if ("sendText" in value) {
+    const sendText = value["sendText"];
+    if (sendText !== undefined && sendText !== true) {
+      throw new ConfigurationError("Memory adapter capabilities.sendText must be true.");
+    }
+    if (sendText !== undefined) {
+      copy["sendText"] = sendText;
+    }
+  }
+  for (const key of MEMORY_BOOLEAN_CAPABILITIES) {
+    if (key in value) {
+      const flag = value[key];
+      if (flag !== undefined && typeof flag !== "boolean") {
+        throw new ConfigurationError(`Memory adapter capabilities.${key} must be a boolean.`);
+      }
+      if (flag !== undefined) {
+        copy[key] = flag;
+      }
+    }
+  }
+  if ("senderTypes" in value) {
+    const senderTypes = value["senderTypes"];
+    if (senderTypes !== undefined) {
+      if (
+        !Array.isArray(senderTypes) ||
+        !senderTypes.every((item) => typeof item === "string" && MEMORY_CAPABILITIES.senderTypes.includes(item as never))
+      ) {
+        throw new ConfigurationError("Memory adapter capabilities.senderTypes must contain recognized sender types.");
+      }
+      copy["senderTypes"] = [...senderTypes];
+    }
+  }
+  if ("validityPeriod" in value) {
+    const range = value["validityPeriod"];
+    if (range === null) {
+      copy["validityPeriod"] = null;
+    } else if (range !== undefined) {
+      if (!isRecord(range)) {
+        throw new ConfigurationError("Memory adapter validityPeriod must be a range or null.");
+      }
+      const minSec = range["minSec"];
+      const maxSec = range["maxSec"];
+      if (
+        typeof minSec !== "number" ||
+        !Number.isInteger(minSec) ||
+        minSec <= 0 ||
+        typeof maxSec !== "number" ||
+        !Number.isInteger(maxSec) ||
+        maxSec < minSec
+      ) {
+        throw new ConfigurationError("Memory adapter validityPeriod must be a positive integer range.");
+      }
+      copy["validityPeriod"] = { minSec, maxSec };
+    }
+  }
+  return copy as Partial<SmsCapabilities>;
+}
+
+const VALID_MEMORY_DELIVERIES = new Set(["queued", "sent", "delivered", "undelivered", "filtered", "unknown"]);
+const VALID_MEMORY_CATEGORIES = new Set(["auth", "rate_limited", "sender", "account", "recipient", "compliance", "request"]);
+const VALID_MEMORY_UNKNOWN_REASONS = new Set([
+  "network",
+  "timeout",
+  "aborted",
+  "malformed_response",
+  "server_error",
+  "unexpected_status",
+  "adapter_exception",
+]);
+
+function isMemoryOutcome(value: unknown): boolean {
+  if (typeof value === "function") return true;
+  if (!isRecord(value)) return false;
+  switch (value["kind"]) {
+    case "accepted":
+      return (
+        typeof value["providerId"] === "string" &&
+        value["providerId"].length > 0 &&
+        typeof value["delivery"] === "string" &&
+        VALID_MEMORY_DELIVERIES.has(value["delivery"])
+      );
+    case "rejected":
+      return (
+        typeof value["category"] === "string" &&
+        VALID_MEMORY_CATEGORIES.has(value["category"]) &&
+        isRecord(value["details"]) &&
+        typeof value["details"]["provider"] === "string" &&
+        value["details"]["provider"].length > 0
+      );
+    case "unknown":
+      return typeof value["reason"] === "string" && VALID_MEMORY_UNKNOWN_REASONS.has(value["reason"]);
+    default:
+      return false;
+  }
 }
 
 /** An accepted outcome. */

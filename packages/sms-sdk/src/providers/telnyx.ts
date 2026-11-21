@@ -70,14 +70,7 @@ export const TELNYX_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   nativeIdempotency: false,
 });
 
-/**
- * Telnyx `POST /v2/messages` parameters accepted in `providerOptions.telnyx`,
- * from the Send a message reference. Parameters the SDK sets from portable
- * fields or adapter options are reserved.
- *
- * @see https://developers.telnyx.com/api/messaging/send-message
- */
-export const TELNYX_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
+const TELNYX_SPEC_SOURCE = {
   options: {
     /** `subject`: subject of a multimedia message. */
     subject: { type: "string", wire: "subject" },
@@ -91,7 +84,16 @@ export const TELNYX_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
     encoding: { type: "enum", wire: "encoding", values: ["auto", "gsm7", "ucs2"] },
   },
   reserved: ["to", "from", "messaging_profile_id", "text", "media_urls", "type", "webhook_url", "send_at"],
-} as const satisfies ProviderOptionsSpec);
+} as const satisfies ProviderOptionsSpec;
+
+/**
+ * Telnyx `POST /v2/messages` parameters accepted in `providerOptions.telnyx`,
+ * from the Send a message reference. Parameters the SDK sets from portable
+ * fields or adapter options are reserved.
+ *
+ * @see https://developers.telnyx.com/api/messaging/send-message
+ */
+export const TELNYX_PROVIDER_OPTIONS = freezeProviderOptionsSpec(TELNYX_SPEC_SOURCE);
 
 /** Telnyx-specific send options: `providerOptions.telnyx`. */
 export type TelnyxSendOptions = ProviderOptionsOf<typeof TELNYX_PROVIDER_OPTIONS>;
@@ -159,7 +161,8 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
     name: "telnyx",
     capabilities: TELNYX_CAPABILITIES,
     support: { status: "supported", notes: [] },
-    providerOptions: TELNYX_PROVIDER_OPTIONS,
+    // A private copy: Object.freeze cannot stop RegExp.prototype.compile on exported patterns.
+    providerOptions: freezeProviderOptionsSpec(TELNYX_SPEC_SOURCE),
     ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {

@@ -1,6 +1,5 @@
 import type { AdapterSendOutcome, Delivery, MessageLookupOutcome, ProviderErrorInfo } from "./adapters.js";
 import { ConfigurationError } from "./errors.js";
-import { redactText } from "./redact.js";
 
 /** A `fetch`-compatible function. Adapters accept one for testing and custom runtimes. */
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -200,24 +199,27 @@ export function freezeCapabilities<
     readonly nativeIdempotency: boolean;
   },
 >(capabilities: T): T {
-  const validity = capabilities.validityPeriod;
-  const senderTypes = capabilities.senderTypes;
+  const raw = capabilities as unknown as Record<string, unknown>;
+  const validity = raw["validityPeriod"];
+  const senderTypes = raw["senderTypes"];
   return Object.freeze({
-    sendText: capabilities.sendText,
-    mms: capabilities.mms,
-    scheduling: capabilities.scheduling,
+    sendText: raw["sendText"],
+    mms: raw["mms"],
+    scheduling: raw["scheduling"],
     validityPeriod:
       validity === null
         ? null
-        : Object.freeze({
-            minSec: validity.minSec,
-            maxSec: validity.maxSec,
-          }),
-    webhookUrlOverride: capabilities.webhookUrlOverride,
-    inbound: capabilities.inbound,
-    deliveryReceipts: capabilities.deliveryReceipts,
-    senderTypes: Object.freeze([...senderTypes]),
-    nativeIdempotency: capabilities.nativeIdempotency,
+        : isRecord(validity)
+          ? Object.freeze({
+              minSec: validity["minSec"],
+              maxSec: validity["maxSec"],
+            })
+          : validity,
+    webhookUrlOverride: raw["webhookUrlOverride"],
+    inbound: raw["inbound"],
+    deliveryReceipts: raw["deliveryReceipts"],
+    senderTypes: Array.isArray(senderTypes) ? Object.freeze([...senderTypes]) : senderTypes,
+    nativeIdempotency: raw["nativeIdempotency"],
   }) as unknown as T;
 }
 
@@ -230,36 +232,57 @@ function cloneRegExp(pattern: RegExp): RegExp {
   return new RegExp(source, flags);
 }
 
+const PROVIDER_OPTION_FIELD_KEYS = ["wire", "type", "maxLength", "pattern", "min", "max", "values"] as const;
+
+function defineDataProp(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 /** Returns a deep-frozen snapshot of a providerOptions spec (options, enum values, RegExp patterns, reserved, nestedPrefixes). */
 export function freezeProviderOptionsSpec<const T>(spec: T): T {
   const raw = spec as unknown as Record<string, unknown>;
-  const rawOptions = raw["options"] as Record<string, Record<string, unknown>>;
-  const frozenOptions: Record<string, unknown> = {};
-  for (const key of Object.keys(rawOptions)) {
-    const field = rawOptions[key]!;
-    const fieldCopy: Record<string, unknown> = {};
-    for (const prop of Object.keys(field)) {
-      const value = field[prop];
-      if (prop === "values" && Array.isArray(value)) {
-        fieldCopy[prop] = Object.freeze([...value]);
-      } else if (prop === "pattern" && value instanceof RegExp) {
-        fieldCopy[prop] = cloneRegExp(value);
-      } else {
-        fieldCopy[prop] = value;
+  const rawOptions = raw["options"];
+  let frozenOptionsValue: unknown;
+  if (isRecord(rawOptions)) {
+    const frozenOptions: Record<string, unknown> = {};
+    for (const key of Object.keys(rawOptions)) {
+      const field = rawOptions[key];
+      if (!isRecord(field)) {
+        defineDataProp(frozenOptions, key, field);
+        continue;
       }
+      const fieldCopy: Record<string, unknown> = {};
+      const fieldKeys = new Set([...Object.keys(field), ...PROVIDER_OPTION_FIELD_KEYS]);
+      for (const prop of fieldKeys) {
+        if (!(prop in field)) continue;
+        const value = field[prop];
+        if (prop === "values" && Array.isArray(value)) {
+          defineDataProp(fieldCopy, prop, Object.freeze([...value]));
+        } else if (prop === "pattern" && value instanceof RegExp) {
+          defineDataProp(fieldCopy, prop, Object.freeze(cloneRegExp(value)));
+        } else {
+          defineDataProp(fieldCopy, prop, value);
+        }
+      }
+      defineDataProp(frozenOptions, key, Object.freeze(fieldCopy));
     }
-    frozenOptions[key] = Object.freeze(fieldCopy);
+    frozenOptionsValue = Object.freeze(frozenOptions);
+  } else {
+    frozenOptionsValue = rawOptions;
   }
   const copy: Record<string, unknown> = {
-    options: Object.freeze(frozenOptions),
+    options: frozenOptionsValue,
   };
   const reserved = raw["reserved"];
-  if (Array.isArray(reserved)) {
-    copy["reserved"] = Object.freeze([...reserved]);
-  }
+  copy["reserved"] = Array.isArray(reserved) ? Object.freeze([...reserved]) : reserved;
   const nestedPrefixes = raw["nestedPrefixes"];
-  if (Array.isArray(nestedPrefixes)) {
-    copy["nestedPrefixes"] = Object.freeze([...nestedPrefixes]);
+  if (nestedPrefixes !== undefined) {
+    copy["nestedPrefixes"] = Array.isArray(nestedPrefixes) ? Object.freeze([...nestedPrefixes]) : nestedPrefixes;
   }
   return Object.freeze(copy) as unknown as T;
 }
@@ -321,7 +344,8 @@ export function providerInfo(input: {
     provider: input.provider,
     ...(input.httpStatus === undefined ? {} : { httpStatus: input.httpStatus }),
     ...(input.code === undefined ? {} : { code: input.code }),
-    ...(input.message === undefined ? {} : { message: redactText(input.message) }),
+    // Free-form response text can echo message bodies, PII, or credentials.
+    // Keep log-safe diagnostics structural.
     ...(input.requestId === undefined || input.requestId === null ? {} : { requestId: input.requestId }),
   };
 }

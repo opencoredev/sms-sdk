@@ -180,6 +180,8 @@ export type VonageMessageRequest = {
   sms?: Record<string, ProviderOptionValue>;
 };
 
+const VONAGE_REGIONS = new Set(["api", "api-eu", "api-us", "api-ap"]);
+
 /**
  * Creates a Vonage Messages API adapter.
  *
@@ -189,8 +191,6 @@ export type VonageMessageRequest = {
  *
  * @throws {ConfigurationError} when credentials are empty.
  */
-const VONAGE_REGIONS = new Set(["api", "api-eu", "api-us", "api-ap"]);
-
 export function vonage(options: VonageOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Vonage options must be an object.");

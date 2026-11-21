@@ -249,7 +249,7 @@ describe("twilio response mapping", () => {
     expect(error).toBeInstanceOf(errorClass);
   });
 
-  test("keeps the request ID and redacted provider message", async () => {
+  test("keeps structural diagnostics without free-form response text", async () => {
     const mock = mockFetch({
       status: 400,
       body: { code: 21211, message: "The 'To' number +14155550123 is not a valid phone number.", status: 400 },
@@ -258,7 +258,7 @@ describe("twilio response mapping", () => {
     const sms = createSmsClient({ adapters: [twilio({ accountSid: TWILIO_SID, authToken: "t", from: "+15005550006", fetch: mock.fetch })] });
     const error = await rejection(sms.send({ to: "+14155550123", body: "hi" }));
     expect(error).toMatchObject({
-      provider: { provider: "twilio", httpStatus: 400, code: "21211", requestId: "RQ123", message: "The 'To' number +1********23 is not a valid phone number." },
+      provider: { provider: "twilio", httpStatus: 400, code: "21211", requestId: "RQ123" },
     });
   });
 });

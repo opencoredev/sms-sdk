@@ -38,6 +38,22 @@ export async function lookupOnce(input: {
     input.signal?.removeEventListener("abort", onCallerAbort);
   }
 
+  const record = typeof outcome === "object" && outcome !== null && !Array.isArray(outcome) ? (outcome as Record<string, unknown>) : undefined;
+  const kind = record?.["kind"];
+  const status = kind === "found" ? record?.["status"] : undefined;
+  if (
+    !(
+      kind === "not_found" ||
+      kind === "failed" ||
+      (kind === "found" && typeof status === "object" && status !== null && !Array.isArray(status))
+    )
+  ) {
+    outcome = {
+      kind: "failed",
+      reason: "adapter_exception",
+      cause: new TypeError(`${input.adapter.name} getMessage returned a malformed lookup outcome.`),
+    };
+  }
   if (outcome.kind === "failed" && controller.signal.aborted) {
     return { ...outcome, reason: timedOut ? "timeout" : "aborted" };
   }

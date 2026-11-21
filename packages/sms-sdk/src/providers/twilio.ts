@@ -88,16 +88,7 @@ export const TWILIO_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   nativeIdempotency: false,
 });
 
-/**
- * Twilio Message create parameters accepted in `providerOptions.twilio`, from
- * the Message resource reference. Parameters the SDK sets from portable fields
- * are reserved. Not typed: `MaxPrice` (obsolete), `ForceDelivery` (reserved by
- * Twilio), `TrafficType` (undocumented), and non-SMS channel parameters
- * (`PersistentAction`, `FallbackFrom`); send them through `extra` if needed.
- *
- * @see https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource
- */
-export const TWILIO_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
+const TWILIO_SPEC_SOURCE = {
   options: {
     /** `ApplicationSid`: TwiML App whose status callback URL receives status updates. Ignored by Twilio when `webhookUrl` is set. */
     applicationSid: { type: "string", wire: "ApplicationSid", pattern: /^AP[0-9a-fA-F]{32}$/ },
@@ -149,7 +140,18 @@ export const TWILIO_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
     "ContentSid",
     "ContentVariables",
   ],
-} as const satisfies ProviderOptionsSpec);
+} as const satisfies ProviderOptionsSpec;
+
+/**
+ * Twilio Message create parameters accepted in `providerOptions.twilio`, from
+ * the Message resource reference. Parameters the SDK sets from portable fields
+ * are reserved. Not typed: `MaxPrice` (obsolete), `ForceDelivery` (reserved by
+ * Twilio), `TrafficType` (undocumented), and non-SMS channel parameters
+ * (`PersistentAction`, `FallbackFrom`); send them through `extra` if needed.
+ *
+ * @see https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource
+ */
+export const TWILIO_PROVIDER_OPTIONS = freezeProviderOptionsSpec(TWILIO_SPEC_SOURCE);
 
 /** Twilio-specific send options: `providerOptions.twilio`. */
 export type TwilioSendOptions = ProviderOptionsOf<typeof TWILIO_PROVIDER_OPTIONS>;
@@ -210,7 +212,8 @@ export function twilio(options: TwilioOptions): SmsAdapter {
     name: "twilio",
     capabilities: TWILIO_CAPABILITIES,
     support: { status: "supported", notes: [] },
-    providerOptions: TWILIO_PROVIDER_OPTIONS,
+    // A private copy: Object.freeze cannot stop RegExp.prototype.compile on exported patterns.
+    providerOptions: freezeProviderOptionsSpec(TWILIO_SPEC_SOURCE),
     ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {

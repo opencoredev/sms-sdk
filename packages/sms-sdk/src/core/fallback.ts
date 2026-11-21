@@ -200,10 +200,83 @@ async function attemptOnce(candidate: SendCandidate, input: ChainInput, attempt:
     input.signal?.removeEventListener("abort", onCallerAbort);
   }
 
+  outcome = normalizeOutcome(outcome, candidate.adapter.name);
   if (outcome.kind === "unknown" && controller.signal.aborted) {
     return { ...outcome, reason: timedOut ? "timeout" : "aborted" };
   }
   return outcome;
+}
+
+const REJECTION_CATEGORIES: ReadonlySet<unknown> = new Set([
+  "auth",
+  "rate_limited",
+  "recipient",
+  "sender",
+  "account",
+  "compliance",
+  "request",
+]);
+
+const UNKNOWN_REASONS: ReadonlySet<unknown> = new Set([
+  "network",
+  "timeout",
+  "aborted",
+  "malformed_response",
+  "server_error",
+  "unexpected_status",
+  "adapter_exception",
+]);
+
+function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string) {
+  const provider = typeof raw["provider"] === "string" && raw["provider"].length > 0 ? raw["provider"] : fallbackProvider;
+  const httpStatus = typeof raw["httpStatus"] === "number" && Number.isFinite(raw["httpStatus"]) ? raw["httpStatus"] : undefined;
+  const code = typeof raw["code"] === "string" && raw["code"].length > 0 ? raw["code"] : undefined;
+  const requestId = typeof raw["requestId"] === "string" && raw["requestId"].length > 0 ? raw["requestId"] : undefined;
+  return {
+    provider,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+    ...(code === undefined ? {} : { code }),
+    ...(requestId === undefined ? {} : { requestId }),
+  };
+}
+
+/** A send outcome the client cannot act on safely is treated as unknown: the request may have reached the provider. */
+function normalizeOutcome(outcome: unknown, adapterName: string): AdapterSendOutcome {
+  const record = typeof outcome === "object" && outcome !== null && !Array.isArray(outcome) ? (outcome as Record<string, unknown>) : undefined;
+  const kind = record?.["kind"];
+  if (kind === "accepted" && typeof record?.["providerId"] === "string" && record["providerId"].length > 0) {
+    return outcome as AdapterSendOutcome;
+  }
+  if (
+    kind === "rejected" &&
+    REJECTION_CATEGORIES.has(record?.["category"]) &&
+    typeof record?.["details"] === "object" &&
+    record["details"] !== null &&
+    !Array.isArray(record["details"])
+  ) {
+    const details = sanitizeProviderDetails(record["details"] as Record<string, unknown>, adapterName);
+    const retryAfterMs = record["retryAfterMs"];
+    return {
+      kind: "rejected",
+      category: record["category"] as Extract<AdapterSendOutcome, { kind: "rejected" }>["category"],
+      details,
+      ...(typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0 ? { retryAfterMs } : {}),
+    };
+  }
+  if (kind === "unknown" && UNKNOWN_REASONS.has(record?.["reason"])) {
+    const rawDetails = record?.["details"];
+    const details =
+      typeof rawDetails === "object" && rawDetails !== null && !Array.isArray(rawDetails)
+        ? sanitizeProviderDetails(rawDetails as Record<string, unknown>, adapterName)
+        : undefined;
+    return {
+      kind: "unknown",
+      reason: record!["reason"] as Extract<AdapterSendOutcome, { kind: "unknown" }>["reason"],
+      ...(details === undefined ? {} : { details }),
+      ...("cause" in record! ? { cause: record!["cause"] } : {}),
+    };
+  }
+  return { kind: "unknown", reason: "adapter_exception", cause: new TypeError("Adapter returned a malformed send outcome.") };
 }
 
 function rejectionError(

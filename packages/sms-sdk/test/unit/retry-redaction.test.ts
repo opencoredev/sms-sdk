@@ -83,8 +83,8 @@ describe("redaction", () => {
     expect(redactText("error 21211")).toBe("error 21211");
   });
 
-  test("providerInfo redacts the message", () => {
-    expect(providerInfo({ provider: "twilio", message: "bad +447700900123" }).message).toBe("bad +4*********23");
+  test("providerInfo omits free-form response text", () => {
+    expect(providerInfo({ provider: "twilio", message: "bad +447700900123" }).message).toBeUndefined();
   });
 
   const SECRET = "auth-token-SECRET-value";
@@ -103,6 +103,7 @@ describe("redaction", () => {
 
   test.each([
     [400, { code: 21211, message: "The 'To' number +14155550123 is not a valid phone number.", status: 400 }, "twilio"],
+    [400, { code: 21211, message: `echo ${BODY} ${SECRET} alice@example.test`, status: 400 }, "twilio"],
     [401, { code: 20003, message: "Authenticate", status: 401 }, "twilio"],
     [500, { message: `echo ${BODY}` }, "twilio"],
     [422, { errors: [{ code: "40310", title: "Invalid 'to' address", detail: "+14155550123 is invalid" }] }, "telnyx"],
