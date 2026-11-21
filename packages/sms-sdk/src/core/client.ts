@@ -62,8 +62,8 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   if (new Set(names).size !== names.length) {
     throw new ConfigurationError(`Adapter names must be unique; got ${names.join(", ")}.`);
   }
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) {
+  const timeoutMs = options.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs;
+  if (!(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0)) {
     throw new ConfigurationError("timeoutMs must be a positive number.");
   }
 
@@ -75,9 +75,14 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       ? undefined
       : {
           store: options.idempotency.store,
-          ttlSec: requirePositiveSeconds(options.idempotency.ttlSec ?? DEFAULT_TTL_SEC, "ttlSec"),
+          ttlSec: requirePositiveSeconds(
+            options.idempotency.ttlSec === undefined ? DEFAULT_TTL_SEC : options.idempotency.ttlSec,
+            "ttlSec",
+          ),
           staleReservationSec: requirePositiveSeconds(
-            options.idempotency.staleReservationSec ?? DEFAULT_STALE_RESERVATION_SEC,
+            options.idempotency.staleReservationSec === undefined
+              ? DEFAULT_STALE_RESERVATION_SEC
+              : options.idempotency.staleReservationSec,
             "staleReservationSec",
           ),
         };
@@ -410,8 +415,8 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 }
 
 function requirePositiveSeconds(value: number, name: "ttlSec" | "staleReservationSec"): number {
-  if (!(typeof value === "number" && Number.isFinite(value) && value > 0)) {
-    throw new ConfigurationError(`idempotency.${name} must be a finite number of seconds greater than 0.`);
+  if (!(typeof value === "number" && Number.isInteger(value) && value >= 1)) {
+    throw new ConfigurationError(`idempotency.${name} must be an integer number of seconds >= 1.`);
   }
   return value;
 }

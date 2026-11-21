@@ -266,12 +266,13 @@ export function interpretTelnyxLookup(providerId: string, status: number, text: 
     }
     const providerStatus = firstRecipientStatus(data);
     const firstError = firstTelnyxError(data);
+    const errorCode = firstError === undefined ? undefined : readCode(firstError, "code");
     return foundMessage({
       provider: "telnyx",
       providerId,
-      delivery: telnyxDelivery(providerStatus),
+      delivery: telnyxDelivery(providerStatus, errorCode),
       providerStatus,
-      errorCode: firstError === undefined ? undefined : readCode(firstError, "code"),
+      errorCode,
     });
   }
   if (status === 404) {
@@ -338,8 +339,10 @@ export function telnyxRejectionCategory(status: number, code: string | undefined
   return "request";
 }
 
-/** Delivery value for a Telnyx recipient `status`. */
-export function telnyxDelivery(status: string | undefined): Delivery {
+const TELNYX_FILTERED_CODES = new Set(["40002", "40003", "40322"]);
+
+/** Delivery value for a Telnyx recipient `status`, mapping carrier-filter codes to `filtered`. */
+export function telnyxDelivery(status: string | undefined, errorCode?: string): Delivery {
   switch (status) {
     case "queued":
     case "sending":
@@ -352,7 +355,7 @@ export function telnyxDelivery(status: string | undefined): Delivery {
     case "sending_failed":
     case "delivery_failed":
     case "expired":
-      return "undelivered";
+      return errorCode !== undefined && TELNYX_FILTERED_CODES.has(errorCode) ? "filtered" : "undelivered";
     default:
       return "unknown";
   }

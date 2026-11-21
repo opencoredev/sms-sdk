@@ -31,7 +31,7 @@ export type ParseSmsWebhookOptions =
  * dropping events; use {@link parseSmsWebhooks} to read every event.
  *
  * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
- * @throws {WebhookPayloadError} when an authentic payload lacks required fields or carries several events.
+ * @throws {WebhookPayloadError} when the body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification) or an authentic payload lacks required fields or carries several events.
  * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
 export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<SmsEvent> {
@@ -63,7 +63,7 @@ export async function parseSmsWebhook(options: ParseSmsWebhookOptions): Promise<
  * Deduplicate each event by its own `dedupeKey`.
  *
  * @throws {WebhookSignatureError} when the request is not authentic. Respond 401/403.
- * @throws {WebhookPayloadError} when an authentic payload lacks required fields.
+ * @throws {WebhookPayloadError} when the body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification) or an authentic payload lacks required fields.
  * @throws {ConfigurationError} when `unsafeSkipVerification` is set and `NODE_ENV` is `"production"`.
  */
 export async function parseSmsWebhooks(options: ParseSmsWebhookOptions): Promise<SmsEvent[]> {

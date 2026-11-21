@@ -169,4 +169,34 @@ describe("provider status mapping", () => {
     const sms = createSmsClient({ adapters: [plivo({ authId: "MA1", authToken: "t", fetch: mock.fetch })] });
     await expect(sms.getMessage("u")).resolves.toMatchObject({ delivery: "filtered", errorCode: "450" });
   });
+
+  test("Plivo lookup omits placeholder 000 error code", async () => {
+    const mock = mockFetch({ status: 200, body: { api_id: "a", message_uuid: "u", message_state: "delivered", error_code: "000" } });
+    const sms = createSmsClient({ adapters: [plivo({ authId: "MA1", authToken: "t", fetch: mock.fetch })] });
+    const result = await sms.getMessage("u");
+    expect(result).toMatchObject({ delivery: "delivered" });
+    expect(result?.errorCode).toBeUndefined();
+  });
+
+  test("Twilio, Telnyx, and Vonage lookups map carrier filtering error codes to filtered", async () => {
+    const twMock = mockFetch({ status: 200, body: { sid: TWILIO_MESSAGE_SID, status: "undelivered", error_code: 30007 } });
+    const twSms = createSmsClient({ adapters: [twilio({ accountSid: TWILIO_SID, authToken: "t", fetch: twMock.fetch })] });
+    await expect(twSms.getMessage(TWILIO_MESSAGE_SID)).resolves.toMatchObject({ delivery: "filtered", errorCode: "30007" });
+
+    const txMock = mockFetch({
+      status: 200,
+      body: { data: { id: "tx1", to: [{ status: "delivery_failed" }], errors: [{ code: "40003" }] } },
+    });
+    const txSms = createSmsClient({ adapters: [telnyx({ apiKey: "k", fetch: txMock.fetch })] });
+    await expect(txSms.getMessage("tx1")).resolves.toMatchObject({ delivery: "filtered", errorCode: "40003" });
+
+    const vgMock = mockFetch({
+      status: 200,
+      body: { records: [{ message_id: "vg1", status: "rejected", error_code: "1470" }] },
+    });
+    const vgSms = createSmsClient({
+      adapters: [vonage({ apiKey: "k", apiSecret: "s", fetch: vgMock.fetch })],
+    });
+    await expect(vgSms.getMessage("vg1")).resolves.toMatchObject({ delivery: "filtered", errorCode: "1470" });
+  });
 });

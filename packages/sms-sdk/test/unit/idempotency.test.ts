@@ -118,11 +118,18 @@ describe("idempotent replay", () => {
   });
 
   test("an unknown outcome replays as unknown and never resends", async () => {
-    const store = memoryIdempotencyStore();
+    let clockOffsetMs = 0;
+    const base = memoryIdempotencyStore();
+    const store = {
+      get: (key: string) => base.get(key),
+      reserve: (input: Parameters<typeof base.reserve>[0]) => base.reserve({ ...input, now: input.now + clockOffsetMs }),
+      finalize: (input: Parameters<typeof base.finalize>[0]) =>
+        base.finalize({ ...input, now: input.now + clockOffsetMs }),
+    };
     const adapter = memory({ outcomes: [unknownOutcome("timeout")] });
-    const sms = createSmsClient({ adapters: [adapter], idempotency: { store, ttlSec: 0.001 } });
+    const sms = createSmsClient({ adapters: [adapter], idempotency: { store, ttlSec: 1 } });
     await expect(sms.send(message)).rejects.toBeInstanceOf(HandoffUnknownError);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    clockOffsetMs = 5_000;
     const replay = await rejection(sms.send(message));
     expect(replay).toBeInstanceOf(HandoffUnknownError);
     expect(replay).toMatchObject({ reason: "replayed_unknown", retrySafe: false });
@@ -306,4 +313,3 @@ describe("fingerprint with fromByAdapter", () => {
     expect(validation.issues.some((issue) => issue.field === "fromByAdapter")).toBe(true);
   });
 });
-

@@ -246,12 +246,13 @@ export function interpretPlivoLookup(providerId: string, status: number, text: s
     if (!isRecord(body) || providerStatus === undefined) {
       return malformedLookup("plivo", status, requestId);
     }
+    const rawErrorCode = readCode(body, "error_code");
     return foundMessage({
       provider: "plivo",
       providerId,
       delivery: plivoDelivery(providerStatus),
       providerStatus,
-      errorCode: readCode(body, "error_code"),
+      errorCode: rawErrorCode === "000" ? undefined : rawErrorCode,
     });
   }
   if (status === 404) {

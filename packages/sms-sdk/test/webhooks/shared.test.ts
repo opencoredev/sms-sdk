@@ -41,14 +41,22 @@ describe("unsafeSkipVerification in production", () => {
     ];
   }
 
-  test("every provider refuses it when NODE_ENV is production", async () => {
-    process.env["NODE_ENV"] = "production";
+  test("every provider refuses it when NODE_ENV is production (case-insensitive) even with an oversized body", async () => {
+    process.env["NODE_ENV"] = "PRODUCTION";
     for (const options of await everyProvider()) {
       await expect(parseSmsWebhook(options)).rejects.toBeInstanceOf(ConfigurationError);
     }
     for (const options of await everyProvider()) {
       await expect(parseSmsWebhooks(options)).rejects.toBeInstanceOf(ConfigurationError);
     }
+    const oversized = new Request("https://example.com/hook", {
+      method: "POST",
+      headers: { "content-length": String(MAX_WEBHOOK_BYTES + 1) },
+      body: "{}",
+    });
+    await expect(
+      parseSmsWebhook({ provider: "twilio", request: oversized, credentials: { authToken: AUTH_TOKEN }, unsafeSkipVerification: true }),
+    ).rejects.toBeInstanceOf(ConfigurationError);
   });
 
   test("it still works outside production", async () => {
@@ -148,6 +156,6 @@ describe("webhook body size limit", () => {
     });
     await expect(
       parseSmsWebhooks({ provider: "bandwidth", request, credentials: { username: "u", password: "p" } }),
-    ).rejects.toBeInstanceOf(WebhookPayloadError);
+    ).rejects.toMatchObject({ code: "webhook_payload", reason: "body_too_large" });
   });
 });

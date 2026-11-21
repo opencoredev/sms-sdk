@@ -183,7 +183,10 @@ export type AdapterCheck =
  */
 export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterCheck {
   const provider = adapter.name;
-  const resolution = resolveSender(senderFor(input, provider) ?? input.from ?? adapter.defaultFrom);
+  const adapterSender = senderFor(input, provider);
+  const rawFrom =
+    adapterSender !== undefined ? adapterSender : input.from !== undefined ? input.from : adapter.defaultFrom;
+  const resolution = resolveSender(rawFrom);
 
   if (resolution.kind === "missing") {
     return {

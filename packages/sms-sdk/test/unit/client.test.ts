@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createSmsClient } from "../../src/core/client.js";
 import {
   AllProvidersRejectedError,
+  ConfigurationError,
   HandoffUnknownError,
   PolicyRejectedError,
   ProviderAuthError,
@@ -9,6 +10,7 @@ import {
   ProviderRejectedError,
   SendAbortedError,
 } from "../../src/core/errors.js";
+import { memoryIdempotencyStore } from "../../src/core/idempotency.js";
 import type { SmsAcceptedEvent, SmsAttemptEvent, SmsFailureEvent } from "../../src/core/events.js";
 import type { SmsSendInput } from "../../src/core/types.js";
 import { acceptedOutcome, memory, rejectedOutcome, unknownOutcome } from "../../src/testing/memory.js";
@@ -496,5 +498,37 @@ describe("send: fromByAdapter", () => {
     const sms = createSmsClient({ adapters: [memory()] });
     const input: SmsSendInput = JSON.parse('{"to":"+14155550123","body":"hi","fromByAdapter":"+15005550006"}');
     expect(sms.validate(input).issues).toContainEqual(expect.objectContaining({ code: "invalid_field", field: "fromByAdapter" }));
+  });
+
+  test("rejects null from, null config fields, and fractional idempotency seconds", () => {
+    const sms = createSmsClient({ adapters: [memory()] });
+    const nullFrom: SmsSendInput = JSON.parse('{"to":"+14155550123","body":"hi","from":null}');
+    expect(sms.validate(nullFrom).supported).toBe(false);
+    expect(sms.validate(nullFrom).issues).toContainEqual(expect.objectContaining({ code: "invalid_sender", field: "from" }));
+
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        idempotency: { store: memoryIdempotencyStore(), ttlSec: 0.5 },
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        idempotency: { store: memoryIdempotencyStore(), staleReservationSec: 0.5 },
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        timeoutMs: null as unknown as number,
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        adapters: [memory()],
+        retry: { maxAttempts: null as unknown as number },
+      }),
+    ).toThrow(ConfigurationError);
   });
 });

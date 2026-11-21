@@ -55,10 +55,11 @@ export async function verifyPlivoSignatureV2(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<SmsEvent> {
+  const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "plivo");
 
-  if (!skipVerification(options)) {
+  if (!skip) {
     const nonce = request.headers.get("x-plivo-signature-v2-nonce");
     const signatures = [request.headers.get("x-plivo-signature-v2"), request.headers.get("x-plivo-signature-ma-v2")].filter(
       (value): value is string => value !== null && value.length > 0,

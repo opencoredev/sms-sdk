@@ -40,8 +40,9 @@ export async function parseBandwidthWebhook(options: BandwidthWebhookOptions): P
  * Bandwidth sends a JSON array, which can hold more than one event.
  */
 export async function parseBandwidthWebhooks(options: BandwidthWebhookOptions): Promise<SmsEvent[]> {
+  const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "bandwidth");
-  if (!skipVerification(options)) {
+  if (!skip) {
     const header = options.request.headers.get("authorization");
     if (!hasBasicAuthorization(header, options.credentials)) {
       throw new WebhookSignatureError("Bandwidth webhook Basic authorization failed.", {

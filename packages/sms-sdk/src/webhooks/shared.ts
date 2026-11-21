@@ -6,11 +6,14 @@ import type { SmsEvent, WebhookProvider } from "./events.js";
 /** Largest inbound webhook body read before verification, in bytes (1 MiB). */
 export const MAX_WEBHOOK_BYTES = MAX_RESPONSE_BYTES;
 
-/** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} if exceeded. */
+/** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
 export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
   const text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
   if (text === undefined) {
-    throw new WebhookPayloadError(`The ${provider} webhook body exceeded ${MAX_WEBHOOK_BYTES} bytes.`, { provider });
+    throw new WebhookPayloadError(`The ${provider} webhook body exceeded ${MAX_WEBHOOK_BYTES} bytes.`, {
+      provider,
+      reason: "body_too_large",
+    });
   }
   return text;
 }
@@ -57,7 +60,7 @@ export function skipVerification(options: Pick<WebhookCommonOptions, "unsafeSkip
   if (options.unsafeSkipVerification !== true) {
     return false;
   }
-  if (readNodeEnv() === "production") {
+  if (readNodeEnv()?.toLowerCase() === "production") {
     throw new ConfigurationError(
       "unsafeSkipVerification is refused when NODE_ENV is production. Verify webhooks with real credentials.",
     );

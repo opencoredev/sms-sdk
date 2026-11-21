@@ -26,12 +26,18 @@ export const DEFAULT_RETRY: ResolvedRetryOptions = {
  * {@link MAX_RETRY_ATTEMPTS}, or a delay is not a finite number of at least 0.
  */
 export function resolveRetryOptions(options: RetryOptions | undefined): ResolvedRetryOptions {
-  const maxAttempts = options?.maxAttempts ?? DEFAULT_RETRY.maxAttempts;
+  const maxAttempts = options?.maxAttempts === undefined ? DEFAULT_RETRY.maxAttempts : options.maxAttempts;
   if (!(Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= MAX_RETRY_ATTEMPTS)) {
     throw new ConfigurationError(`retry.maxAttempts must be an integer from 1 to ${MAX_RETRY_ATTEMPTS}.`);
   }
-  const baseDelayMs = requireDelay(options?.baseDelayMs ?? DEFAULT_RETRY.baseDelayMs, "baseDelayMs");
-  const maxDelayMs = Math.max(baseDelayMs, requireDelay(options?.maxDelayMs ?? DEFAULT_RETRY.maxDelayMs, "maxDelayMs"));
+  const baseDelayMs = requireDelay(
+    options?.baseDelayMs === undefined ? DEFAULT_RETRY.baseDelayMs : options.baseDelayMs,
+    "baseDelayMs",
+  );
+  const maxDelayMs = Math.max(
+    baseDelayMs,
+    requireDelay(options?.maxDelayMs === undefined ? DEFAULT_RETRY.maxDelayMs : options.maxDelayMs, "maxDelayMs"),
+  );
   return { maxAttempts, baseDelayMs, maxDelayMs };
 }
 

@@ -73,6 +73,7 @@ export async function verifyTwilioSignature(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise<SmsEvent> {
+  const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "twilio");
   const url = resolveSignedUrl(request, options);
@@ -84,7 +85,7 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
   // signature and body hash pass. Form parameters are part of the signature.
   const formParams = jsonMode ? [] : readFormParams(request, rawBody);
 
-  if (!skipVerification(options)) {
+  if (!skip) {
     const signature = request.headers.get("x-twilio-signature");
     if (signature === null || signature.length === 0) {
       throw new WebhookSignatureError("Missing X-Twilio-Signature header.", { reason: "missing_signature", provider: "twilio" });

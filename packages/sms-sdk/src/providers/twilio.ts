@@ -333,12 +333,13 @@ export function interpretTwilioLookup(providerId: string, status: number, text: 
     if (!isRecord(body) || readString(body, "sid") === undefined || providerStatus === undefined) {
       return malformedLookup("twilio", status, requestId);
     }
+    const errorCode = readCode(body, "error_code");
     return foundMessage({
       provider: "twilio",
       providerId,
-      delivery: twilioDelivery(providerStatus),
+      delivery: twilioDelivery(providerStatus, errorCode),
       providerStatus,
-      errorCode: readCode(body, "error_code"),
+      errorCode,
     });
   }
   if (status === 404) {
@@ -387,8 +388,8 @@ export function twilioRejectionCategory(status: number, code: string | undefined
   }
 }
 
-/** Delivery value for a Twilio Message `status`. */
-export function twilioDelivery(status: string | undefined): Delivery {
+/** Delivery value for a Twilio Message `status`, mapping carrier-filter code 30007 to `filtered`. */
+export function twilioDelivery(status: string | undefined, errorCode?: string): Delivery {
   switch (status) {
     case "queued":
     case "accepted":
@@ -401,7 +402,7 @@ export function twilioDelivery(status: string | undefined): Delivery {
       return "delivered";
     case "undelivered":
     case "failed":
-      return "undelivered";
+      return errorCode === "30007" ? "filtered" : "undelivered";
     default:
       return "unknown";
   }

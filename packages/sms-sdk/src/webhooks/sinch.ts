@@ -78,8 +78,9 @@ export async function parseSinchWebhook(options: SinchWebhookOptions): Promise<S
  * `recipient_delivery_report`, or a single event otherwise.
  */
 export async function parseSinchWebhooks(options: SinchWebhookOptions): Promise<SmsEvent[]> {
+  const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "sinch");
-  if (!skipVerification(options)) {
+  if (!skip) {
     await verifySinchRequest(options, rawBody);
   }
   let body: unknown;
@@ -191,7 +192,12 @@ function reportEvent(input: {
   if (batchId === undefined || status === undefined) {
     return { ...base, type: "unrecognized", providerEventType: type || "unknown" };
   }
-  const reportBase: SmsEventBase = { ...base, dedupeKey: `sinch:${batchId}:${recipient ?? "summary"}:${status}` };
+  const reportOccurredAt = parseDate(readString(report, "at")) ?? base.occurredAt;
+  const reportBase: SmsEventBase = {
+    ...base,
+    dedupeKey: `sinch:${batchId}:${recipient ?? "summary"}:${status}`,
+    ...(reportOccurredAt === undefined ? {} : { occurredAt: reportOccurredAt }),
+  };
   const mapped = sinchStatus(status, code);
   if (mapped === undefined) {
     return { ...reportBase, type: "unrecognized", providerEventType: status };

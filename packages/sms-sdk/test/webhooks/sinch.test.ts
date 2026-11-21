@@ -81,4 +81,30 @@ describe("Sinch webhooks", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "message.delivered", providerId: "batch-1" });
   });
+
+  test("preserves per-report at timestamp as occurredAt on multi-recipient reports", async () => {
+    const body = JSON.stringify({
+      type: "recipient_delivery_report_sms",
+      batch_id: "batch-ts",
+      recipient_delivery_report: [
+        { code: 0, status: "Delivered", recipient: "14155550101", at: "2026-11-21T01:02:03.000Z" },
+        { code: 40003, status: "Rejected", recipient: "14155550102", at: "2026-11-21T04:05:06.000Z" },
+      ],
+    });
+    const request = new Request("https://example.com/webhooks/sinch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    const events = await parseSmsWebhooks({
+      provider: "sinch",
+      request,
+      credentials: { kind: "basic", username: "u", password: "p" },
+      unsafeSkipVerification: true,
+    });
+    expect(events).toHaveLength(2);
+    expect(events[0]?.occurredAt?.toISOString()).toBe("2026-11-21T01:02:03.000Z");
+    expect(events[1]?.occurredAt?.toISOString()).toBe("2026-11-21T04:05:06.000Z");
+    expect(events[1]?.type).toBe("message.filtered");
+  });
 });

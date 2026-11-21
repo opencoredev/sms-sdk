@@ -70,9 +70,10 @@ export async function verifyTelnyxSignature(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise<SmsEvent> {
+  const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "telnyx");
 
-  if (!skipVerification(options)) {
+  if (!skip) {
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,
       rawBody,

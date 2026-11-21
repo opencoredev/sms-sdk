@@ -290,12 +290,13 @@ export function interpretVonageLookup(providerId: string, status: number, text: 
       return { kind: "not_found" };
     }
     const providerStatus = readString(match, "status");
+    const errorCode = readCode(match, "error_code");
     return foundMessage({
       provider: "vonage",
       providerId,
-      delivery: vonageDelivery(providerStatus),
+      delivery: vonageDelivery(providerStatus, errorCode),
       providerStatus,
-      errorCode: readCode(match, "error_code"),
+      errorCode,
     });
   }
   if (status === 404) {
@@ -309,8 +310,10 @@ export function interpretVonageLookup(providerId: string, status: number, text: 
   });
 }
 
+const VONAGE_FILTERED_CODES = new Set(["1210", "1470", "1472", "1480", "1481", "1482", "1483"]);
+
 /** Delivery value for a Vonage message `status`, such as `submitted` or `undeliverable`. Case-insensitive. */
-export function vonageDelivery(status: string | undefined): Delivery {
+export function vonageDelivery(status: string | undefined, errorCode?: string): Delivery {
   switch (status?.toLowerCase()) {
     case "submitted":
       return "sent";
@@ -319,6 +322,7 @@ export function vonageDelivery(status: string | undefined): Delivery {
       return "delivered";
     case "rejected":
     case "undeliverable":
+      return errorCode !== undefined && VONAGE_FILTERED_CODES.has(errorCode) ? "filtered" : "undelivered";
     case "failed":
     case "expired":
       return "undelivered";

@@ -373,14 +373,20 @@ export class WebhookSignatureError extends SmsError {
   }
 }
 
-/** The webhook was authentic but its payload is missing required fields. */
+/**
+ * The webhook body exceeded the 1 MiB limit (checked before signature
+ * verification, with `reason: "body_too_large"`), or an authentic payload is
+ * missing required fields.
+ */
 export class WebhookPayloadError extends SmsError {
   readonly providerName: string;
+  readonly reason: "body_too_large" | undefined;
 
-  constructor(message: string, options: { readonly provider: string }) {
+  constructor(message: string, options: { readonly provider: string; readonly reason?: "body_too_large" }) {
     super(message, { code: "webhook_payload", retrySafe: false });
     this.name = "WebhookPayloadError";
     this.providerName = options.provider;
+    this.reason = options.reason;
   }
 }
 

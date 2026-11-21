@@ -82,9 +82,10 @@ export async function verifyVonageSignature(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parseVonageWebhook(options: VonageWebhookOptions): Promise<SmsEvent> {
+  const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "vonage");
 
-  if (!skipVerification(options)) {
+  if (!skip) {
     const verification = await verifyVonageSignature({
       signatureSecret: options.credentials.signatureSecret,
       authorization: options.request.headers.get("authorization"),
