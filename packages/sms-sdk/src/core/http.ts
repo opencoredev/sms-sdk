@@ -367,8 +367,7 @@ function isOpaqueHexId(value: string): boolean {
     return /[a-f]/i.test(value);
   }
   if (OPAQUE_HEX32_ID.test(value)) {
-    const hexPart = value.slice(-32);
-    return /[a-f]/i.test(hexPart) && !/\d{10,}/.test(hexPart);
+    return /[a-f]/i.test(value.slice(-32));
   }
   return false;
 }

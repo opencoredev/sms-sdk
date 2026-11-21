@@ -20,7 +20,7 @@ npm install @opencoredev/sms-sdk
 
 ### ESM only
 
-Use `import`, from an ES module (`"type": "module"`, `.mjs`, or a TypeScript project that emits ESM). Every subpath export has `import` and `default` conditions that point at the same ESM files, so bundlers and tools that resolve without the `import` condition still find them. `require("@opencoredev/sms-sdk")` loads it only on Node.js versions that support `require()` of ES modules (22.12 and later); on Node.js 20, use `await import("@opencoredev/sms-sdk")` from CommonJS.
+Use `import`, from an ES module (`"type": "module"`, `.mjs`, or a TypeScript project that emits ESM). Every subpath export has `import` and `default` conditions that point at the same ESM files, so bundlers and tools that resolve without the `import` condition still find them. `require("@opencoredev/sms-sdk")` loads it only on Node.js versions that support `require()` of ES modules (20.19+ and 22.12+); on earlier Node.js 20 versions, use `await import("@opencoredev/sms-sdk")` from CommonJS.
 
 The package uses only web-standard APIs: `fetch`, `URL`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto. Telnyx webhook verification needs Ed25519 and Vonage JWT auth needs RSA signing; Node.js 20 and Bun 1.1 have both. Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet.
 

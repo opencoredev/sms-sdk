@@ -41,7 +41,12 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_TTL_SEC = 86_400;
 const DEFAULT_STALE_RESERVATION_SEC = 300;
 
-type InFlight = { readonly fingerprint: Promise<string>; readonly promise: Promise<SmsSendResult> };
+type InFlight = {
+  readonly fingerprint: Promise<string>;
+  readonly promise: Promise<SmsSendResult>;
+  readonly controller: AbortController;
+  waiters: number;
+};
 
 type IdempotencyConfig = {
   readonly store: IdempotencyStore;
@@ -548,29 +553,108 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       fromByAdapter: canonicalFromByAdapter(adapters, input),
     });
 
+    const awaitShared = (entry: InFlight, replayed: boolean | undefined): Promise<SmsSendResult> => {
+      entry.waiters += 1;
+      let released = false;
+      const release = (aborted: boolean, reason?: unknown): void => {
+        if (released) {
+          return;
+        }
+        released = true;
+        entry.waiters -= 1;
+        if (aborted && entry.waiters === 0 && !entry.controller.signal.aborted) {
+          entry.controller.abort(reason);
+        }
+      };
+
+      if (signal === undefined) {
+        return entry.promise.then(
+          (result) => {
+            release(false);
+            return cloneSendResult(result, replayed ?? result.replayed);
+          },
+          (error: unknown) => {
+            release(false);
+            throw error;
+          },
+        );
+      }
+
+      if (signal.aborted) {
+        release(true, signal.reason);
+        return Promise.reject(
+          new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
+            reason: "aborted",
+            attempts: [],
+            cause: signal.reason,
+          }),
+        );
+      }
+
+      return new Promise<SmsSendResult>((resolve, reject) => {
+        const onAbort = (): void => {
+          cleanup();
+          release(true, signal.reason);
+          reject(
+            new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
+              reason: "aborted",
+              attempts: [],
+              cause: signal.reason,
+            }),
+          );
+        };
+        const cleanup = (): void => {
+          signal.removeEventListener("abort", onAbort);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        entry.promise.then(
+          (result) => {
+            cleanup();
+            release(false);
+            resolve(cloneSendResult(result, replayed ?? result.replayed));
+          },
+          (error: unknown) => {
+            cleanup();
+            release(false);
+            reject(error);
+          },
+        );
+      });
+    };
+
     const running = inFlight.get(key);
     if (running !== undefined) {
       const [runningFingerprint, fingerprint] = await Promise.all([running.fingerprint, fingerprintPromise]);
       if (runningFingerprint !== fingerprint) {
         throw new IdempotencyConflictError(key);
       }
-      const result = await running.promise;
-      return cloneSendResult(result, true);
+      return awaitShared(running, true);
     }
 
-    const promise = fingerprintPromise.then((fingerprint) =>
-      sendWithKey({ input, candidates, preview, signal, key, fingerprint }),
-    );
-    const entry: InFlight = { fingerprint: fingerprintPromise, promise };
-    inFlight.set(key, entry);
-    try {
-      const result = await promise;
-      return cloneSendResult(result, result.replayed);
-    } finally {
+    const controller = new AbortController();
+    const cleanup = (): void => {
       if (inFlight.get(key) === entry) {
         inFlight.delete(key);
       }
-    }
+    };
+    const promise = fingerprintPromise
+      .then((fingerprint) =>
+        sendWithKey({ input, candidates, preview, signal: controller.signal, key, fingerprint }),
+      )
+      .then(
+        (result) => {
+          cleanup();
+          return result;
+        },
+        (error: unknown) => {
+          cleanup();
+          throw error;
+        },
+      );
+    const entry: InFlight = { fingerprint: fingerprintPromise, promise, controller, waiters: 0 };
+    inFlight.set(key, entry);
+    void promise.catch(() => undefined);
+    return awaitShared(entry, undefined);
   };
 
   /** Validates and builds the ordered candidates, throwing for the primary adapter's first issue. */

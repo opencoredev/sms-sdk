@@ -1632,4 +1632,108 @@ describe("send: fromByAdapter", () => {
     expect(errJsonTest.toJSON().attempts[0]!.provider).toBe("p1");
     expect(errJsonTest.toJSON().provider!.provider).toBe("p1");
   });
+
+  test("preserves valid 32-hex provider IDs with long digit runs while dropping all-decimal phone-padded IDs", async () => {
+    const { sanitizeProviderDetails } = await import("../../src/core/http.js");
+    expect(
+      sanitizeProviderDetails(
+        { requestId: "RQ0123456789abcdef0123456789abcdef" },
+        "twilio",
+      ),
+    ).toEqual({
+      provider: "twilio",
+      requestId: "RQ0123456789abcdef0123456789abcdef",
+    });
+    expect(
+      sanitizeProviderDetails(
+        { requestId: "RQ14155550123000000000000000000000" },
+        "twilio",
+      ),
+    ).toEqual({ provider: "twilio" });
+  });
+
+  test("isolates AbortSignal cancellation per caller across coalesced same-key sends", async () => {
+    let adapterAborted = false;
+    let adapterCalls = 0;
+    const makeSlowClient = () =>
+      createSmsClient({
+        adapters: [
+          {
+            name: "slow",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            send(_msg, ctx) {
+              adapterCalls += 1;
+              return new Promise((resolve) => {
+                const timer = setTimeout(() => {
+                  resolve({ kind: "accepted", providerId: "slow-1", delivery: "queued" });
+                }, 40);
+                ctx.signal.addEventListener(
+                  "abort",
+                  () => {
+                    adapterAborted = true;
+                    clearTimeout(timer);
+                    resolve({ kind: "unknown", reason: "aborted", cause: ctx.signal.reason });
+                  },
+                  { once: true },
+                );
+              });
+            },
+          },
+        ],
+      });
+
+    // Leader aborts while peer stays active -> leader rejects aborted, peer resolves cleanly
+    const c1 = makeSlowClient();
+    const acLeader = new AbortController();
+    const pLeader = c1.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-1" }, { signal: acLeader.signal });
+    const pPeer = c1.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-1" });
+    setTimeout(() => acLeader.abort(new Error("leader-cancel")), 5);
+    const [rLeader, rPeer] = await Promise.allSettled([pLeader, pPeer]);
+    expect(adapterCalls).toBe(1);
+    expect(adapterAborted).toBe(false);
+    expect(rLeader.status).toBe("rejected");
+    if (rLeader.status === "rejected") {
+      expect(rLeader.reason).toBeInstanceOf(HandoffUnknownError);
+      expect((rLeader.reason as HandoffUnknownError).reason).toBe("aborted");
+    }
+    expect(rPeer.status).toBe("fulfilled");
+    if (rPeer.status === "fulfilled") {
+      expect(rPeer.value.providerId).toBe("slow-1");
+    }
+
+    // Peer aborts while leader stays active -> peer rejects aborted immediately, leader resolves cleanly
+    adapterCalls = 0;
+    const c2 = makeSlowClient();
+    const acPeer = new AbortController();
+    const pLeader2 = c2.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-2" });
+    const pPeer2 = c2.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-2" }, { signal: acPeer.signal });
+    setTimeout(() => acPeer.abort(new Error("peer-cancel")), 5);
+    const [rLeader2, rPeer2] = await Promise.allSettled([pLeader2, pPeer2]);
+    expect(adapterCalls).toBe(1);
+    expect(adapterAborted).toBe(false);
+    expect(rLeader2.status).toBe("fulfilled");
+    expect(rPeer2.status).toBe("rejected");
+    if (rPeer2.status === "rejected") {
+      expect(rPeer2.reason).toBeInstanceOf(HandoffUnknownError);
+      expect((rPeer2.reason as HandoffUnknownError).reason).toBe("aborted");
+    }
+
+    // Both abort -> underlying adapter signal aborts
+    adapterCalls = 0;
+    const c3 = makeSlowClient();
+    const acA = new AbortController();
+    const acB = new AbortController();
+    const pA = c3.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-3" }, { signal: acA.signal });
+    const pB = c3.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-3" }, { signal: acB.signal });
+    setTimeout(() => {
+      acA.abort();
+      acB.abort();
+    }, 5);
+    const [rA, rB] = await Promise.allSettled([pA, pB]);
+    expect(rA.status).toBe("rejected");
+    expect(rB.status).toBe("rejected");
+    expect(adapterAborted).toBe(true);
+  });
 });
