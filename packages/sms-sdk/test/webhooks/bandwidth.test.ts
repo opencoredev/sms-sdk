@@ -17,7 +17,7 @@ const delivered = [
 describe("Bandwidth webhooks", () => {
   test("verifies Basic authorization and normalizes a delivery callback", async () => {
     const event = await parseBandwidthWebhook({ request: callback(delivered), credentials });
-    expect(event).toMatchObject({ type: "message.delivered", provider: "bandwidth", providerId: "msg-1", to: "+15551234567", dedupeKey: "bandwidth:msg-1:message-delivered" });
+    expect(event).toMatchObject({ type: "message.delivered", provider: "bandwidth", providerId: "msg-1", to: "+15551234567", dedupeKey: "bandwidth:msg-1:+15551234567:message-delivered" });
   });
 
   test("normalizes an inbound STOP as an opt-out", async () => {
@@ -44,11 +44,24 @@ describe("Bandwidth webhooks", () => {
     const events = await parseSmsWebhooks({ provider: "bandwidth", request: callback(batch), credentials });
     expect(events.map((event) => event.type)).toEqual(["message.queued", "message.delivered", "message.undelivered"]);
     expect(events.map((event) => event.dedupeKey)).toEqual([
-      "bandwidth:msg-1:message-sending",
-      "bandwidth:msg-1:message-delivered",
-      "bandwidth:msg-3:message-failed",
+      "bandwidth:msg-1:+15551234567:message-sending",
+      "bandwidth:msg-1:+15551234567:message-delivered",
+      "bandwidth:msg-3:+15551230000:message-failed",
     ]);
     expect(events[2]).toMatchObject({ providerId: "msg-3", to: "+15551230000", errorCode: "4720" });
+  });
+
+  test("parseSmsWebhooks gives distinct dedupeKeys when a batch shares message.id across recipients", async () => {
+    const batch = [
+      { type: "message-delivered", time: "2026-10-08T12:00:00Z", to: "+15551111111", message: { id: "msg-group-1", from: "+15557654321", to: ["+15551111111", "+15552222222"] } },
+      { type: "message-delivered", time: "2026-10-08T12:00:01Z", to: "+15552222222", message: { id: "msg-group-1", from: "+15557654321", to: ["+15551111111", "+15552222222"] } },
+    ];
+    const events = await parseSmsWebhooks({ provider: "bandwidth", request: callback(batch), credentials });
+    expect(events.map((event) => event.dedupeKey)).toEqual([
+      "bandwidth:msg-group-1:+15551111111:message-delivered",
+      "bandwidth:msg-group-1:+15552222222:message-delivered",
+    ]);
+    expect(new Set(events.map((event) => event.dedupeKey)).size).toBe(2);
   });
 
   test("parseSmsWebhooks returns a one-element array for a single event", async () => {

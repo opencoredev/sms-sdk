@@ -47,17 +47,20 @@ export async function exchange(fetcher: FetchLike, url: string, init: HttpReques
   }
 }
 
-/** Reads a response body as UTF-8, or returns `undefined` (and cancels the stream) once it passes `maxBytes`. */
-async function readBoundedText(response: Response, maxBytes: number): Promise<string | undefined> {
-  const declared = Number(response.headers.get("content-length"));
+/** Reads a response or request body as UTF-8, or returns `undefined` (and cancels the stream) once it passes `maxBytes`. */
+export async function readBoundedText(
+  source: { readonly headers: Headers; readonly body: ReadableStream<Uint8Array> | null },
+  maxBytes: number,
+): Promise<string | undefined> {
+  const declared = Number(source.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
-    await response.body?.cancel().catch(() => undefined);
+    await source.body?.cancel().catch(() => undefined);
     return undefined;
   }
-  if (response.body === null) {
+  if (source.body === null) {
     return "";
   }
-  const reader = response.body.getReader();
+  const reader = source.body.getReader();
   const decoder = new TextDecoder();
   let text = "";
   let total = 0;

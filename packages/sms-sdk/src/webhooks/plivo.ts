@@ -4,6 +4,7 @@ import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase 
 import {
   paramsToRecord,
   readFormParams,
+  readWebhookBody,
   requireField,
   resolveSignedUrl,
   skipVerification,
@@ -55,7 +56,7 @@ export async function verifyPlivoSignatureV2(input: {
  */
 export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<SmsEvent> {
   const { request } = options;
-  const rawBody = await request.text();
+  const rawBody = await readWebhookBody(request, "plivo");
 
   if (!skipVerification(options)) {
     const nonce = request.headers.get("x-plivo-signature-v2-nonce");

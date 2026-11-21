@@ -6,6 +6,7 @@ import {
   hasBasicAuthorization,
   onlyEvent,
   parseDate,
+  readWebhookBody,
   skipVerification,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
@@ -77,7 +78,7 @@ export async function parseSinchWebhook(options: SinchWebhookOptions): Promise<S
  * `recipient_delivery_report`, or a single event otherwise.
  */
 export async function parseSinchWebhooks(options: SinchWebhookOptions): Promise<SmsEvent[]> {
-  const rawBody = await options.request.text();
+  const rawBody = await readWebhookBody(options.request, "sinch");
   if (!skipVerification(options)) {
     await verifySinchRequest(options, rawBody);
   }

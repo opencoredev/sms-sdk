@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { ConfigurationError, WebhookSignatureError } from "../../src/core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../../src/core/errors.js";
 import { generateTelnyxKeyPair, signedPlivoRequest, signedTwilioRequest } from "../../src/testing/webhooks.js";
 import { parseSmsWebhook, parseSmsWebhooks, type ParseSmsWebhookOptions } from "../../src/webhooks/index.js";
-import { resolveSignedUrl } from "../../src/webhooks/shared.js";
+import { MAX_WEBHOOK_BYTES, resolveSignedUrl } from "../../src/webhooks/shared.js";
 import { TWILIO_MESSAGE_SID } from "../helpers.js";
 
 const AUTH_TOKEN = "twilio-auth-token";
@@ -113,5 +113,41 @@ describe("forged X-Forwarded-Host without trustProxy", () => {
     await expect(
       parseSmsWebhook({ provider: "plivo", request, credentials: { authToken: "plivo-token" }, trustProxy: false }),
     ).rejects.toBeInstanceOf(WebhookSignatureError);
+  });
+});
+
+describe("webhook body size limit", () => {
+  test("rejects oversized streamed webhook bodies before verification with WebhookPayloadError", async () => {
+    let cancelled = false;
+    let emitted = 0;
+    const chunk = new Uint8Array(256 * 1024);
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        emitted += chunk.byteLength;
+        controller.enqueue(chunk);
+        if (emitted > MAX_WEBHOOK_BYTES + chunk.byteLength * 2) {
+          controller.close();
+        }
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request("https://example.com/hook", { method: "POST", body: stream });
+    await expect(
+      parseSmsWebhook({ provider: "twilio", request, credentials: { authToken: AUTH_TOKEN } }),
+    ).rejects.toBeInstanceOf(WebhookPayloadError);
+    expect(cancelled).toBe(true);
+  });
+
+  test("rejects requests whose Content-Length exceeds MAX_WEBHOOK_BYTES", async () => {
+    const request = new Request("https://example.com/hook", {
+      method: "POST",
+      headers: { "content-length": String(MAX_WEBHOOK_BYTES + 1) },
+      body: "{}",
+    });
+    await expect(
+      parseSmsWebhooks({ provider: "bandwidth", request, credentials: { username: "u", password: "p" } }),
+    ).rejects.toBeInstanceOf(WebhookPayloadError);
   });
 });

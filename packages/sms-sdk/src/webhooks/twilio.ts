@@ -4,6 +4,7 @@ import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase 
 import {
   paramsToRecord,
   readFormParams,
+  readWebhookBody,
   requireField,
   resolveSignedUrl,
   skipVerification,
@@ -73,7 +74,7 @@ export async function verifyTwilioSignature(input: {
  */
 export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise<SmsEvent> {
   const { request } = options;
-  const rawBody = await request.text();
+  const rawBody = await readWebhookBody(request, "twilio");
   const url = resolveSignedUrl(request, options);
   const bodyHash = new URL(url).searchParams.get("bodySHA256");
   const isJson = (request.headers.get("content-type") ?? "").toLowerCase().includes("application/json");

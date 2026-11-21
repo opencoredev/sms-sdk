@@ -207,7 +207,7 @@ Texts to your number go to the URL set on the number or its group. A per-message
 | Telnyx | `telnyx:{data.id}`, the webhook event ID |
 | Plivo | `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received` |
 | Vonage | `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received` |
-| Bandwidth | `bandwidth:{message.id}:{type}` |
+| Bandwidth | `bandwidth:{message.id}:{to}:{type}` (status) / `bandwidth:{message.id}:{type}` (inbound) |
 | Sinch | `sinch:{batch_id}:{recipient}:{status}` for reports (`summary` in place of the recipient when there is none), `sinch:{id}:received` for inbound |
 
 ### Storing keys

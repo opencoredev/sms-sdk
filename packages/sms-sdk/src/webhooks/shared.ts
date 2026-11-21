@@ -1,7 +1,19 @@
 import { timingSafeEqual } from "../core/crypto.js";
 import { ConfigurationError, WebhookPayloadError } from "../core/errors.js";
-import { basicAuthorization } from "../core/http.js";
+import { basicAuthorization, MAX_RESPONSE_BYTES, readBoundedText } from "../core/http.js";
 import type { SmsEvent, WebhookProvider } from "./events.js";
+
+/** Largest inbound webhook body read before verification, in bytes (1 MiB). */
+export const MAX_WEBHOOK_BYTES = MAX_RESPONSE_BYTES;
+
+/** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} if exceeded. */
+export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
+  const text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
+  if (text === undefined) {
+    throw new WebhookPayloadError(`The ${provider} webhook body exceeded ${MAX_WEBHOOK_BYTES} bytes.`, { provider });
+  }
+  return text;
+}
 
 /** Options shared by every provider's webhook parser. */
 export type WebhookCommonOptions = {

@@ -297,5 +297,13 @@ describe("fingerprint with fromByAdapter", () => {
       replayed: true,
     });
   });
+
+  test("rejects null entries in fromByAdapter during validation instead of skewing fingerprints", async () => {
+    const sms = createSmsClient({ adapters: [memory({ name: "a" })], idempotency: { store: memoryIdempotencyStore() } });
+    const bad = { ...message, fromByAdapter: { a: null } } as unknown as typeof message;
+    const validation = sms.validate(bad);
+    expect(validation.supported).toBe(false);
+    expect(validation.issues.some((issue) => issue.field === "fromByAdapter")).toBe(true);
+  });
 });
 

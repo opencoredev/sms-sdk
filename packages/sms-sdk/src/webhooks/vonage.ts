@@ -2,7 +2,7 @@ import { fromBase64, hmac, sha256Hex, timingSafeEqual, toBase64Url } from "../co
 import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, skipVerification, type WebhookCommonOptions } from "./shared.js";
+import { parseDate, readWebhookBody, skipVerification, type WebhookCommonOptions } from "./shared.js";
 import type { WebhookVerification } from "./telnyx.js";
 
 /**
@@ -82,7 +82,7 @@ export async function verifyVonageSignature(input: {
  * @throws {WebhookPayloadError} when required fields are missing.
  */
 export async function parseVonageWebhook(options: VonageWebhookOptions): Promise<SmsEvent> {
-  const rawBody = await options.request.text();
+  const rawBody = await readWebhookBody(options.request, "vonage");
 
   if (!skipVerification(options)) {
     const verification = await verifyVonageSignature({

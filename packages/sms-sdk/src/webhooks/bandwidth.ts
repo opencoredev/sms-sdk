@@ -5,6 +5,7 @@ import {
   hasBasicAuthorization,
   onlyEvent,
   parseDate,
+  readWebhookBody,
   skipVerification,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
@@ -39,7 +40,7 @@ export async function parseBandwidthWebhook(options: BandwidthWebhookOptions): P
  * Bandwidth sends a JSON array, which can hold more than one event.
  */
 export async function parseBandwidthWebhooks(options: BandwidthWebhookOptions): Promise<SmsEvent[]> {
-  const rawBody = await options.request.text();
+  const rawBody = await readWebhookBody(options.request, "bandwidth");
   if (!skipVerification(options)) {
     const header = options.request.headers.get("authorization");
     if (!hasBasicAuthorization(header, options.credentials)) {
@@ -83,9 +84,12 @@ function interpretBandwidthEvent(input: { readonly event: unknown; readonly raw:
     throw new WebhookPayloadError("The bandwidth webhook is missing message.id.", { provider: "bandwidth" });
   }
   const occurredAt = parseDate(readString(event, "time") ?? readString(message, "time"));
+  const statusTo = readString(event, "to") ?? firstString(message["to"]);
   const base: SmsEventBase = {
     provider: "bandwidth",
-    dedupeKey: `bandwidth:${providerId}:${type}`,
+    dedupeKey: type === "message-received" || statusTo === undefined
+      ? `bandwidth:${providerId}:${type}`
+      : `bandwidth:${providerId}:${statusTo}:${type}`,
     raw: input.raw,
     ...(occurredAt === undefined ? {} : { occurredAt }),
   };

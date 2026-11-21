@@ -133,7 +133,7 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 | `message-failed` | `message.undelivered` |
 | anything else | `unrecognized` |
 
-`dedupeKey` is `bandwidth:{messageId}:{type}`, per event.
+`dedupeKey` is `bandwidth:{messageId}:{to}:{type}` for status events when `to` is present (and `bandwidth:{messageId}:{type}` for inbound or summary events).
 
 ## Look up a message
 

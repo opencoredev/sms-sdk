@@ -126,8 +126,20 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   } else if (mediaUrls.some((url) => !isHttpUrl(url))) {
     issues.push({ code: "invalid_field", field: "mediaUrls", message: "Every media URL must be an absolute http(s) URL." });
   }
-  if (input.fromByAdapter !== undefined && !isRecord(input.fromByAdapter)) {
-    issues.push({ code: "invalid_field", field: "fromByAdapter", message: "fromByAdapter must be an object keyed by adapter name." });
+  if (input.fromByAdapter !== undefined) {
+    if (!isRecord(input.fromByAdapter)) {
+      issues.push({ code: "invalid_field", field: "fromByAdapter", message: "fromByAdapter must be an object keyed by adapter name." });
+    } else {
+      for (const [adapterName, entry] of Object.entries(input.fromByAdapter)) {
+        if (entry !== undefined && typeof entry !== "string" && !isRecord(entry)) {
+          issues.push({
+            code: "invalid_field",
+            field: "fromByAdapter",
+            message: `fromByAdapter.${adapterName} must be an E.164 string or a sender object.`,
+          });
+        }
+      }
+    }
   }
   if (input.sendAt !== undefined && !(input.sendAt instanceof Date && Number.isFinite(input.sendAt.getTime()))) {
     issues.push({ code: "invalid_field", field: "sendAt", message: "sendAt must be a valid Date." });
@@ -253,7 +265,7 @@ export function canonicalFromByAdapter(
 ): Readonly<Record<string, SmsFrom>> | undefined {
   const entries = adapters.flatMap((adapter): Array<[string, SmsFrom]> => {
     const from = senderFor(input, adapter.name);
-    return from === undefined ? [] : [[adapter.name, from]];
+    return from == null ? [] : [[adapter.name, from]];
   });
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
