@@ -227,7 +227,7 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
   }
   if (input.validityPeriodSec !== undefined) {
     const range = capabilities.validityPeriod;
-    if (range === null) {
+    if (range === null || range === undefined) {
       issues.push(unsupported(provider, "validityPeriodSec", `${provider} adapter does not support validityPeriodSec.`));
     } else if (input.validityPeriodSec < range.minSec || input.validityPeriodSec > range.maxSec) {
       issues.push({

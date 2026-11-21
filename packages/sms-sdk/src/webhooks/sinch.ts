@@ -50,6 +50,9 @@ export async function verifySinchSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<SinchWebhookVerification> {
+  if (typeof input.webhookSecret !== "string" || input.webhookSecret.length === 0) {
+    throw new ConfigurationError("Sinch webhook webhookSecret must be a non-empty string.");
+  }
   const tolerance = requireTolerance(input.toleranceSec, SINCH_DEFAULT_TOLERANCE_SEC);
   if (input.signature === null || input.nonce === null || input.timestamp === null || input.signature.length === 0) {
     return { valid: false, reason: "missing_signature" };

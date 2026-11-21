@@ -64,7 +64,7 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
 
   const found: ValidationIssue[] = [];
   const fields: ProviderWireField[] = [];
-  const prefixes = (spec.nestedPrefixes ?? []).map((prefix) => prefix.toLowerCase());
+  const prefixes = (spec.nestedPrefixes ?? []).map((prefix) => prefix.toLowerCase()).filter((prefix) => prefix.length > 0);
   const typedWires = new Map<string, string>();
   for (const [option, field] of Object.entries(spec.options)) {
     for (const name of wireNames(field.wire.toLowerCase(), prefixes)) {
@@ -137,15 +137,15 @@ export function canonicalProviderOptions(
   if (!isRecord(providerOptions)) {
     return undefined;
   }
-  const canonical: Record<string, Record<string, ProviderOptionValue>> = {};
+  const entries: Array<[string, Record<string, ProviderOptionValue>]> = [];
   for (const adapter of adapters) {
     const entry = Object.hasOwn(providerOptions, adapter.name) ? providerOptions[adapter.name] : undefined;
     const parsed = parseProviderOptions(adapter, entry);
     if (parsed.kind === "ok" && parsed.fields.length > 0) {
-      canonical[adapter.name] = Object.fromEntries(parsed.fields.map((field) => [field.wire, field.value]));
+      entries.push([adapter.name, Object.fromEntries(parsed.fields.map((field) => [field.wire, field.value]))]);
     }
   }
-  return Object.keys(canonical).length > 0 ? canonical : undefined;
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 /** True when a wire field with this exact name was parsed with value `true`. */

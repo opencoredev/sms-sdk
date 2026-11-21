@@ -192,7 +192,7 @@ export function vonage(options: VonageOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Vonage options must be an object.");
   }
-  const region = options.region ?? "api";
+  const region = options.region === undefined ? "api" : options.region;
   if (typeof region !== "string" || !VONAGE_REGIONS.has(region)) {
     throw new ConfigurationError('Vonage region must be one of "api", "api-eu", "api-us", or "api-ap".');
   }

@@ -122,6 +122,7 @@ export {
   verifySinchSignature,
   type SinchWebhookCredentials,
   type SinchWebhookOptions,
+  type SinchWebhookVerification,
 } from "./sinch.js";
 export {
   computeTwilioSignature,

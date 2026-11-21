@@ -7,10 +7,12 @@ import {
   InvalidRecipientError,
   InvalidSenderError,
   MessageLookupError,
+  PolicyRejectedError,
   SmsError,
   UnsupportedFieldError,
   WebhookSignatureError,
 } from "../../src/core/errors.js";
+import { memoryIdempotencyStore } from "../../src/core/idempotency.js";
 import type { SmsSendInput } from "../../src/core/types.js";
 import { bandwidth } from "../../src/providers/bandwidth.js";
 import { plivo } from "../../src/providers/plivo.js";
@@ -18,7 +20,13 @@ import { sinch } from "../../src/providers/sinch.js";
 import { telnyx } from "../../src/providers/telnyx.js";
 import { twilio } from "../../src/providers/twilio.js";
 import { vonage } from "../../src/providers/vonage.js";
-import { parseSmsWebhook } from "../../src/webhooks/index.js";
+import {
+  parseSmsWebhook,
+  verifySinchSignature,
+  verifyTelnyxSignature,
+  verifyVonageSignature,
+  type SinchWebhookVerification,
+} from "../../src/webhooks/index.js";
 import { memory } from "../../src/testing/memory.js";
 import { mockFetch } from "../../src/testing/fetch.js";
 import { rejection, TWILIO_SERVICE_SID, TWILIO_SID } from "../helpers.js";
@@ -639,8 +647,8 @@ describe("malformed runtime input", () => {
     ).toBeInstanceOf(ConfigurationError);
     expect(headerRead).toBe(false);
 
-    // Prototype keys inside providerOptions[provider] are ignored
-    const inheritedEntry = Object.create({ validityPeriod: 60 });
+    // Prototype keys inside providerOptions[provider] are ignored (real Twilio option & extra)
+    const inheritedEntry = Object.create({ shortenUrls: "not-a-boolean", extra: "not-an-object" });
     const twilioClient = createSmsClient({
       adapters: [twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", from: "+15005550006" })],
     });
@@ -657,5 +665,202 @@ describe("malformed runtime input", () => {
     expect(lookupErr.toJSON()).toMatchObject({ providerName: "twilio", reason: "network" });
     const sigErr = new WebhookSignatureError("bad sig", { provider: "plivo", reason: "invalid_signature" });
     expect(sigErr.toJSON()).toMatchObject({ providerName: "plivo", reason: "invalid_signature" });
+  });
+
+  test("beforeSend fails closed on unrecognized or malformed decisions without stranding idempotency", async () => {
+    const store = memoryIdempotencyStore();
+    const denyClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: { store },
+      // @ts-expect-error -- typo in policy decision kind
+      beforeSend: () => ({ kind: "deny", reason: "blocked" }),
+    });
+    expect(
+      await rejection(denyClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-deny" })),
+    ).toBeInstanceOf(PolicyRejectedError);
+    expect((await store.get("k-deny"))?.state).toBe("rejected");
+
+    const nullClient = createSmsClient({
+      adapters: [memory()],
+      idempotency: { store },
+      // @ts-expect-error -- malformed policy decision
+      beforeSend: () => null,
+    });
+    expect(
+      await rejection(nullClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-null" })),
+    ).toBeInstanceOf(PolicyRejectedError);
+    expect((await store.get("k-null"))?.state).toBe("rejected");
+  });
+
+  test("rejects baseUrl with bare ?/#, userinfo, or control chars; null region/adapter; and incomplete capabilities", async () => {
+    for (const badBase of [
+      "https://api.example.com?",
+      "https://api.example.com#",
+      "http://u:p@127.0.0.1:9",
+      "https://api.example.com/\nfoo",
+      "https://api.example.com/\tfoo",
+    ]) {
+      expect(() => twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", baseUrl: badBase })).toThrow(
+        ConfigurationError,
+      );
+      expect(() => telnyx({ apiKey: "k", baseUrl: badBase })).toThrow(ConfigurationError);
+    }
+
+    // @ts-expect-error -- null region
+    expect(() => vonage({ apiKey: "k", apiSecret: "s", region: null })).toThrow(ConfigurationError);
+
+    const client = createSmsClient({ adapters: [memory()] });
+    // @ts-expect-error -- null adapter
+    expect(await rejection(client.getMessage("m1", { adapter: null }))).toBeInstanceOf(ConfigurationError);
+
+    expect(() =>
+      createSmsClient({
+        adapters: [
+          {
+            name: "missing-validity",
+            // @ts-expect-error -- missing capabilities.validityPeriod
+            capabilities: { senderTypes: ["long_code"] },
+            support: { status: "supported", notes: [] },
+            send: async () => ({ kind: "accepted", providerId: "1", delivery: "queued" }),
+          },
+        ],
+      }),
+    ).toThrow(ConfigurationError);
+  });
+
+  test("hardens verify helpers, publicUrl, trustProxy host, Request spoofs/bodyUsed, NumMedia cap, and __proto__ idempotency", async () => {
+    // Verify helpers refuse empty secrets before reading headers/timestamps
+    const _typeCheck: SinchWebhookVerification = { valid: true };
+    expect(_typeCheck.valid).toBe(true);
+    expect(
+      await rejection(verifyTelnyxSignature({ publicKey: "", rawBody: "{}", signature: null, timestamp: null })),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(verifyVonageSignature({ signatureSecret: "", authorization: null, rawBody: "{}" })),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(
+        verifySinchSignature({ webhookSecret: "", rawBody: "{}", signature: null, nonce: null, timestamp: null }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // Sinch Basic auth checks credentials before reading Authorization header
+    let sinchHeaderRead = false;
+    const sinchSpyReq = {
+      url: "https://example.com/hook",
+      method: "POST",
+      body: null,
+      bodyUsed: false,
+      headers: {
+        get: (name: string) => {
+          if (name.toLowerCase() === "authorization") sinchHeaderRead = true;
+          return null;
+        },
+      },
+    } as unknown as Request;
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "sinch",
+          request: sinchSpyReq,
+          credentials: { kind: "basic", username: "", password: "p" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(sinchHeaderRead).toBe(false);
+
+    // publicUrl rejects whitespace and fragments on both Twilio and Plivo
+    const unsigned = () => new Request("https://example.com/hook?a=1", { method: "POST", body: "{}" });
+    for (const provider of ["twilio", "plivo"] as const) {
+      for (const badPublicUrl of [" https://example.com/hook", "https://example.com/hook#frag"]) {
+        expect(
+          await rejection(
+            parseSmsWebhook({
+              provider,
+              request: unsigned(),
+              credentials: { authToken: "tok" },
+              publicUrl: badPublicUrl,
+              unsafeSkipVerification: true,
+            }),
+          ),
+        ).toBeInstanceOf(ConfigurationError);
+      }
+    }
+
+    // trustProxy rejects host with path/query/fragment/userinfo
+    for (const badHost of ["evil.com/extra", "user:pass@evil.com", "evil.com?q=1", "evil.com#frag"]) {
+      const req = new Request("https://internal.local/hook", {
+        method: "POST",
+        headers: { "x-forwarded-host": badHost },
+        body: "Body=hi",
+      });
+      expect(
+        await rejection(
+          parseSmsWebhook({ provider: "twilio", request: req, credentials: { authToken: "tok" }, trustProxy: true }),
+        ),
+      ).toBeInstanceOf(WebhookSignatureError);
+    }
+
+    // Object.create(Request.prototype) and disturbed bodyUsed Request throw ConfigurationError
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: Object.create(Request.prototype) as Request,
+          credentials: { authToken: "tok" },
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    const disturbed = new Request("https://example.com/hook", { method: "POST", body: "hello" });
+    const reader = disturbed.body!.getReader();
+    await reader.read();
+    reader.releaseLock();
+    expect(
+      await rejection(parseSmsWebhook({ provider: "twilio", request: disturbed, credentials: { authToken: "tok" } })),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // NumMedia huge count is capped and finishes immediately
+    const bigMediaReq = new Request("https://example.com/hook", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "MessageSid=SM1&From=%2B14155550123&To=%2B15005550006&Body=hi&NumMedia=100000000",
+    });
+    const t0 = Date.now();
+    const ev = await parseSmsWebhook({
+      provider: "twilio",
+      request: bigMediaReq,
+      credentials: { authToken: "tok" },
+      unsafeSkipVerification: true,
+    });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(ev.type).toBe("message.received");
+
+    // Empty nestedPrefixes does not infinite-loop; __proto__ adapter name preserves idempotency fingerprint
+    const custom = {
+      ...memory({ name: "__proto__" }),
+      providerOptions: {
+        options: { tag: { wire: "tag", type: "string" as const } },
+        reserved: [],
+        nestedPrefixes: [""],
+      },
+    };
+    const store = memoryIdempotencyStore();
+    const protoClient = createSmsClient({ adapters: [custom], idempotency: { store } });
+    const first = await protoClient.send({
+      to: "+14155550123",
+      body: "hi",
+      idempotencyKey: "k-proto",
+      providerOptions: Object.fromEntries([["__proto__", { tag: "a" }]]),
+    });
+    expect(first.replayed).toBe(false);
+    await expect(
+      protoClient.send({
+        to: "+14155550123",
+        body: "hi",
+        idempotencyKey: "k-proto",
+        providerOptions: Object.fromEntries([["__proto__", { tag: "b" }]]),
+      }),
+    ).rejects.toThrow();
   });
 });

@@ -39,6 +39,9 @@ export async function verifyVonageSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
+  if (typeof input.signatureSecret !== "string" || input.signatureSecret.length === 0) {
+    throw new ConfigurationError("Vonage webhook signatureSecret must be a non-empty string.");
+  }
   const tolerance = requireTolerance(input.toleranceSec, VONAGE_DEFAULT_TOLERANCE_SEC);
   const token = input.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (token === undefined || token.length === 0) {

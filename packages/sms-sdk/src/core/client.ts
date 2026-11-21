@@ -69,6 +69,12 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       typeof adapter["send"] !== "function" ||
       !isRecord(adapter["capabilities"]) ||
       !Array.isArray(adapter["capabilities"]["senderTypes"]) ||
+      (adapter["capabilities"]["validityPeriod"] !== null &&
+        (!isRecord(adapter["capabilities"]["validityPeriod"]) ||
+          typeof adapter["capabilities"]["validityPeriod"]["minSec"] !== "number" ||
+          !Number.isFinite(adapter["capabilities"]["validityPeriod"]["minSec"]) ||
+          typeof adapter["capabilities"]["validityPeriod"]["maxSec"] !== "number" ||
+          !Number.isFinite(adapter["capabilities"]["validityPeriod"]["maxSec"]))) ||
       (adapter["validate"] !== undefined && typeof adapter["validate"] !== "function") ||
       (adapter["getMessage"] !== undefined && typeof adapter["getMessage"] !== "function")
     ) {
@@ -357,8 +363,15 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
         throw cause;
       }
-      if (decision.kind === "reject") {
-        return fail(new PolicyRejectedError(decision.reason));
+      if (!isRecord(decision) || (decision["kind"] !== "allow" && decision["kind"] !== "reject")) {
+        return fail(new PolicyRejectedError('beforeSend must return { kind: "allow" } or { kind: "reject", reason }.'));
+      }
+      if (decision["kind"] === "reject") {
+        const reason =
+          typeof decision["reason"] === "string" && decision["reason"].length > 0
+            ? decision["reason"]
+            : "beforeSend rejected";
+        return fail(new PolicyRejectedError(reason));
       }
     }
 
@@ -431,7 +444,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       throw new ConfigurationError("getMessage options must be an object.");
     }
     const signal = requireOptionalSignal(lookupOptions.signal, "getMessage");
-    const name = lookupOptions.adapter ?? adapters[0].name;
+    if (lookupOptions.adapter !== undefined && typeof lookupOptions.adapter !== "string") {
+      throw new ConfigurationError("getMessage adapter must be a string.");
+    }
+    const name = lookupOptions.adapter === undefined ? adapters[0].name : lookupOptions.adapter;
     const adapter = adapters.find((candidate) => candidate.name === name);
     if (adapter === undefined) {
       throw new ConfigurationError(`getMessage: no adapter named "${name}" is configured.`);

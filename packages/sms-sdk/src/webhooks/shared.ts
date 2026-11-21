@@ -8,17 +8,36 @@ export const MAX_WEBHOOK_BYTES = MAX_RESPONSE_BYTES;
 
 /** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
 export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
+  let headers: Headers;
+  let url: string;
+  let method: string;
+  let body: ReadableStream<Uint8Array> | null;
+  let bodyUsed: boolean;
+  try {
+    if (!isRecord(request)) {
+      throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+    }
+    headers = request.headers;
+    url = request.url;
+    method = request.method;
+    body = request.body;
+    bodyUsed = request.bodyUsed;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+  }
   if (
-    !isRecord(request) ||
-    !isRecord(request.headers) ||
-    typeof request.headers.get !== "function" ||
-    typeof request.url !== "string" ||
-    typeof request.method !== "string" ||
-    (request.body !== null && (!isRecord(request.body) || typeof request.body.getReader !== "function"))
+    !isRecord(headers) ||
+    typeof headers.get !== "function" ||
+    typeof url !== "string" ||
+    typeof method !== "string" ||
+    (body !== null && (!isRecord(body) || typeof body.getReader !== "function"))
   ) {
     throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
   }
-  if (request.body !== null && request.body.locked === true) {
+  if (bodyUsed === true || (body !== null && body.locked === true)) {
     throw new ConfigurationError(`The ${provider} webhook request body is locked or has already been read.`);
   }
   const text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
@@ -119,8 +138,11 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
     throw new ConfigurationError("The webhook request has an invalid URL.");
   }
   if (options.publicUrl !== undefined) {
-    if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0) {
+    if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0 || /[\u0000-\u0020\u007f]/.test(options.publicUrl)) {
       throw new ConfigurationError("publicUrl must be a valid http or https URL.");
+    }
+    if (options.publicUrl.includes("#")) {
+      throw new ConfigurationError("publicUrl must not include a fragment.");
     }
     let parsed: URL;
     try {
@@ -142,9 +164,24 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
         provider: provider ?? "webhook",
       });
     }
+    if (/[\\/?#@\s]/.test(host)) {
+      throw new WebhookSignatureError("Invalid forwarded host header.", {
+        reason: "invalid_signature",
+        provider: provider ?? "webhook",
+      });
+    }
     const candidate = `${proto}://${host}${requestUrl.pathname}${requestUrl.search}`;
     try {
-      new URL(candidate);
+      const parsed = new URL(candidate);
+      if (
+        parsed.username !== "" ||
+        parsed.password !== "" ||
+        parsed.pathname !== requestUrl.pathname ||
+        parsed.search !== requestUrl.search ||
+        parsed.hash !== ""
+      ) {
+        throw new Error("Invalid host");
+      }
     } catch {
       throw new WebhookSignatureError("Invalid forwarded host header.", {
         reason: "invalid_signature",
@@ -166,7 +203,7 @@ export function readFormParams(request: Request, rawBody: string): Array<[string
 export function paramsToRecord(params: ReadonlyArray<readonly [string, string]>): Record<string, string> {
   const record: Record<string, string> = {};
   for (const [key, value] of params) {
-    if (!(key in record)) {
+    if (!Object.hasOwn(record, key)) {
       record[key] = value;
     }
   }

@@ -33,6 +33,9 @@ export async function verifyTelnyxSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
+  if (typeof input.publicKey !== "string" || input.publicKey.length === 0) {
+    throw new ConfigurationError("Telnyx webhook publicKey must be a non-empty string.");
+  }
   const tolerance = requireTolerance(input.toleranceSec, TELNYX_DEFAULT_TOLERANCE_SEC);
   if (input.signature === null || input.timestamp === null || input.signature.length === 0) {
     return { valid: false, reason: "missing_signature" };

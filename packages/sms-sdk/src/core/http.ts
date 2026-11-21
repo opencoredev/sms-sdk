@@ -10,8 +10,11 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (baseUrl === undefined) {
     return fallback;
   }
-  if (typeof baseUrl !== "string" || baseUrl.length === 0 || baseUrl.trim() !== baseUrl) {
+  if (typeof baseUrl !== "string" || baseUrl.length === 0 || /[\u0000-\u0020\u007f]/.test(baseUrl)) {
     throw new ConfigurationError(`${provider} baseUrl must be a valid http or https URL.`);
+  }
+  if (baseUrl.includes("?") || baseUrl.includes("#")) {
+    throw new ConfigurationError(`${provider} baseUrl must not include a query string or fragment.`);
   }
   let parsed: URL;
   try {
@@ -22,10 +25,13 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ConfigurationError(`${provider} baseUrl must use http or https.`);
   }
+  if (parsed.username.length > 0 || parsed.password.length > 0) {
+    throw new ConfigurationError(`${provider} baseUrl must not include credentials.`);
+  }
   if (parsed.search.length > 0 || parsed.hash.length > 0) {
     throw new ConfigurationError(`${provider} baseUrl must not include a query string or fragment.`);
   }
-  return baseUrl.replace(/\/+$/, "");
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
 }
 
 /** Validates an adapter's optional `fetch`, defaulting to the global `fetch`. */

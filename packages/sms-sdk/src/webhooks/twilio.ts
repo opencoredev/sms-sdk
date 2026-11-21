@@ -186,9 +186,10 @@ function twilioStatusType(status: string, errorCode: string | undefined): Messag
 }
 
 function twilioMediaUrls(fields: Record<string, string>): string[] {
-  const count = Number(fields["NumMedia"] ?? "0");
+  const rawCount = Number(fields["NumMedia"] ?? "0");
+  const count = Number.isInteger(rawCount) && rawCount > 0 ? Math.min(rawCount, 10) : 0;
   const urls: string[] = [];
-  for (let index = 0; index < (Number.isInteger(count) ? count : 0); index += 1) {
+  for (let index = 0; index < count; index += 1) {
     const url = fields[`MediaUrl${index}`];
     if (url !== undefined) {
       urls.push(url);
