@@ -154,19 +154,29 @@ describe("redaction", () => {
     ]);
   });
 
-  test("R35: strict RFC 9110 parseRetryAfter rejects loose dates and accepts IMF-fixdate/RFC850/asctime", () => {
+  test("strict RFC 9110 parseRetryAfter validates calendar/clock bounds and RFC 850 50-year rule", () => {
     const now = Date.UTC(2020, 0, 1, 0, 0, 0);
     expect(parseRetryAfter("1 Jan 2030", now)).toBeUndefined();
     expect(parseRetryAfter("2030-01-01T00:00:00Z", now)).toBeUndefined();
     expect(parseRetryAfter("5.", now)).toBeUndefined();
     expect(parseRetryAfter(".5", now)).toBeUndefined();
     expect(parseRetryAfter("5 5", now)).toBeUndefined();
+    // Impossible calendar dates and out-of-range clock values must be rejected.
+    expect(parseRetryAfter("Wed, 31 Feb 2020 00:00:10 GMT", now)).toBeUndefined();
+    expect(parseRetryAfter("Thu, 31 Apr 2020 00:00:10 GMT", now)).toBeUndefined();
+    expect(parseRetryAfter("Mon, 29 Feb 2021 00:00:10 GMT", now)).toBeUndefined();
+    expect(parseRetryAfter("Wed, 01 Jan 2020 24:00:00 GMT", now)).toBeUndefined();
+    expect(parseRetryAfter("Wed, 01 Jan 2020 00:00:60 GMT", now)).toBeUndefined();
     expect(parseRetryAfter("Wed, 01 Jan 2020 00:00:10 GMT", now)).toBe(10_000);
+    expect(parseRetryAfter("Sat, 29 Feb 2020 00:00:00 GMT", now)).toBe(Date.UTC(2020, 1, 29) - now);
     expect(parseRetryAfter("Wednesday, 01-Jan-20 00:00:10 GMT", now)).toBe(10_000);
+    // RFC 9110 §5.6.7: 2-digit year > 50 years in future maps to previous century.
+    expect(parseRetryAfter("Sunday, 06-Nov-94 08:49:37 GMT", now)).toBe(0);
+    expect(parseRetryAfter("Sunday, 06-Nov-69 08:49:37 GMT", now)).toBe(Date.UTC(2069, 10, 6, 8, 49, 37) - now);
     expect(parseRetryAfter("Wed Jan  1 00:00:10 2020", now)).toBe(10_000);
   });
 
-  test("R35: single coalesced abort during retry backoff returns SendAbortedError with completed attempts", async () => {
+  test("single coalesced abort during retry backoff returns SendAbortedError with completed attempts", async () => {
     const adapter = memory({
       outcomes: [rejectedOutcome("rate_limited", { retryAfterMs: 5_000 })],
     });
@@ -196,7 +206,7 @@ describe("redaction", () => {
     expect(errorB.cause).toBe("cleanup-b");
   });
 
-  test("R35: final coalesced in-flight abort preserves its own signal.reason", async () => {
+  test("final coalesced in-flight abort preserves its own signal.reason", async () => {
     const adapter = {
       ...memory(),
       name: "deferred",
@@ -230,7 +240,7 @@ describe("redaction", () => {
     expect(eb.cause).toBe("own-b");
   });
 
-  test("R35: Sinch sendAt + validityPeriodSec overflow fails validation before any HTTP request", async () => {
+  test("Sinch sendAt + validityPeriodSec overflow fails validation before any HTTP request", async () => {
     let requests = 0;
     const client = createSmsClient({
       adapters: [
@@ -257,9 +267,11 @@ describe("redaction", () => {
     expect(requests).toBe(0);
   });
 
-  test("R35: credential-shaped custom adapter names are sanitized in error messages and toJSON()", async () => {
+  test("custom adapter names stay intact on in-memory errors while messages and toJSON() sanitize them", async () => {
     const secretName = "sk-live-PROVIDER-SECRET";
-    const sms = createSmsClient({
+    const friendlyName = "Acme SMS";
+
+    const smsSecret = createSmsClient({
       adapters: [
         {
           ...memory(),
@@ -270,18 +282,36 @@ describe("redaction", () => {
         },
       ],
     });
-    const error = await rejection(sms.send({ to: "+14155550123", body: "hi" }));
-    expect(error).toBeInstanceOf(HandoffUnknownError);
-    const json = JSON.stringify(error);
-    expect(json).not.toContain(secretName);
-    expect((error as HandoffUnknownError).providerName).toBe("unknown");
+    const secretErr = await rejection(smsSecret.send({ to: "+14155550123", body: "hi" }));
+    expect(secretErr).toBeInstanceOf(HandoffUnknownError);
+    expect((secretErr as HandoffUnknownError).providerName).toBe(secretName);
+    expect((secretErr as HandoffUnknownError).message).not.toContain(secretName);
+    const secretJson = JSON.stringify(secretErr);
+    expect(secretJson).not.toContain(secretName);
+    expect(JSON.parse(secretJson).providerName).toBe("unknown");
+
+    const smsFriendly = createSmsClient({
+      adapters: [
+        {
+          ...memory(),
+          name: friendlyName,
+          async send() {
+            return unknownOutcome("network");
+          },
+        },
+      ],
+    });
+    const friendlyErr = await rejection(smsFriendly.send({ to: "+14155550123", body: "hi" }));
+    expect((friendlyErr as HandoffUnknownError).providerName).toBe(friendlyName);
 
     const lookupErr = new MessageLookupError({
       reason: "network",
       providerName: secretName,
       providerId: "msg-1",
     });
+    expect(lookupErr.providerName).toBe(secretName);
+    expect(lookupErr.message).not.toContain(secretName);
     expect(JSON.stringify(lookupErr)).not.toContain(secretName);
-    expect(lookupErr.providerName).toBe("unknown");
+    expect(lookupErr.toJSON().providerName).toBe("unknown");
   });
 });

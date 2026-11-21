@@ -16,6 +16,7 @@ import {
   InvalidMessageError,
   MessageLookupError,
   PolicyRejectedError,
+  sanitizeDiagnosticToken,
   SendAbortedError,
   SmsError,
 } from "./errors.js";
@@ -372,7 +373,8 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   }
   const names = adapters.map((adapter) => adapter.name);
   if (new Set(names).size !== names.length) {
-    throw new ConfigurationError(`Adapter names must be unique; got ${names.join(", ")}.`);
+    const safeNames = names.map((name) => sanitizeDiagnosticToken(name, 64) ?? "unknown");
+    throw new ConfigurationError(`Adapter names must be unique; got ${safeNames.join(", ")}.`);
   }
   const timeoutMs = rawTimeoutMs === undefined ? DEFAULT_TIMEOUT_MS : rawTimeoutMs;
   if (!(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2_147_483_647)) {
@@ -674,7 +676,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
                   );
                 },
                 (error: unknown) => {
-                  if (error instanceof SendAbortedError) {
+                  if (error instanceof SendAbortedError || (error instanceof SmsError && error.retrySafe)) {
                     reject(
                       new SendAbortedError(
                         error.attempts.map((a) => ({ ...a })),

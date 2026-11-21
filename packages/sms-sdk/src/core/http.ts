@@ -329,12 +329,57 @@ export function readCode(record: Record<string, unknown>, key: string): string |
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+const MONTHS: Readonly<Record<string, number>> = {
+  Jan: 0,
+  Feb: 1,
+  Mar: 2,
+  Apr: 3,
+  May: 4,
+  Jun: 5,
+  Jul: 6,
+  Aug: 7,
+  Sep: 8,
+  Oct: 9,
+  Nov: 10,
+  Dec: 11,
+};
+
 const IMF_FIXDATE =
-  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
 const RFC850_DATE =
-  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/;
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
 const ASCTIME_DATE =
-  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:\d{2}| \d) \d{2}:\d{2}:\d{2} \d{4}$/;
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{2}| \d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/;
+
+function parseHttpDateParts(
+  year: number,
+  monthName: string,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): number | undefined {
+  const month = MONTHS[monthName];
+  if (month === undefined || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) {
+    return undefined;
+  }
+  const ms = Date.UTC(year, month, day, hour, minute, second);
+  if (Number.isNaN(ms)) {
+    return undefined;
+  }
+  const check = new Date(ms);
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month ||
+    check.getUTCDate() !== day ||
+    check.getUTCHours() !== hour ||
+    check.getUTCMinutes() !== minute ||
+    check.getUTCSeconds() !== second
+  ) {
+    return undefined;
+  }
+  return ms;
+}
 
 /**
  * Parses a `Retry-After` header (delta-seconds or RFC 9110 HTTP-date) into
@@ -349,16 +394,54 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
     const ms = Number(trimmed) * 1000;
     return Number.isFinite(ms) ? Math.min(ms, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
   }
-  let parsedInput: string;
-  if (IMF_FIXDATE.test(trimmed) || RFC850_DATE.test(trimmed)) {
-    parsedInput = trimmed;
-  } else if (ASCTIME_DATE.test(trimmed)) {
-    parsedInput = `${trimmed} GMT`;
+
+  let dateMs: number | undefined;
+  const imf = IMF_FIXDATE.exec(trimmed);
+  if (imf) {
+    dateMs = parseHttpDateParts(
+      Number(imf[3]),
+      imf[2]!,
+      Number(imf[1]),
+      Number(imf[4]),
+      Number(imf[5]),
+      Number(imf[6]),
+    );
   } else {
-    return undefined;
+    const rfc850 = RFC850_DATE.exec(trimmed);
+    if (rfc850) {
+      // RFC 9110 §5.6.7: interpret a two-digit year as the century within 50 years of now.
+      const currentYear = new Date(now).getUTCFullYear();
+      const baseCentury = Math.floor(currentYear / 100) * 100;
+      let year = baseCentury + Number(rfc850[3]);
+      if (year - currentYear > 50) {
+        year -= 100;
+      } else if (currentYear - year >= 50) {
+        year += 100;
+      }
+      dateMs = parseHttpDateParts(
+        year,
+        rfc850[2]!,
+        Number(rfc850[1]),
+        Number(rfc850[4]),
+        Number(rfc850[5]),
+        Number(rfc850[6]),
+      );
+    } else {
+      const asctime = ASCTIME_DATE.exec(trimmed);
+      if (asctime) {
+        dateMs = parseHttpDateParts(
+          Number(asctime[6]),
+          asctime[1]!,
+          Number(asctime[2]!.trim()),
+          Number(asctime[3]),
+          Number(asctime[4]),
+          Number(asctime[5]),
+        );
+      }
+    }
   }
-  const date = Date.parse(parsedInput);
-  return Number.isNaN(date) ? undefined : Math.max(0, date - now);
+
+  return dateMs === undefined ? undefined : Math.max(0, dateMs - now);
 }
 
 /**

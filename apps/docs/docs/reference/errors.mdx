@@ -62,7 +62,7 @@ The base class. Every error has these fields.
 | `provider` | `ProviderErrorInfo \| undefined` | Structural provider diagnostics: `{ provider, httpStatus?, code?, requestId? }`. Free-form provider response text is omitted so echoed bodies, credentials, or PII never leak into logs. |
 | `cause` | `unknown` | The original exception, when there was one. For debugging only. |
 
-`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider?, providerName?, reason? }` (with `providerName` and `reason` included on `HandoffUnknownError`, `MessageLookupError`, `WebhookSignatureError`, and `WebhookPayloadError` when present). It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
+`toJSON()` returns `{ name, code, message, retrySafe, attempts, provider?, providerName?, reason? }` (with `providerName` and `reason` included on `HandoffUnknownError`, `MessageLookupError`, `WebhookSignatureError`, and `WebhookPayloadError` when present). Serialized `providerName` and `provider.provider` values are sanitized to compact structural tokens (falling back to `"unknown"` for free-form or credential-shaped adapter names) while the in-memory `error.providerName` preserves the registered adapter name. It never includes `cause`, message bodies, credentials, or full phone numbers, so `JSON.stringify(error)` is safe to log.
 
 `isSmsError(value)` is a type guard for any SDK error.
 

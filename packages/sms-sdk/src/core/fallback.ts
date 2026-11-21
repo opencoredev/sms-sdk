@@ -328,7 +328,7 @@ function rejectionError(
   outcome: Extract<AdapterSendOutcome, { kind: "rejected" }>,
   attempts: readonly SendAttempt[],
 ): ProviderRejectedError {
-  const provider = outcome.details.provider;
+  const provider = sanitizeDiagnosticToken(outcome.details.provider, 64) ?? "unknown";
 
   if (outcome.category === "auth") {
     return new ProviderAuthError(`${provider} rejected the credentials`, { provider: outcome.details, attempts });

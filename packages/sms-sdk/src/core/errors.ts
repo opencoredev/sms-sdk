@@ -64,12 +64,18 @@ function safeReadProperty(obj: Record<string, unknown>, key: string): unknown {
 }
 
 /** Copies only structural provider details, reading each field once. Free-form `message` and unvalidated strings are dropped. */
-export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string): ProviderErrorInfo {
+export function sanitizeProviderDetails(
+  raw: Record<string, unknown>,
+  fallbackProvider: string,
+  sanitizeProviderName = false,
+): ProviderErrorInfo {
   const rawStatus = safeReadProperty(raw, "httpStatus");
   const rawCode = safeReadProperty(raw, "code");
   const rawRequestId = safeReadProperty(raw, "requestId");
-  // The client knows which adapter answered; an adapter-supplied name is untrusted free text.
-  const provider = sanitizeDiagnosticToken(fallbackProvider, 64) ?? "unknown";
+  // The client knows which adapter answered; preserve its name in memory, and sanitize for JSON logs.
+  const provider = sanitizeProviderName
+    ? (sanitizeDiagnosticToken(fallbackProvider, 64) ?? "unknown")
+    : fallbackProvider;
   const httpStatus =
     typeof rawStatus === "number" && Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599
       ? rawStatus
@@ -307,7 +313,7 @@ export class SmsError extends Error {
         const record = rawProvider as unknown as Record<string, unknown>;
         const rawName = safeReadProperty(record, "provider");
         const fallbackName = typeof rawName === "string" ? rawName : "unknown";
-        safeProvider = sanitizeProviderDetails(record, fallbackName);
+        safeProvider = sanitizeProviderDetails(record, fallbackName, true);
       }
     } catch {
       safeProvider = undefined;
@@ -453,7 +459,7 @@ export class AllProvidersRejectedError extends SmsError {
   readonly errors: readonly ProviderRejectedError[];
 
   constructor(errors: readonly ProviderRejectedError[], attempts: readonly SendAttempt[]) {
-    const names = errors.map((error) => error.providerName).join(", ");
+    const names = errors.map((error) => sanitizeDiagnosticToken(error.providerName, 64) ?? "unknown").join(", ");
     super(`Every attempted provider rejected the message (${names}).`, {
       code: "all_providers_rejected",
       retrySafe: true,
@@ -498,15 +504,16 @@ export class HandoffUnknownError extends SmsError {
     });
     this.name = "HandoffUnknownError";
     this.reason = options.reason;
-    this.providerName =
-      options.providerName === undefined ? undefined : (sanitizeDiagnosticToken(options.providerName, 64) ?? "unknown");
+    this.providerName = options.providerName;
   }
 
   override toJSON(): SerializedSmsError {
+    const safeProviderName =
+      this.providerName === undefined ? undefined : (sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown");
     return {
       ...super.toJSON(),
       reason: this.reason,
-      ...(this.providerName === undefined ? {} : { providerName: this.providerName }),
+      ...(safeProviderName === undefined ? {} : { providerName: safeProviderName }),
     };
   }
 }
@@ -593,14 +600,14 @@ export class MessageLookupError extends SmsError {
     });
     this.name = "MessageLookupError";
     this.reason = options.reason;
-    this.providerName = safeProviderName;
+    this.providerName = options.providerName;
     this.providerId = options.providerId;
   }
 
   override toJSON(): SerializedSmsError {
     return {
       ...super.toJSON(),
-      providerName: this.providerName,
+      providerName: sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown",
       reason: this.reason,
     };
   }
@@ -624,13 +631,13 @@ export class WebhookSignatureError extends SmsError {
     super(message, { code: "webhook_signature", retrySafe: false });
     this.name = "WebhookSignatureError";
     this.reason = options.reason;
-    this.providerName = sanitizeDiagnosticToken(options.provider, 64) ?? "unknown";
+    this.providerName = options.provider;
   }
 
   override toJSON(): SerializedSmsError {
     return {
       ...super.toJSON(),
-      providerName: this.providerName,
+      providerName: sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown",
       reason: this.reason,
     };
   }
@@ -662,7 +669,7 @@ export class WebhookPayloadError extends SmsError {
   override toJSON(): SerializedSmsError {
     return {
       ...super.toJSON(),
-      providerName: this.providerName,
+      providerName: sanitizeDiagnosticToken(this.providerName, 64) ?? "unknown",
       ...(this.reason === undefined ? {} : { reason: this.reason }),
     };
   }
