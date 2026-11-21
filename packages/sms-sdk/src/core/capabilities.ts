@@ -162,10 +162,11 @@ export function validateMessage(
           continue;
         }
         if (entry !== undefined && typeof entry !== "string" && !isRecord(entry)) {
+          const safeAdapterName = sanitizeDiagnosticToken(adapterName, 64) ?? "unknown";
           issues.push({
             code: "invalid_field",
             field: "fromByAdapter",
-            message: `fromByAdapter.${adapterName} must be an E.164 string or a sender object.`,
+            message: `fromByAdapter.${safeAdapterName} must be an E.164 string or a sender object.`,
           });
         }
       }

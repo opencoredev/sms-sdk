@@ -227,7 +227,7 @@ type SendAttempt =
 | `ProviderRateLimitedError` | `provider_rate_limited` | true | Rate limited after retries |
 | `AllProvidersRejectedError` | `all_providers_rejected` | true | Fallback ran and every attempted adapter rejected |
 | `HandoffUnknownError` | `handoff_unknown` | **false** | Acceptance cannot be determined |
-| `SendAbortedError` | `aborted` | true | Aborted before any request could have been processed |
+| `SendAbortedError` | `aborted` | true | Aborted before any request could have been processed, during rate-limit backoff, or on a keyed send whose underlying attempt proved rejection |
 | `IdempotencyConflictError` | `idempotency_conflict` | false | Key reused with a different payload or sender |
 | `IdempotencyInProgressError` | `idempotency_in_progress` | true | Another process holds a fresh reservation |
 

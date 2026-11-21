@@ -71,14 +71,14 @@ export async function readWebhookRequest(request: Request, provider: WebhookProv
     throw new ConfigurationError(`The ${provider} webhook request body is locked or has already been read.`);
   }
   const singleReadSource = {
-    headers: { get: () => contentLength } as unknown as Headers,
+    headers: { get: () => contentLength },
     body:
-      body === null
+      body === null || bodyGetReader === undefined
         ? null
-        : ({
-            getReader: () => bodyGetReader!.call(body),
+        : {
+            getReader: () => bodyGetReader.call(body) as ReadableStreamDefaultReader<Uint8Array>,
             cancel: () => body.cancel?.(),
-          } as unknown as ReadableStream<Uint8Array>),
+          },
   };
   let text: string | undefined;
   try {

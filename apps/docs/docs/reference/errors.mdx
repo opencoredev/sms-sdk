@@ -181,8 +181,8 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 ### `SendAbortedError`
 
 - `code`: `aborted`. `retrySafe`: true.
-- Your `signal` aborted before any request was sent, or while waiting to retry after a proven rate-limit rejection.
-- Send again when ready. An abort during a request throws `HandoffUnknownError` instead.
+- Your `signal` aborted before any request was sent, while waiting to retry after a proven rate-limit rejection, or on an `idempotencyKey` send whose underlying attempt proved the provider rejected the message.
+- Send again when ready. An in-flight abort whose provider outcome is accepted or unknown throws `HandoffUnknownError` instead.
 
 ## Idempotency
 

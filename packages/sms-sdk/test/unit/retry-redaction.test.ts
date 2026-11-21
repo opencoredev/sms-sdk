@@ -386,5 +386,27 @@ describe("redaction", () => {
     expect(getMsgErr).toBeInstanceOf(Error);
     expect((getMsgErr as Error).message).not.toContain(secretName);
     expect(JSON.stringify(getMsgErr)).not.toContain(secretName);
+
+    // Malformed fromByAdapter entries also sanitize credential-shaped and spaced adapter names.
+    for (const badName of [secretName, friendlyName]) {
+      const smsFromByAdapter = createSmsClient({
+        adapters: [{ ...memory(), name: badName }],
+      });
+      const malformedInput = {
+        to: "+14155550123",
+        body: "hi",
+        fromByAdapter: { [badName]: 123 },
+      } as unknown as Parameters<typeof smsFromByAdapter.send>[0];
+      const validation = smsFromByAdapter.validate(malformedInput);
+      expect(validation.issues.length).toBeGreaterThan(0);
+      expect(validation.issues[0]?.message).toContain("fromByAdapter.unknown");
+      expect(validation.issues[0]?.message).not.toContain(badName);
+
+      const sendErr = await rejection(smsFromByAdapter.send(malformedInput));
+      expect(sendErr).toBeInstanceOf(Error);
+      expect((sendErr as Error).message).toContain("fromByAdapter.unknown");
+      expect((sendErr as Error).message).not.toContain(badName);
+      expect(JSON.stringify(sendErr)).not.toContain(badName);
+    }
   });
 });

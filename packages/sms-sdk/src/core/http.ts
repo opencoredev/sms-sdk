@@ -114,9 +114,20 @@ function intrinsicChunkByteLength(chunk: Uint8Array): number {
   return chunk.byteLength;
 }
 
+export interface BoundedTextSource {
+  readonly headers: Pick<Headers, "get">;
+  readonly body:
+    | ReadableStream<Uint8Array>
+    | {
+        getReader(): ReadableStreamDefaultReader<Uint8Array>;
+        cancel?: () => unknown;
+      }
+    | null;
+}
+
 /** Reads a response or request body as UTF-8, or returns `undefined` (and cancels the stream) once it passes `maxBytes`. */
 export async function readBoundedText(
-  source: { readonly headers: Headers; readonly body: ReadableStream<Uint8Array> | null },
+  source: BoundedTextSource,
   maxBytes: number,
 ): Promise<string | undefined> {
   const declared = Number(source.headers.get("content-length"));
