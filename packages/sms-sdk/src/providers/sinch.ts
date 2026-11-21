@@ -35,6 +35,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 /** Options for {@link sinch}. */
@@ -119,11 +120,25 @@ export function sinch(options: SinchOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Sinch options must be an object.");
   }
-  const servicePlanId = requireValue(options.servicePlanId, "servicePlanId");
-  const apiToken = requireValue(options.apiToken, "apiToken");
-  const baseUrl = resolveBaseUrl(options.baseUrl, "https://sms.api.sinch.com", "Sinch");
+  let rawServicePlanId: unknown;
+  let rawApiToken: unknown;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    rawServicePlanId = options.servicePlanId;
+    rawApiToken = options.apiToken;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Sinch options must be an object.");
+  }
+  const servicePlanId = requireValue(rawServicePlanId, "servicePlanId");
+  const apiToken = requireValue(rawApiToken, "apiToken");
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://sms.api.sinch.com", "Sinch");
   const url = `${baseUrl}/xms/v1/${encodeURIComponent(servicePlanId)}/batches`;
-  const fetcher: FetchLike = resolveFetcher(options.fetch, "Sinch");
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Sinch");
   const authorization = `Bearer ${apiToken}`;
 
   return {
@@ -131,7 +146,7 @@ export function sinch(options: SinchOptions): SmsAdapter {
     capabilities: SINCH_CAPABILITIES,
     support: { status: "partial", notes: SINCH_SUPPORT_NOTES },
     providerOptions: SINCH_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {
       return validateSinchMessage(message);

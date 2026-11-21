@@ -52,27 +52,57 @@ export async function verifySinchSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<SinchWebhookVerification> {
-  if (!isRecord(input) || typeof input.webhookSecret !== "string" || input.webhookSecret.length === 0) {
+  let webhookSecret: unknown;
+  let rawBody: unknown;
+  let signature: unknown;
+  let nonce: unknown;
+  let timestamp: unknown;
+  let toleranceSec: unknown;
+  let now: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Sinch webhook webhookSecret must be a non-empty string.");
+    }
+    webhookSecret = input.webhookSecret;
+    rawBody = input.rawBody;
+    signature = input.signature;
+    nonce = input.nonce;
+    timestamp = input.timestamp;
+    toleranceSec = input.toleranceSec;
+    now = input.now;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Sinch signature verification requires valid options.");
+  }
+  if (typeof webhookSecret !== "string" || webhookSecret.length === 0) {
     throw new ConfigurationError("Sinch webhook webhookSecret must be a non-empty string.");
   }
-  const tolerance = requireTolerance(input.toleranceSec, SINCH_DEFAULT_TOLERANCE_SEC);
+  const tolerance = requireTolerance(toleranceSec as number | undefined, SINCH_DEFAULT_TOLERANCE_SEC);
+  if (now !== undefined && (typeof now !== "number" || !Number.isFinite(now))) {
+    throw new ConfigurationError("Sinch signature verification now must be a finite number.");
+  }
+  if (typeof rawBody !== "string") {
+    throw new ConfigurationError("Sinch signature verification rawBody must be a string.");
+  }
   if (
-    typeof input.signature !== "string" ||
-    typeof input.nonce !== "string" ||
-    typeof input.timestamp !== "string" ||
-    input.signature.length === 0
+    typeof signature !== "string" ||
+    typeof nonce !== "string" ||
+    typeof timestamp !== "string" ||
+    signature.length === 0
   ) {
     return { valid: false, reason: "missing_signature" };
   }
-  if (!/^\d+$/.test(input.timestamp)) {
+  if (!/^\d+$/.test(timestamp)) {
     return { valid: false, reason: "malformed_signature" };
   }
-  const nowSec = Math.floor((input.now ?? Date.now()) / 1000);
-  if (!(Math.abs(nowSec - Number(input.timestamp)) <= tolerance)) {
+  const nowSec = Math.floor((now ?? Date.now()) / 1000);
+  if (!(Math.abs(nowSec - Number(timestamp)) <= tolerance)) {
     return { valid: false, reason: "stale_timestamp" };
   }
-  const expected = toBase64(await hmac("SHA-256", input.webhookSecret, `${input.rawBody}.${input.nonce}.${input.timestamp}`));
-  return timingSafeEqual(expected, input.signature) ? { valid: true } : { valid: false, reason: "invalid_signature" };
+  const expected = toBase64(await hmac("SHA-256", webhookSecret, `${rawBody}.${nonce}.${timestamp}`));
+  return timingSafeEqual(expected, signature) ? { valid: true } : { valid: false, reason: "invalid_signature" };
 }
 
 /**

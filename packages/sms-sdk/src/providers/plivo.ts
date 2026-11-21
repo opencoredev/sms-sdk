@@ -35,6 +35,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 /** Options for {@link plivo}. */
@@ -125,23 +126,37 @@ export function plivo(options: PlivoOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Plivo options must be an object.");
   }
-  if (typeof options.authId !== "string" || options.authId.length === 0) {
+  let authId: unknown;
+  let authToken: unknown;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    authId = options.authId;
+    authToken = options.authToken;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Plivo options must be an object.");
+  }
+  if (typeof authId !== "string" || authId.length === 0) {
     throw new ConfigurationError("Plivo authId is required.");
   }
-  if (typeof options.authToken !== "string" || options.authToken.length === 0) {
+  if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Plivo authToken is required.");
   }
-  const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.plivo.com", "Plivo");
-  const url = `${baseUrl}/v1/Account/${encodeURIComponent(options.authId)}/Message/`;
-  const fetcher: FetchLike = resolveFetcher(options.fetch, "Plivo");
-  const authorization = basicAuthorization(options.authId, options.authToken);
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://api.plivo.com", "Plivo");
+  const url = `${baseUrl}/v1/Account/${encodeURIComponent(authId)}/Message/`;
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Plivo");
+  const authorization = basicAuthorization(authId, authToken);
 
   return {
     name: "plivo",
     capabilities: PLIVO_CAPABILITIES,
     support: { status: "partial", notes: PLIVO_SUPPORT_NOTES },
     providerOptions: PLIVO_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     async send(message, context) {
       const response = await exchange(fetcher, url, {

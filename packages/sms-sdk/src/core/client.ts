@@ -20,7 +20,7 @@ import {
   SmsError,
 } from "./errors.js";
 import { emitHook, type SendAttempt, type SmsHookEventBase } from "./events.js";
-import { isRecord } from "./http.js";
+import { freezeSender, isPlainObject, isRecord } from "./http.js";
 import { runSendChain, type ChainResult, type SendCandidate } from "./fallback.js";
 import { adaptersWithProviderOptions, canonicalProviderOptions, validateProviderOptions } from "./provider-options.js";
 import { fingerprintMessage, type FinalIdempotencyRecord, type IdempotencyStore } from "./idempotency.js";
@@ -124,8 +124,8 @@ function defineOwn(target: Record<string, unknown>, key: string, value: unknown)
   Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
-function freezeShallowRecord(value: unknown): unknown {
-  if (!isRecord(value)) {
+function freezeShallowPlainRecord(value: unknown): unknown {
+  if (!isPlainObject(value)) {
     return value;
   }
   const copy: Record<string, unknown> = {};
@@ -135,43 +135,17 @@ function freezeShallowRecord(value: unknown): unknown {
   return Object.freeze(copy);
 }
 
-const SENDER_KEYS = ["senderId", "shortCode", "messagingService"] as const;
-
-function freezeSender(value: unknown): unknown {
+function freezeFromByAdapter(value: unknown, configuredNames: readonly string[]): unknown {
   if (!isRecord(value)) {
     return value;
   }
   const copy: Record<string, unknown> = {};
-  let copied = false;
-  for (const key of SENDER_KEYS) {
+  for (const key of configuredNames) {
     if (key in value) {
-      defineOwn(copy, key, value[key]);
-      copied = true;
+      defineOwn(copy, key, freezeSender(value[key]));
     }
   }
-  if (!copied) {
-    return Object.freeze(copy);
-  }
   return Object.freeze(copy);
-}
-
-function freezeFromByAdapter(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return value;
-  }
-  const copy: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    defineOwn(copy, key, freezeSender(value[key]));
-  }
-  return Object.freeze(copy);
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (!isRecord(value)) {
-    return false;
-  }
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
 }
 
 function freezeProviderOptions(value: unknown): unknown {
@@ -181,11 +155,11 @@ function freezeProviderOptions(value: unknown): unknown {
   const copy: Record<string, unknown> = {};
   for (const key of Object.keys(value)) {
     const entry = value[key];
-    if (isPlainRecord(entry)) {
+    if (isPlainObject(entry)) {
       const entryCopy: Record<string, unknown> = {};
       for (const optKey of Object.keys(entry)) {
         const optVal = entry[optKey];
-        defineOwn(entryCopy, optKey, optKey === "extra" ? freezeShallowRecord(optVal) : optVal);
+        defineOwn(entryCopy, optKey, optKey === "extra" ? freezeShallowPlainRecord(optVal) : optVal);
       }
       defineOwn(copy, key, Object.freeze(entryCopy));
     } else {
@@ -206,7 +180,7 @@ function snapshotSendAt(value: unknown): unknown {
   }
 }
 
-function snapshotSendInput(raw: SmsSendInput): SmsSendInput {
+function snapshotSendInput(raw: SmsSendInput, configuredNames: readonly string[]): SmsSendInput {
   const source = raw as unknown as Record<string, unknown>;
   const from = source["from"];
   const fromByAdapter = source["fromByAdapter"];
@@ -224,7 +198,7 @@ function snapshotSendInput(raw: SmsSendInput): SmsSendInput {
     snapshot["from"] = freezeSender(from);
   }
   if (fromByAdapter !== undefined) {
-    snapshot["fromByAdapter"] = freezeFromByAdapter(fromByAdapter);
+    snapshot["fromByAdapter"] = freezeFromByAdapter(fromByAdapter, configuredNames);
   }
   if (mediaUrls !== undefined) {
     snapshot["mediaUrls"] = Array.isArray(mediaUrls) ? Object.freeze([...mediaUrls]) : mediaUrls;
@@ -256,35 +230,62 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   if (!isRecord(options)) {
     throw new ConfigurationError("createSmsClient options must be an object.");
   }
-  if (!Array.isArray(options.adapters) || options.adapters.length === 0) {
+  let rawAdapters: unknown;
+  let beforeSend: SmsClientOptions["beforeSend"];
+  let rawTimeoutMs: unknown;
+  let rawRetry: SmsClientOptions["retry"];
+  let rawFallback: unknown;
+  let rawHooks: unknown;
+  let rawIdempotency: unknown;
+  try {
+    rawAdapters = options.adapters;
+    beforeSend = options.beforeSend;
+    rawTimeoutMs = options.timeoutMs;
+    rawRetry = options.retry;
+    rawFallback = options.fallback;
+    rawHooks = options.hooks;
+    rawIdempotency = options.idempotency;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("createSmsClient options must be an object.");
+  }
+  if (!Array.isArray(rawAdapters) || rawAdapters.length === 0) {
     throw new ConfigurationError("createSmsClient needs at least one adapter.");
   }
-  const adapters = [...options.adapters];
+  const adapters = [...rawAdapters] as [SmsAdapter, ...SmsAdapter[]];
   for (const adapter of adapters) {
-    if (
-      !isRecord(adapter) ||
-      typeof adapter["name"] !== "string" ||
-      adapter["name"].length === 0 ||
-      typeof adapter["send"] !== "function" ||
-      !isRecord(adapter["capabilities"]) ||
-      !Array.isArray(adapter["capabilities"]["senderTypes"]) ||
-      !adapter["capabilities"]["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
-      (adapter["capabilities"]["validityPeriod"] !== null &&
-        (!isRecord(adapter["capabilities"]["validityPeriod"]) ||
-          typeof adapter["capabilities"]["validityPeriod"]["minSec"] !== "number" ||
-          !Number.isInteger(adapter["capabilities"]["validityPeriod"]["minSec"]) ||
-          adapter["capabilities"]["validityPeriod"]["minSec"] <= 0 ||
-          typeof adapter["capabilities"]["validityPeriod"]["maxSec"] !== "number" ||
-          !Number.isInteger(adapter["capabilities"]["validityPeriod"]["maxSec"]) ||
-          adapter["capabilities"]["validityPeriod"]["maxSec"] < adapter["capabilities"]["validityPeriod"]["minSec"])) ||
-      (adapter["providerOptions"] !== undefined && !isValidProviderOptionsSpec(adapter["providerOptions"])) ||
-      (adapter["validate"] !== undefined && typeof adapter["validate"] !== "function") ||
-      (adapter["getMessage"] !== undefined && typeof adapter["getMessage"] !== "function")
-    ) {
+    try {
+      if (
+        !isRecord(adapter) ||
+        typeof adapter["name"] !== "string" ||
+        adapter["name"].length === 0 ||
+        typeof adapter["send"] !== "function" ||
+        !isRecord(adapter["capabilities"]) ||
+        !Array.isArray(adapter["capabilities"]["senderTypes"]) ||
+        !adapter["capabilities"]["senderTypes"].every((t) => typeof t === "string" && VALID_SENDER_TYPES.has(t)) ||
+        (adapter["capabilities"]["validityPeriod"] !== null &&
+          (!isRecord(adapter["capabilities"]["validityPeriod"]) ||
+            typeof adapter["capabilities"]["validityPeriod"]["minSec"] !== "number" ||
+            !Number.isInteger(adapter["capabilities"]["validityPeriod"]["minSec"]) ||
+            adapter["capabilities"]["validityPeriod"]["minSec"] <= 0 ||
+            typeof adapter["capabilities"]["validityPeriod"]["maxSec"] !== "number" ||
+            !Number.isInteger(adapter["capabilities"]["validityPeriod"]["maxSec"]) ||
+            adapter["capabilities"]["validityPeriod"]["maxSec"] < adapter["capabilities"]["validityPeriod"]["minSec"])) ||
+        (adapter["providerOptions"] !== undefined && !isValidProviderOptionsSpec(adapter["providerOptions"])) ||
+        (adapter["validate"] !== undefined && typeof adapter["validate"] !== "function") ||
+        (adapter["getMessage"] !== undefined && typeof adapter["getMessage"] !== "function")
+      ) {
+        throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
+      }
+    } catch (error) {
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
       throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
     }
   }
-  const beforeSend = options.beforeSend;
   if (beforeSend !== undefined && typeof beforeSend !== "function") {
     throw new ConfigurationError("beforeSend must be a function.");
   }
@@ -292,53 +293,93 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   if (new Set(names).size !== names.length) {
     throw new ConfigurationError(`Adapter names must be unique; got ${names.join(", ")}.`);
   }
-  const timeoutMs = options.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs;
+  const timeoutMs = rawTimeoutMs === undefined ? DEFAULT_TIMEOUT_MS : rawTimeoutMs;
   if (!(typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2_147_483_647)) {
     throw new ConfigurationError("timeoutMs must be a positive number up to 2147483647.");
   }
 
-  const retry = resolveRetryOptions(options.retry);
-  if (options.fallback !== undefined && options.fallback !== "none" && options.fallback !== "on-known-rejection") {
+  let retry: ReturnType<typeof resolveRetryOptions>;
+  try {
+    retry = resolveRetryOptions(rawRetry);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("retry options must be an object.");
+  }
+  if (rawFallback !== undefined && rawFallback !== "none" && rawFallback !== "on-known-rejection") {
     throw new ConfigurationError('fallback must be "none" or "on-known-rejection".');
   }
-  const fallback = options.fallback === "on-known-rejection";
-  if (options.hooks !== undefined) {
-    if (!isRecord(options.hooks)) {
+  const fallback = rawFallback === "on-known-rejection";
+  const hooks: {
+    onAttempt?: NonNullable<SmsClientOptions["hooks"]>["onAttempt"];
+    onAccepted?: NonNullable<SmsClientOptions["hooks"]>["onAccepted"];
+    onFailure?: NonNullable<SmsClientOptions["hooks"]>["onFailure"];
+  } = {};
+  if (rawHooks !== undefined) {
+    if (!isRecord(rawHooks)) {
       throw new ConfigurationError("hooks must be an object of callback functions.");
     }
-    for (const [hookName, hookFn] of Object.entries(options.hooks)) {
-      if (hookFn !== undefined && typeof hookFn !== "function") {
-        throw new ConfigurationError(`hooks.${hookName} must be a function.`);
+    try {
+      const seenHookKeys = new Set<string>(["onAttempt", "onAccepted", "onFailure"]);
+      for (const hookName of ["onAttempt", "onAccepted", "onFailure"] as const) {
+        if (hookName in rawHooks) {
+          const hookFn = rawHooks[hookName];
+          if (hookFn !== undefined) {
+            if (typeof hookFn !== "function") {
+              throw new ConfigurationError(`hooks.${hookName} must be a function.`);
+            }
+            hooks[hookName] = hookFn.bind(rawHooks) as never;
+          }
+        }
       }
+      for (const [hookName, hookFn] of Object.entries(rawHooks)) {
+        if (seenHookKeys.has(hookName)) {
+          continue;
+        }
+        if (hookFn !== undefined && typeof hookFn !== "function") {
+          throw new ConfigurationError(`hooks.${hookName} must be a function.`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
+      throw new ConfigurationError("hooks must be an object of callback functions.");
     }
   }
-  const hooks = options.hooks === undefined ? {} : { ...options.hooks };
-  if (
-    options.idempotency !== undefined &&
-    (!isRecord(options.idempotency) ||
-      !isRecord(options.idempotency.store) ||
-      typeof options.idempotency.store.get !== "function" ||
-      typeof options.idempotency.store.reserve !== "function" ||
-      typeof options.idempotency.store.finalize !== "function")
-  ) {
-    throw new ConfigurationError("idempotency must be an object with a valid store.");
+  let idempotency: IdempotencyConfig | undefined;
+  if (rawIdempotency !== undefined) {
+    try {
+      if (!isRecord(rawIdempotency)) {
+        throw new ConfigurationError("idempotency must be an object with a valid store.");
+      }
+      const store = rawIdempotency["store"];
+      if (
+        !isRecord(store) ||
+        typeof store["get"] !== "function" ||
+        typeof store["reserve"] !== "function" ||
+        typeof store["finalize"] !== "function"
+      ) {
+        throw new ConfigurationError("idempotency must be an object with a valid store.");
+      }
+      const rawTtl = rawIdempotency["ttlSec"];
+      const rawStale = rawIdempotency["staleReservationSec"];
+      idempotency = {
+        store: store as unknown as IdempotencyStore,
+        ttlSec: requirePositiveSeconds((rawTtl === undefined ? DEFAULT_TTL_SEC : rawTtl) as number, "ttlSec"),
+        staleReservationSec: requirePositiveSeconds(
+          (rawStale === undefined ? DEFAULT_STALE_RESERVATION_SEC : rawStale) as number,
+          "staleReservationSec",
+        ),
+      };
+    } catch (error) {
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
+      throw new ConfigurationError("idempotency must be an object with a valid store.");
+    }
   }
-  const idempotency: IdempotencyConfig | undefined =
-    options.idempotency === undefined
-      ? undefined
-      : {
-          store: options.idempotency.store,
-          ttlSec: requirePositiveSeconds(
-            options.idempotency.ttlSec === undefined ? DEFAULT_TTL_SEC : options.idempotency.ttlSec,
-            "ttlSec",
-          ),
-          staleReservationSec: requirePositiveSeconds(
-            options.idempotency.staleReservationSec === undefined
-              ? DEFAULT_STALE_RESERVATION_SEC
-              : options.idempotency.staleReservationSec,
-            "staleReservationSec",
-          ),
-        };
   const inFlight = new Map<string, InFlight>();
   const configuredAdapters = new Set(adapters.map((adapter) => adapter.name));
 
@@ -354,7 +395,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           providerOptionsFor: [],
         };
       }
-      input = snapshotSendInput(rawInput);
+      input = snapshotSendInput(rawInput, names);
     } catch {
       return {
         ...estimateSegments(""),
@@ -412,7 +453,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       if (!isRecord(rawInput)) {
         throw issueToError(MESSAGE_NOT_OBJECT_ISSUE);
       }
-      input = snapshotSendInput(rawInput);
+      input = snapshotSendInput(rawInput, names);
     } catch (error) {
       if (error instanceof InvalidMessageError) {
         throw error;
@@ -586,20 +627,29 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     };
 
     if (beforeSend !== undefined) {
-      let isObj = false;
-      let kind: unknown;
-      let reason: unknown;
+      let decision: unknown;
       try {
         const policyMessage: SmsSendInput =
           input.sendAt instanceof Date
             ? Object.freeze({ ...input, sendAt: new Date(input.sendAt.getTime()) })
             : input;
-        const decision: unknown = await beforeSend({
+        decision = await beforeSend({
           id,
           message: policyMessage,
           encoding: preview.encoding,
           segments: preview.segments,
         });
+      } catch (cause) {
+        const policyError = new PolicyRejectedError("beforeSend threw");
+        await finalize({ state: "rejected", fingerprint: reservation?.fingerprint ?? "", error: policyError.toJSON() });
+        // The caller gets the original exception; hooks see it as a policy failure.
+        emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
+        throw cause;
+      }
+      let isObj = false;
+      let kind: unknown;
+      let reason: unknown;
+      try {
         if (isRecord(decision)) {
           isObj = true;
           kind = decision["kind"];
@@ -607,12 +657,8 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             reason = decision["reason"];
           }
         }
-      } catch (cause) {
-        const policyError = new PolicyRejectedError("beforeSend threw");
-        await finalize({ state: "rejected", fingerprint: reservation?.fingerprint ?? "", error: policyError.toJSON() });
-        // The caller gets the original exception; hooks see it as a policy failure.
-        emitHook(hooks.onFailure, { ...base, errorCode: policyError.code, retrySafe: policyError.retrySafe, attempts: [] });
-        throw cause;
+      } catch {
+        return fail(new PolicyRejectedError("beforeSend returned an unreadable decision."));
       }
       if (!isObj || (kind !== "allow" && kind !== "reject")) {
         return fail(new PolicyRejectedError('beforeSend must return { kind: "allow" } or { kind: "reject", reason }.'));
@@ -688,14 +734,24 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     ) {
       throw new ConfigurationError("getMessage needs a non-empty providerId.");
     }
-    if (!isRecord(lookupOptions)) {
+    let signal: AbortSignal | undefined;
+    let rawAdapter: unknown;
+    try {
+      if (!isRecord(lookupOptions)) {
+        throw new ConfigurationError("getMessage options must be an object.");
+      }
+      signal = requireOptionalSignal(lookupOptions.signal, "getMessage");
+      rawAdapter = lookupOptions.adapter;
+    } catch (error) {
+      if (error instanceof ConfigurationError) {
+        throw error;
+      }
       throw new ConfigurationError("getMessage options must be an object.");
     }
-    const signal = requireOptionalSignal(lookupOptions.signal, "getMessage");
-    if (lookupOptions.adapter !== undefined && typeof lookupOptions.adapter !== "string") {
+    if (rawAdapter !== undefined && typeof rawAdapter !== "string") {
       throw new ConfigurationError("getMessage adapter must be a string.");
     }
-    const name = lookupOptions.adapter === undefined ? adapters[0].name : lookupOptions.adapter;
+    const name = rawAdapter === undefined ? adapters[0]!.name : rawAdapter;
     const adapter = adapters.find((candidate) => candidate.name === name);
     if (adapter === undefined) {
       throw new ConfigurationError(`getMessage: no adapter named "${name}" is configured.`);
@@ -731,9 +787,19 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     capabilities(): readonly SmsAdapterInfo[] {
       return adapters.map((adapter) => ({
         name: adapter.name,
-        capabilities: adapter.capabilities,
-        support: adapter.support,
-        defaultFrom: adapter.defaultFrom,
+        capabilities: Object.freeze({
+          ...adapter.capabilities,
+          senderTypes: Object.freeze([...adapter.capabilities.senderTypes]),
+          validityPeriod:
+            adapter.capabilities.validityPeriod === null
+              ? null
+              : Object.freeze({ ...adapter.capabilities.validityPeriod }),
+        }),
+        support: Object.freeze({
+          ...adapter.support,
+          notes: Object.freeze([...adapter.support.notes]),
+        }),
+        defaultFrom: freezeSender(adapter.defaultFrom),
         messageLookup: adapter.getMessage !== undefined,
       }));
     },

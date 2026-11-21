@@ -136,9 +136,50 @@ export function parseJson(text: string): unknown {
   }
 }
 
-/** Narrows to a plain object. */
+/** Narrows to a non-null, non-array object (safe on revoked Proxies). */
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  try {
+    return !Array.isArray(value);
+  } catch {
+    return false;
+  }
+}
+
+/** True only for plain `{}` or `Object.create(null)` objects (safe on revoked Proxies). */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  try {
+    const proto: unknown = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  } catch {
+    return false;
+  }
+}
+
+const SENDER_KEYS = ["senderId", "shortCode", "messagingService"] as const;
+
+/** Freezes an object sender by copying only recognized sender keys (preserving class getters). */
+export function freezeSender<T>(value: T): T {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of SENDER_KEYS) {
+    if (key in value) {
+      Object.defineProperty(copy, key, {
+        value: value[key],
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+  }
+  return Object.freeze(copy) as T;
 }
 
 /** Reads a non-empty string property. */

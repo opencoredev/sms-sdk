@@ -44,6 +44,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 /** Vonage API region hosts. */
@@ -192,23 +193,31 @@ export function vonage(options: VonageOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Vonage options must be an object.");
   }
-  const region = options.region === undefined ? "api" : options.region;
+  let snapshot: VonageOptions;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    snapshot = { ...options };
+    rawFrom = freezeSender(snapshot.from);
+  } catch {
+    throw new ConfigurationError("Vonage options must be an object.");
+  }
+  const region = snapshot.region === undefined ? "api" : snapshot.region;
   if (typeof region !== "string" || !VONAGE_REGIONS.has(region)) {
     throw new ConfigurationError('Vonage region must be one of "api", "api-eu", "api-us", or "api-ap".');
   }
-  const baseUrl = resolveBaseUrl(options.baseUrl, `https://${region}.nexmo.com`, "Vonage");
+  const baseUrl = resolveBaseUrl(snapshot.baseUrl, `https://${region}.nexmo.com`, "Vonage");
   const url = `${baseUrl}/v1/messages`;
-  const fetcher: FetchLike = resolveFetcher(options.fetch, "Vonage");
-  const authorize = createAuthorizer(options);
-  const capabilities = options.apiKey !== undefined ? VONAGE_BASIC_CAPABILITIES : VONAGE_JWT_CAPABILITIES;
-  const reports = reportsAccess(options);
+  const fetcher: FetchLike = resolveFetcher(snapshot.fetch, "Vonage");
+  const authorize = createAuthorizer(snapshot);
+  const capabilities = snapshot.apiKey !== undefined ? VONAGE_BASIC_CAPABILITIES : VONAGE_JWT_CAPABILITIES;
+  const reports = reportsAccess(snapshot);
 
   return {
     name: "vonage",
     capabilities,
     support: { status: "partial", notes: VONAGE_SUPPORT_NOTES },
     providerOptions: VONAGE_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {
       return validateVonageMessage(message);

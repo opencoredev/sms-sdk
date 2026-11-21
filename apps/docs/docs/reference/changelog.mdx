@@ -20,6 +20,7 @@ This page summarizes [`CHANGELOG.md`](https://github.com/opencoredev/sms-sdk/blo
 - `unsafeSkipVerification` throws `ConfigurationError` when `NODE_ENV` is `production`.
 - Provider responses and inbound webhook request bodies are read up to 1 MiB; an oversized provider response is an unknown outcome, an oversized webhook body throws `WebhookPayloadError` (`reason: "body_too_large"`) before signature verification, and an aborted or unreadable webhook body stream throws `WebhookPayloadError` (`reason: "body_unreadable"`).
 - Every subpath export has a `default` condition beside `import`. The package stays ESM only.
+- `send()`, `validate()`, `createSmsClient()`, adapter factories, and webhook parsers snapshot caller-supplied inputs and options upfront, validate `Date` and `RegExp` brand slots, require plain objects for `providerOptions` entries and `extra`, trim only HTTP OWS around `trustProxy` headers, and treat non-string `verifyTelnyxSignature`/`verifySinchSignature` inputs as invalid signatures.
 
 ## 0.1.1
 

@@ -1,5 +1,5 @@
 import type { ProviderOptionField, ProviderOptionValue, ProviderWireField, SmsAdapter, ValidationIssue } from "./adapters.js";
-import { isRecord } from "./http.js";
+import { isPlainObject, isRecord } from "./http.js";
 
 /** Outcome of parsing one adapter's `providerOptions` entry. */
 export type ProviderOptionsParse =
@@ -96,7 +96,7 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
 
   const extra = Object.hasOwn(entry, "extra") ? entry["extra"] : undefined;
   if (extra !== undefined) {
-    if (!isRecord(extra)) {
+    if (!isPlainObject(extra)) {
       found.push(invalid(provider, `providerOptions.${provider}.extra must be an object.`));
     } else {
       for (const [wire, value] of Object.entries(extra)) {
@@ -171,14 +171,6 @@ function wireNames(lower: string, prefixes: readonly string[]): string[] {
 
 const regexpSourceGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get;
 const regexpFlagsGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (!isRecord(value)) {
-    return false;
-  }
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
 
 type ValueRead = { readonly kind: "ok"; readonly value: ProviderOptionValue } | { readonly kind: "invalid"; readonly problem: string };
 

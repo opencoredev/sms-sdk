@@ -32,28 +32,44 @@ export async function computeTwilioSignature(input: {
   readonly url: string;
   readonly params: ReadonlyArray<readonly [string, string]>;
 }): Promise<string> {
-  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
+  let authToken: unknown;
+  let url: unknown;
+  let params: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
+    }
+    authToken = input.authToken;
+    url = input.url;
+    params = input.params;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Twilio signature verification requires valid options.");
+  }
+  if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
   }
-  validateTwilioUrl(input.url);
-  if (!Array.isArray(input.params)) {
+  validateTwilioUrl(url);
+  if (!Array.isArray(params)) {
     throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
   }
   const grouped = new Map<string, string[]>();
-  for (const pair of input.params) {
+  for (const pair of params) {
     if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string" || typeof pair[1] !== "string") {
       throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] string pairs.");
     }
     const [key, value] = pair;
     grouped.set(key, [...(grouped.get(key) ?? []), value]);
   }
-  let data = input.url;
+  let data = url as string;
   for (const key of [...grouped.keys()].sort()) {
     for (const value of (grouped.get(key) ?? []).sort()) {
       data += key + value;
     }
   }
-  return toBase64(await hmac("SHA-1", input.authToken, data));
+  return toBase64(await hmac("SHA-1", authToken, data));
 }
 
 /**
@@ -66,18 +82,40 @@ export async function verifyTwilioSignature(input: {
   readonly params: ReadonlyArray<readonly [string, string]>;
   readonly signature: string;
 }): Promise<boolean> {
-  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
+  let authToken: unknown;
+  let url: unknown;
+  let params: unknown;
+  let signature: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
+    }
+    authToken = input.authToken;
+    url = input.url;
+    params = input.params;
+    signature = input.signature;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Twilio signature verification requires valid options.");
+  }
+  if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Twilio signature verification requires a non-empty authToken.");
   }
-  if (!Array.isArray(input.params)) {
+  if (!Array.isArray(params)) {
     throw new ConfigurationError("Twilio signature verification requires params as an array of [name, value] pairs.");
   }
-  if (typeof input.signature !== "string") {
+  if (typeof signature !== "string") {
     throw new ConfigurationError("Twilio signature verification requires a string signature.");
   }
-  for (const url of urlVariants(input.url)) {
-    const expected = await computeTwilioSignature({ authToken: input.authToken, url, params: input.params });
-    if (timingSafeEqual(expected, input.signature)) {
+  for (const candidateUrl of urlVariants(url as string)) {
+    const expected = await computeTwilioSignature({
+      authToken,
+      url: candidateUrl,
+      params: params as ReadonlyArray<readonly [string, string]>,
+    });
+    if (timingSafeEqual(expected, signature)) {
       return true;
     }
   }

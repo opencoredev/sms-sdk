@@ -36,6 +36,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 const ACCOUNT_SID_PATTERN = /^AC[0-9a-fA-F]{32}$/;
@@ -173,24 +174,42 @@ export function twilio(options: TwilioOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Twilio options must be an object.");
   }
-  if (typeof options.accountSid !== "string" || !ACCOUNT_SID_PATTERN.test(options.accountSid)) {
+  let accountSid: unknown;
+  let authToken: unknown;
+  let apiKeySid: unknown;
+  let apiKeySecret: unknown;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    accountSid = options.accountSid;
+    authToken = options.authToken;
+    apiKeySid = options.apiKeySid;
+    apiKeySecret = options.apiKeySecret;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Twilio options must be an object.");
+  }
+  if (typeof accountSid !== "string" || !ACCOUNT_SID_PATTERN.test(accountSid)) {
     throw new ConfigurationError("Twilio accountSid must be AC followed by 32 hex characters.");
   }
   const authorization =
-    options.authToken !== undefined
-      ? basicAuthorization(options.accountSid, requireSecret(options.authToken, "authToken"))
-      : basicAuthorization(requireSecret(options.apiKeySid, "apiKeySid"), requireSecret(options.apiKeySecret, "apiKeySecret"));
-  const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.twilio.com", "Twilio");
-  const messagesUrl = `${baseUrl}/2010-04-01/Accounts/${options.accountSid}/Messages`;
+    authToken !== undefined
+      ? basicAuthorization(accountSid, requireSecret(authToken as string, "authToken"))
+      : basicAuthorization(requireSecret(apiKeySid as string, "apiKeySid"), requireSecret(apiKeySecret as string, "apiKeySecret"));
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://api.twilio.com", "Twilio");
+  const messagesUrl = `${baseUrl}/2010-04-01/Accounts/${accountSid}/Messages`;
   const url = `${messagesUrl}.json`;
-  const fetcher: FetchLike = resolveFetcher(options.fetch, "Twilio");
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Twilio");
 
   return {
     name: "twilio",
     capabilities: TWILIO_CAPABILITIES,
     support: { status: "supported", notes: [] },
     providerOptions: TWILIO_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {
       return validateTwilioMessage(message);

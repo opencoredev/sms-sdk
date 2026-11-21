@@ -35,6 +35,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 const MAX_TEXT_LENGTH = 2048;
@@ -120,22 +121,39 @@ export function bandwidth(options: BandwidthOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Bandwidth options must be an object.");
   }
-  requireValue(options.userId, "userId");
-  requireValue(options.apiToken, "apiToken");
-  requireValue(options.apiSecret, "apiSecret");
-  requireValue(options.applicationId, "applicationId");
-  const applicationId = options.applicationId;
-  const baseUrl = resolveBaseUrl(options.baseUrl, "https://messaging.bandwidth.com", "Bandwidth");
-  const url = `${baseUrl}/api/v2/users/${encodeURIComponent(options.userId)}/messages`;
-  const fetcher: FetchLike = resolveFetcher(options.fetch, "Bandwidth");
-  const authorization = basicAuthorization(options.apiToken, options.apiSecret);
+  let rawUserId: unknown;
+  let rawApiToken: unknown;
+  let rawApiSecret: unknown;
+  let rawApplicationId: unknown;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    rawUserId = options.userId;
+    rawApiToken = options.apiToken;
+    rawApiSecret = options.apiSecret;
+    rawApplicationId = options.applicationId;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Bandwidth options must be an object.");
+  }
+  const userId = requireValue(rawUserId, "userId");
+  const apiToken = requireValue(rawApiToken, "apiToken");
+  const apiSecret = requireValue(rawApiSecret, "apiSecret");
+  const applicationId = requireValue(rawApplicationId, "applicationId");
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://messaging.bandwidth.com", "Bandwidth");
+  const url = `${baseUrl}/api/v2/users/${encodeURIComponent(userId)}/messages`;
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Bandwidth");
+  const authorization = basicAuthorization(apiToken, apiSecret);
 
   return {
     name: "bandwidth",
     capabilities: BANDWIDTH_CAPABILITIES,
     support: { status: "partial", notes: BANDWIDTH_SUPPORT_NOTES },
     providerOptions: BANDWIDTH_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
     validate(message) {
       return validateBandwidthMessage(message);
     },
@@ -321,8 +339,9 @@ function isBandwidthErrorBody(record: Record<string, unknown> | undefined): bool
   return record !== undefined && (readString(record, "description") !== undefined || readString(record, "type") !== undefined);
 }
 
-function requireValue(value: unknown, field: string): void {
+function requireValue(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new ConfigurationError(`Bandwidth ${field} is required.`);
   }
+  return value;
 }

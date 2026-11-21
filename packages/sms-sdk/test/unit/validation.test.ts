@@ -891,7 +891,7 @@ describe("malformed runtime input", () => {
     });
     await expect(
       client.send({ to: "+14155550123", body: "hi", from: "+14155550124", idempotencyKey: "k-getter" }),
-    ).rejects.toThrow("getter boom");
+    ).rejects.toBeInstanceOf(PolicyRejectedError);
     expect((await store.get("k-getter"))?.state).toBe("rejected");
     allow = true;
     const retried = await client.send({ to: "+14155550123", body: "hi", from: "+14155550124", idempotencyKey: "k-getter" });
@@ -1458,5 +1458,85 @@ describe("malformed runtime input", () => {
     txOpts.messagingProfileId = "prof-mutated";
     await createSmsClient({ adapters: [txAdapter] }).send({ to: "+14155550123", body: "hi" });
     expect(sentProfileId).toBe("prof-original");
+
+    // 7. Class-instance hooks and fromByAdapter work; non-plain extra rejected; capabilities() is frozen; revoked Proxies fail with ConfigurationError
+    let hookCalls = 0;
+    class ClassHooks {
+      onAccepted() {
+        hookCalls += 1;
+      }
+    }
+    class ClassFromByAdapter {
+      get a() {
+        return "+14155550100";
+      }
+      get unconfigured() {
+        throw new Error("should not be read");
+      }
+    }
+    const hooksClient = createSmsClient({
+      adapters: [memory({ name: "a" })],
+      hooks: new ClassHooks(),
+    });
+    await hooksClient.send({
+      to: "+14155550123",
+      body: "hi",
+      fromByAdapter: new ClassFromByAdapter() as unknown as NonNullable<SmsSendInput["fromByAdapter"]>,
+    });
+    expect(hookCalls).toBe(1);
+
+    // Non-plain providerOptions.twilio.extra (Date/class) rejected as invalid_field
+    expect(
+      twilioClient
+        .validate({
+          to: "+14155550123",
+          body: "hi",
+          providerOptions: { twilio: { extra: new Date() as unknown as Record<string, string> } },
+        })
+        .issues.some((i) => i.code === "invalid_field"),
+    ).toBe(true);
+
+    // capabilities() returns frozen copies that cannot alter client validation
+    const capClient = createSmsClient({ adapters: [memory({ name: "a" })] });
+    expect(Object.isFrozen(capClient.capabilities()[0]?.capabilities.senderTypes)).toBe(true);
+
+    // Revoked Proxy throws ConfigurationError in createSmsClient, getMessage, adapter factories, and verify helpers
+    const rev = Proxy.revocable({}, {});
+    rev.revoke();
+    expect(() => createSmsClient(rev.proxy as unknown as Parameters<typeof createSmsClient>[0])).toThrow(ConfigurationError);
+    expect(() => bandwidth(rev.proxy as unknown as Parameters<typeof bandwidth>[0])).toThrow(ConfigurationError);
+    expect(await rejection(capClient.getMessage("m1", rev.proxy as unknown as { adapter?: string }))).toBeInstanceOf(
+      ConfigurationError,
+    );
+    expect(await rejection(verifyTwilioSignature(rev.proxy as never))).toBeInstanceOf(ConfigurationError);
+    expect(await rejection(verifyPlivoSignatureV2(rev.proxy as never))).toBeInstanceOf(ConfigurationError);
+    expect(await rejection(verifyTelnyxSignature(rev.proxy as never))).toBeInstanceOf(ConfigurationError);
+    expect(await rejection(verifySinchSignature(rev.proxy as never))).toBeInstanceOf(ConfigurationError);
+    expect(await rejection(verifyVonageSignature(rev.proxy as never))).toBeInstanceOf(ConfigurationError);
+
+    // Single-read factory options (flipping getter) & frozen defaultFrom
+    let appIdReads = 0;
+    const flipBw = bandwidth({
+      userId: "u",
+      apiToken: "t",
+      apiSecret: "s",
+      get applicationId() {
+        appIdReads += 1;
+        return appIdReads === 1 ? "app-once" : "";
+      },
+      from: "+15005550006" as const,
+      fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sentAppId = JSON.parse(String(init?.body ?? "{}")).applicationId;
+        return new Response(JSON.stringify({ id: "bw2" }), { status: 202 });
+      },
+    });
+    expect(appIdReads).toBe(1);
+    await createSmsClient({ adapters: [flipBw] }).send({ to: "+14155550123", body: "hi" });
+    expect(sentAppId).toBe("app-once");
+
+    const mutableSender = { senderId: "ORIG" };
+    const frozenTwilio = twilio({ accountSid: TWILIO_SID, authToken: "tok", from: mutableSender });
+    mutableSender.senderId = "MUTATED";
+    expect((frozenTwilio.defaultFrom as { senderId?: string })?.senderId).toBe("ORIG");
   });
 });

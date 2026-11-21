@@ -35,6 +35,7 @@ import {
   resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 /** Options for {@link telnyx}. */
@@ -127,24 +128,37 @@ export function telnyx(options: TelnyxOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Telnyx options must be an object.");
   }
-  if (typeof options.apiKey !== "string" || options.apiKey.length === 0) {
+  let rawApiKey: unknown;
+  let messagingProfileId: string | undefined;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    rawApiKey = options.apiKey;
+    messagingProfileId = options.messagingProfileId;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Telnyx options must be an object.");
+  }
+  if (typeof rawApiKey !== "string" || rawApiKey.length === 0) {
     throw new ConfigurationError("Telnyx apiKey is required.");
   }
-  const messagingProfileId = options.messagingProfileId;
   if (messagingProfileId !== undefined && typeof messagingProfileId !== "string") {
     throw new ConfigurationError("Telnyx messagingProfileId must be a string.");
   }
-  const baseUrl = resolveBaseUrl(options.baseUrl, "https://api.telnyx.com", "Telnyx");
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://api.telnyx.com", "Telnyx");
   const url = `${baseUrl}/v2/messages`;
-  const fetcher: FetchLike = resolveFetcher(options.fetch, "Telnyx");
-  const authorization = `Bearer ${options.apiKey}`;
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Telnyx");
+  const authorization = `Bearer ${rawApiKey}`;
 
   return {
     name: "telnyx",
     capabilities: TELNYX_CAPABILITIES,
     support: { status: "supported", notes: [] },
     providerOptions: TELNYX_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {
       return validateTelnyxMessage(message, messagingProfileId);

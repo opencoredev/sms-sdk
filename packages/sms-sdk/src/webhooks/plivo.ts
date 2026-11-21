@@ -31,13 +31,29 @@ export async function computePlivoSignatureV2(input: {
   readonly url: string;
   readonly nonce: string;
 }): Promise<string> {
-  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
+  let authToken: unknown;
+  let url: unknown;
+  let nonce: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+    }
+    authToken = input.authToken;
+    url = input.url;
+    nonce = input.nonce;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Plivo signature verification requires valid options.");
+  }
+  if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
   }
-  if (typeof input.nonce !== "string") {
+  if (typeof nonce !== "string") {
     throw new ConfigurationError("Plivo signature verification requires a string nonce.");
   }
-  return toBase64(await hmac("SHA-256", input.authToken, plivoBaseUrl(input.url) + input.nonce));
+  return toBase64(await hmac("SHA-256", authToken, plivoBaseUrl(url) + nonce));
 }
 
 /** Checks a Plivo V2 signature from `X-Plivo-Signature-V2` or `X-Plivo-Signature-Ma-V2`. */
@@ -47,14 +63,36 @@ export async function verifyPlivoSignatureV2(input: {
   readonly nonce: string;
   readonly signature: string;
 }): Promise<boolean> {
-  if (!isRecord(input) || typeof input.authToken !== "string" || input.authToken.length === 0) {
+  let authToken: unknown;
+  let url: unknown;
+  let nonce: unknown;
+  let signature: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+    }
+    authToken = input.authToken;
+    url = input.url;
+    nonce = input.nonce;
+    signature = input.signature;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Plivo signature verification requires valid options.");
+  }
+  if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
   }
-  if (typeof input.signature !== "string") {
+  if (typeof signature !== "string") {
     throw new ConfigurationError("Plivo signature verification requires a string signature.");
   }
-  const expected = await computePlivoSignatureV2(input);
-  return timingSafeEqual(expected, input.signature);
+  const expected = await computePlivoSignatureV2({
+    authToken,
+    url: url as string,
+    nonce: nonce as string,
+  });
+  return timingSafeEqual(expected, signature);
 }
 
 /**
