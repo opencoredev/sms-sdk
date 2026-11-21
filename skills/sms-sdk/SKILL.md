@@ -43,7 +43,7 @@ Import each adapter from its own subpath: `/twilio`, `/telnyx`, `/plivo`, `/vona
 
 - `send()` resolves only when a provider accepted the message. Accepted is not delivered; delivery arrives by webhook or `sms.getMessage(providerId, { adapter })`.
 - Check `error.retrySafe` before sending again. `HandoffUnknownError` is `retrySafe: false`: the outcome is unknown, so reconcile with the provider first and never retry it in a loop.
-- Set `idempotencyKey` per logical message (not per attempt) and give the client an idempotency store. Without a store, the key deduplicates nothing.
+- Set `idempotencyKey` per logical message (not per attempt) and give the client an idempotency store. Without a store, the client only coalesces concurrent calls with the same key; later calls can send again.
 - Fallback is off until `fallback: "on-known-rejection"`. It runs only after `auth`, `rate_limited`, `sender`, or `account` rejections, never after an unknown outcome or a `compliance` (opt-out) rejection. With fallback, set senders per adapter with `fromByAdapter` or each adapter's `from`.
 - Pass `providerOptions: { twilio: { ... } }` for provider-only parameters. Unknown keys throw before any request.
 - Call `sms.validate(input)` for a free local preflight: E.164, sender, capabilities, and segment estimate.
