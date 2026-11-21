@@ -329,8 +329,15 @@ export function readCode(record: Record<string, unknown>, key: string): string |
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+const IMF_FIXDATE =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+const RFC850_DATE =
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/;
+const ASCTIME_DATE =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:\d{2}| \d) \d{2}:\d{2}:\d{2} \d{4}$/;
+
 /**
- * Parses a `Retry-After` header (delta-seconds or HTTP date) into
+ * Parses a `Retry-After` header (delta-seconds or RFC 9110 HTTP-date) into
  * milliseconds. Returns `undefined` when absent or invalid.
  */
 export function parseRetryAfter(value: string | null, now: number = Date.now()): number | undefined {
@@ -342,11 +349,15 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
     const ms = Number(trimmed) * 1000;
     return Number.isFinite(ms) ? Math.min(ms, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
   }
-  // RFC 9110 HTTP-date values always contain a day/month name; reject numeric-only/loose Date.parse inputs.
-  if (!/[A-Za-z]{3}/.test(trimmed)) {
+  let parsedInput: string;
+  if (IMF_FIXDATE.test(trimmed) || RFC850_DATE.test(trimmed)) {
+    parsedInput = trimmed;
+  } else if (ASCTIME_DATE.test(trimmed)) {
+    parsedInput = `${trimmed} GMT`;
+  } else {
     return undefined;
   }
-  const date = Date.parse(trimmed);
+  const date = Date.parse(parsedInput);
   return Number.isNaN(date) ? undefined : Math.max(0, date - now);
 }
 

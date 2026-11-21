@@ -46,10 +46,16 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_TTL_SEC = 86_400;
 const DEFAULT_STALE_RESERVATION_SEC = 300;
 
+type InFlightState = {
+  inBackoff: boolean;
+  readonly attempts: SendAttempt[];
+};
+
 type InFlight = {
   readonly payloadKey: string;
   readonly promise: Promise<SmsSendResult>;
   readonly controller: AbortController;
+  readonly state: InFlightState;
   waiters: number;
 };
 
@@ -578,7 +584,37 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         return false;
       };
 
-      const waitOnEntry = (): Promise<SmsSendResult> =>
+      const wrapSharedAbortError = (error: unknown, reason: unknown): unknown => {
+        if (error instanceof SendAbortedError) {
+          return new SendAbortedError(
+            error.attempts.map((a) => ({ ...a })),
+            reason,
+          );
+        }
+        if (error instanceof HandoffUnknownError && error.reason === "aborted") {
+          return new HandoffUnknownError(error.message, {
+            reason: "aborted",
+            ...(error.providerName === undefined ? {} : { providerName: error.providerName }),
+            attempts: error.attempts.map((a) => ({ ...a })),
+            ...(error.provider === undefined ? {} : { provider: { ...error.provider } }),
+            cause: reason,
+          });
+        }
+        return error;
+      };
+
+      const makeDetachedAbortError = (safeToAbort: boolean, attempts: readonly SendAttempt[], reason: unknown): SmsError => {
+        if (safeToAbort) {
+          return new SendAbortedError(attempts, reason);
+        }
+        return new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
+          reason: "aborted",
+          attempts,
+          cause: reason,
+        });
+      };
+
+      const waitOnEntry = (abortReason?: { readonly value: unknown }): Promise<SmsSendResult> =>
         entry.promise.then(
           (result) => {
             release(false);
@@ -586,7 +622,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           },
           (error: unknown) => {
             release(false);
-            throw error;
+            throw abortReason === undefined ? error : wrapSharedAbortError(error, abortReason.value);
           },
         );
 
@@ -595,27 +631,27 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       }
 
       if (signal.aborted) {
+        const snapshotBackoff = entry.state.inBackoff;
+        const snapshotAttempts = entry.state.attempts.map((a) => ({ ...a }));
         const abortedUnderlying = release(true, signal.reason);
         if (abortedUnderlying) {
-          return waitOnEntry();
+          return waitOnEntry({ value: signal.reason });
         }
-        return Promise.reject(
-          new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
-            reason: "aborted",
-            attempts: [],
-            cause: signal.reason,
-          }),
-        );
+        return Promise.reject(makeDetachedAbortError(snapshotBackoff, snapshotAttempts, signal.reason));
       }
 
       return new Promise<SmsSendResult>((resolve, reject) => {
         let detached = false;
+        let abortedByMe = false;
         const onAbort = (): void => {
           cleanup();
+          const snapshotBackoff = entry.state.inBackoff;
+          const snapshotAttempts = entry.state.attempts.map((a) => ({ ...a }));
           const abortedUnderlying = release(true, signal.reason);
           if (abortedUnderlying) {
             // Last waiter cancelled the shared send: let entry.promise settle with the
-            // authoritative SendAbortedError or HandoffUnknownError (including attempts).
+            // authoritative SendAbortedError or HandoffUnknownError while keeping this caller's reason.
+            abortedByMe = true;
             return;
           }
           detached = true;
@@ -631,7 +667,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
                       "The send was aborted while waiting on an in-flight request.",
                       {
                         reason: "aborted",
-                        attempts: [],
+                        attempts: entry.state.attempts.map((a) => ({ ...a })),
                         cause: signal.reason,
                       },
                     ),
@@ -652,7 +688,13 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
                       "The send was aborted while waiting on an in-flight request.",
                       {
                         reason: "aborted",
-                        attempts: error instanceof SmsError ? error.attempts.map((a) => ({ ...a })) : [],
+                        ...(error instanceof HandoffUnknownError && error.providerName !== undefined
+                          ? { providerName: error.providerName }
+                          : {}),
+                        attempts: error instanceof SmsError ? error.attempts.map((a) => ({ ...a })) : snapshotAttempts,
+                        ...(error instanceof HandoffUnknownError && error.provider !== undefined
+                          ? { provider: { ...error.provider } }
+                          : {}),
                         cause: signal.reason,
                       },
                     ),
@@ -661,13 +703,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
               );
               return;
             }
-            reject(
-              new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
-                reason: "aborted",
-                attempts: [],
-                cause: signal.reason,
-              }),
-            );
+            reject(makeDetachedAbortError(snapshotBackoff, snapshotAttempts, signal.reason));
           });
         };
         const cleanup = (): void => {
@@ -689,7 +725,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             }
             cleanup();
             release(false);
-            reject(error);
+            reject(abortedByMe ? wrapSharedAbortError(error, signal.reason) : error);
           },
         );
       });
@@ -704,6 +740,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     }
 
     const controller = new AbortController();
+    const state: InFlightState = { inBackoff: false, attempts: [] };
     const cleanup = (): void => {
       if (inFlight.get(key) === entry) {
         inFlight.delete(key);
@@ -718,6 +755,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           signal: controller.signal,
           key,
           fingerprint,
+          inFlightState: state,
         }),
       )
       .then(
@@ -734,6 +772,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       payloadKey,
       promise,
       controller,
+      state,
       waiters: 0,
     };
     inFlight.set(key, entry);
@@ -777,6 +816,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly signal: AbortSignal | undefined;
     readonly key: string;
     readonly fingerprint: string;
+    readonly inFlightState?: InFlightState;
   }): Promise<SmsSendResult> => {
     if (args.signal?.aborted === true) {
       throw new SendAbortedError([], args.signal.reason);
@@ -849,6 +889,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly reservation:
       | { readonly config: IdempotencyConfig; readonly key: string; readonly fingerprint: string; readonly id: string }
       | undefined;
+    readonly inFlightState?: InFlightState;
   }): Promise<SmsSendResult> => {
     const { input, preview, id, reservation } = args;
     const base: SmsHookEventBase = {
@@ -977,7 +1018,15 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         idempotencyKey: input.idempotencyKey,
         onAttempt: (attempt) => {
           attempts.push(attempt);
+          if (args.inFlightState !== undefined) {
+            args.inFlightState.attempts.push({ ...attempt });
+          }
           emitHook(hooks.onAttempt, { ...base, attempt: { ...attempt } });
+        },
+        onBackoffState: (waiting) => {
+          if (args.inFlightState !== undefined) {
+            args.inFlightState.inBackoff = waiting;
+          }
         },
       });
     } catch (cause) {

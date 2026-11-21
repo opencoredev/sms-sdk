@@ -204,11 +204,25 @@ export function buildSinchRequest(message: AdapterMessage): SinchBatchRequest {
   return request;
 }
 
+const MAX_DATE_MS = 8_640_000_000_000_000;
+
 function validateSinchMessage(message: AdapterMessage): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   if (message.body.length === 0) {
-    return [{ code: "empty_body", field: "body", message: "Sinch SMS requires a non-empty text body." }];
+    issues.push({ code: "empty_body", field: "body", message: "Sinch SMS requires a non-empty text body." });
   }
-  return [];
+  if (message.validityPeriodSec !== undefined) {
+    const startMs = message.sendAt?.getTime() ?? Date.now();
+    const expireMs = startMs + message.validityPeriodSec * 1000;
+    if (!Number.isFinite(expireMs) || expireMs > MAX_DATE_MS || expireMs < -MAX_DATE_MS) {
+      issues.push({
+        code: "invalid_field",
+        field: "validityPeriodSec",
+        message: "Sinch expire_at (sendAt + validityPeriodSec) exceeds the maximum representable date.",
+      });
+    }
+  }
+  return issues;
 }
 
 /** Maps a Sinch batch-create HTTP response to an adapter outcome. */

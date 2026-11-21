@@ -498,7 +498,8 @@ export class HandoffUnknownError extends SmsError {
     });
     this.name = "HandoffUnknownError";
     this.reason = options.reason;
-    this.providerName = options.providerName;
+    this.providerName =
+      options.providerName === undefined ? undefined : (sanitizeDiagnosticToken(options.providerName, 64) ?? "unknown");
   }
 
   override toJSON(): SerializedSmsError {
@@ -583,7 +584,8 @@ export class MessageLookupError extends SmsError {
     readonly provider?: ProviderErrorInfo;
     readonly cause?: unknown;
   }) {
-    super(`The ${options.providerName} message lookup failed (${options.reason.replace("_", " ")})`, {
+    const safeProviderName = sanitizeDiagnosticToken(options.providerName, 64) ?? "unknown";
+    super(`The ${safeProviderName} message lookup failed (${options.reason.replace("_", " ")})`, {
       code: "message_lookup_failed",
       retrySafe: false,
       ...(options.provider === undefined ? {} : { provider: options.provider }),
@@ -591,7 +593,7 @@ export class MessageLookupError extends SmsError {
     });
     this.name = "MessageLookupError";
     this.reason = options.reason;
-    this.providerName = options.providerName;
+    this.providerName = safeProviderName;
     this.providerId = options.providerId;
   }
 
@@ -622,7 +624,7 @@ export class WebhookSignatureError extends SmsError {
     super(message, { code: "webhook_signature", retrySafe: false });
     this.name = "WebhookSignatureError";
     this.reason = options.reason;
-    this.providerName = options.provider;
+    this.providerName = sanitizeDiagnosticToken(options.provider, 64) ?? "unknown";
   }
 
   override toJSON(): SerializedSmsError {

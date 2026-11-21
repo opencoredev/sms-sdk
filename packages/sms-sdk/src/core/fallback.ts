@@ -6,6 +6,7 @@ import {
   ProviderRateLimitedError,
   ProviderRejectedError,
   SendAbortedError,
+  sanitizeDiagnosticToken,
   type SmsError,
 } from "./errors.js";
 import type { SendAttempt } from "./events.js";
@@ -34,6 +35,7 @@ type ChainInput = {
   readonly signal: AbortSignal | undefined;
   readonly idempotencyKey: string | undefined;
   readonly onAttempt: (attempt: SendAttempt) => void;
+  readonly onBackoffState?: (waiting: boolean) => void;
 };
 
 type AdapterRun =
@@ -159,7 +161,14 @@ async function runAdapter(
         if (outcome.category === "rate_limited") {
           const decision = decideRetry({ attempt, retryAfterMs: outcome.retryAfterMs, options: input.retry });
           if (decision.kind === "wait") {
-            if ((await sleep(decision.delayMs, input.signal)) === "aborted") {
+            input.onBackoffState?.(true);
+            let sleepResult: "slept" | "aborted";
+            try {
+              sleepResult = await sleep(decision.delayMs, input.signal);
+            } finally {
+              input.onBackoffState?.(false);
+            }
+            if (sleepResult === "aborted") {
               return { kind: "aborted" };
             }
             continue;
@@ -203,7 +212,13 @@ async function attemptOnce(candidate: SendCandidate, input: ChainInput, attempt:
 
   outcome = normalizeOutcome(outcome, candidate.adapter.name);
   if (outcome.kind === "unknown" && controller.signal.aborted) {
-    return { ...outcome, reason: timedOut ? "timeout" : "aborted" };
+    return {
+      ...outcome,
+      reason: timedOut ? "timeout" : "aborted",
+      ...(!timedOut && outcome.cause === undefined && input.signal !== undefined
+        ? { cause: input.signal.reason }
+        : {}),
+    };
   }
   return outcome;
 }
@@ -333,8 +348,9 @@ function rejectionError(
 }
 
 function unknownMessage(provider: string, reason: string): string {
+  const safeProvider = sanitizeDiagnosticToken(provider, 64) ?? "unknown";
   return (
-    `The outcome of the ${provider} request is unknown (${reason.replace("_", " ")}). ` +
+    `The outcome of the ${safeProvider} request is unknown (${reason.replace("_", " ")}). ` +
     "The message may have been accepted. Do not resend automatically; reconcile with the provider first."
   );
 }
