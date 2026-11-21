@@ -103,10 +103,7 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
     if (rawOutcomes !== undefined && !Array.isArray(rawOutcomes)) {
       throw new ConfigurationError("Memory adapter outcomes must be an array.");
     }
-    queue = rawOutcomes === undefined ? [] : [...rawOutcomes];
-    if (!queue.every(isMemoryOutcome)) {
-      throw new ConfigurationError("Memory adapter outcomes must contain valid outcomes or functions.");
-    }
+    queue = rawOutcomes === undefined ? [] : rawOutcomes.map(snapshotMemoryOutcome);
     const sourceCaps = options.capabilities;
     const rawCaps = sourceCaps === undefined ? undefined : snapshotMemoryCapabilities(sourceCaps);
     capabilities = freezeCapabilities({
@@ -176,10 +173,8 @@ export function memory(options: MemoryAdapterOptions = {}): MemoryAdapter {
     },
 
     enqueue(...outcomes) {
-      if (!outcomes.every(isMemoryOutcome)) {
-        throw new ConfigurationError("Memory adapter outcomes must contain valid outcomes or functions.");
-      }
-      queue.push(...outcomes);
+      const snapped = outcomes.map(snapshotMemoryOutcome);
+      queue.push(...snapped);
     },
 
     reset() {
@@ -274,29 +269,117 @@ const VALID_MEMORY_UNKNOWN_REASONS = new Set([
   "adapter_exception",
 ]);
 
-function isMemoryOutcome(value: unknown): boolean {
-  if (typeof value === "function") return true;
-  if (!isRecord(value)) return false;
-  switch (value["kind"]) {
-    case "accepted":
-      return (
-        typeof value["providerId"] === "string" &&
-        value["providerId"].length > 0 &&
-        typeof value["delivery"] === "string" &&
-        VALID_MEMORY_DELIVERIES.has(value["delivery"])
-      );
-    case "rejected":
-      return (
-        typeof value["category"] === "string" &&
-        VALID_MEMORY_CATEGORIES.has(value["category"]) &&
-        isRecord(value["details"]) &&
-        typeof value["details"]["provider"] === "string" &&
-        value["details"]["provider"].length > 0
-      );
-    case "unknown":
-      return typeof value["reason"] === "string" && VALID_MEMORY_UNKNOWN_REASONS.has(value["reason"]);
-    default:
-      return false;
+function snapshotMemoryOutcome(value: unknown): MemoryOutcome {
+  const invalid = (): ConfigurationError =>
+    new ConfigurationError("Memory adapter outcomes must contain valid outcomes or functions.");
+  try {
+    if (typeof value === "function") {
+      return value as MemoryOutcome;
+    }
+    if (!isRecord(value)) {
+      throw invalid();
+    }
+    const kind = value["kind"];
+    switch (kind) {
+      case "accepted": {
+        const providerId = value["providerId"];
+        const delivery = value["delivery"];
+        if (
+          typeof providerId !== "string" ||
+          providerId.length === 0 ||
+          typeof delivery !== "string" ||
+          !VALID_MEMORY_DELIVERIES.has(delivery)
+        ) {
+          throw invalid();
+        }
+        return Object.freeze({
+          kind: "accepted",
+          providerId,
+          delivery: delivery as Delivery,
+        });
+      }
+      case "rejected": {
+        const category = value["category"];
+        const rawDetails = value["details"];
+        const retryAfterMs = value["retryAfterMs"];
+        if (
+          typeof category !== "string" ||
+          !VALID_MEMORY_CATEGORIES.has(category) ||
+          !isRecord(rawDetails)
+        ) {
+          throw invalid();
+        }
+        const detailsProvider = rawDetails["provider"];
+        if (typeof detailsProvider !== "string" || detailsProvider.length === 0) {
+          throw invalid();
+        }
+        if (
+          retryAfterMs !== undefined &&
+          (typeof retryAfterMs !== "number" || !Number.isFinite(retryAfterMs) || retryAfterMs < 0)
+        ) {
+          throw invalid();
+        }
+        const httpStatus = rawDetails["httpStatus"];
+        const code = rawDetails["code"];
+        const message = rawDetails["message"];
+        const requestId = rawDetails["requestId"];
+        const details = Object.freeze({
+          provider: detailsProvider,
+          ...(typeof httpStatus === "number" ? { httpStatus } : {}),
+          ...(typeof code === "string" ? { code } : {}),
+          ...(typeof message === "string" ? { message } : {}),
+          ...(typeof requestId === "string" ? { requestId } : {}),
+        });
+        return Object.freeze({
+          kind: "rejected",
+          category: category as RejectionCategory,
+          details,
+          ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+        });
+      }
+      case "unknown": {
+        const reason = value["reason"];
+        const rawDetails = value["details"];
+        if (typeof reason !== "string" || !VALID_MEMORY_UNKNOWN_REASONS.has(reason)) {
+          throw invalid();
+        }
+        if (rawDetails !== undefined && !isRecord(rawDetails)) {
+          throw invalid();
+        }
+        const details =
+          rawDetails === undefined
+            ? undefined
+            : (() => {
+                const detailsProvider = rawDetails["provider"];
+                if (typeof detailsProvider !== "string" || detailsProvider.length === 0) {
+                  throw invalid();
+                }
+                const httpStatus = rawDetails["httpStatus"];
+                const code = rawDetails["code"];
+                const message = rawDetails["message"];
+                const requestId = rawDetails["requestId"];
+                return Object.freeze({
+                  provider: detailsProvider,
+                  ...(typeof httpStatus === "number" ? { httpStatus } : {}),
+                  ...(typeof code === "string" ? { code } : {}),
+                  ...(typeof message === "string" ? { message } : {}),
+                  ...(typeof requestId === "string" ? { requestId } : {}),
+                });
+              })();
+        return Object.freeze({
+          kind: "unknown",
+          reason: reason as UnknownReason,
+          ...(details === undefined ? {} : { details }),
+        });
+      }
+      default:
+        throw invalid();
+    }
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw invalid();
   }
 }
 

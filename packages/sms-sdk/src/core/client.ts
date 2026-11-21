@@ -600,77 +600,41 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
 
     const now = Date.now();
     const rawReserved: unknown = await idempotency.store.reserve({ key: args.key, fingerprint: args.fingerprint, now });
-    if (!isRecord(rawReserved)) {
-      throw new ConfigurationError("idempotency.store.reserve() returned a malformed result.");
-    }
-    const reservedKind = rawReserved["kind"];
-    if (reservedKind === "reserved") {
-      const reservationId = rawReserved["reservationId"];
-      if (typeof reservationId !== "string" || reservationId.length === 0) {
-        throw new ConfigurationError("idempotency.store.reserve() returned a reserved outcome without a reservationId.");
-      }
+    const reserved = snapshotReserveResult(rawReserved);
+    if (reserved.kind === "reserved") {
       return execute({
         ...args,
         id: newId(),
-        reservation: { config: idempotency, key: args.key, fingerprint: args.fingerprint, id: reservationId },
+        reservation: { config: idempotency, key: args.key, fingerprint: args.fingerprint, id: reserved.reservationId },
       });
     }
-    if (reservedKind !== "existing") {
-      throw new ConfigurationError("idempotency.store.reserve() returned an unrecognized kind.");
-    }
-
-    const rawRecord = rawReserved["record"];
-    if (!isRecord(rawRecord) || typeof rawRecord["fingerprint"] !== "string") {
-      throw new ConfigurationError("idempotency.store.reserve() returned an existing outcome without a valid record.");
-    }
-    if (rawRecord["fingerprint"] !== args.fingerprint) {
+    const record = reserved.record;
+    if (record.fingerprint !== args.fingerprint) {
       throw new IdempotencyConflictError(args.key);
     }
-    const recordState = rawRecord["state"];
-    switch (recordState) {
-      case "accepted": {
-        const storedResult = rawRecord["result"];
-        if (
-          !isRecord(storedResult) ||
-          typeof storedResult["provider"] !== "string" ||
-          storedResult["provider"].length === 0 ||
-          typeof storedResult["providerId"] !== "string" ||
-          storedResult["providerId"].length === 0 ||
-          !DELIVERIES.has(storedResult["delivery"])
-        ) {
-          throw new ConfigurationError("idempotency.store returned an accepted record without a valid result.");
-        }
-        return { ...(storedResult as unknown as SmsSendResult), replayed: true };
-      }
-      case "unknown": {
-        const storedError = rawRecord["error"];
-        const storedAttempts =
-          isRecord(storedError) && Array.isArray(storedError["attempts"])
-            ? (storedError["attempts"] as readonly SendAttempt[])
-            : [];
+    switch (record.state) {
+      case "accepted":
+        return { ...record.result, replayed: true };
+      case "unknown":
         throw new HandoffUnknownError(
           "A previous send with this idempotency key has an unknown outcome. It will not be resent; reconcile with the provider.",
-          { reason: "replayed_unknown", attempts: storedAttempts },
+          { reason: "replayed_unknown", attempts: record.attempts },
         );
-      }
-      case "reserved": {
-        const reservedAt = rawRecord["reservedAt"];
-        if (typeof reservedAt !== "number" || !Number.isFinite(reservedAt)) {
-          throw new ConfigurationError("idempotency.store returned a reserved record without a finite reservedAt.");
-        }
-        if (now - reservedAt > idempotency.staleReservationSec * 1000) {
+      case "reserved":
+        if (now - record.reservedAt > idempotency.staleReservationSec * 1000) {
           throw new HandoffUnknownError(
             "A previous send with this idempotency key never finished. Its outcome is unknown and it will not be resent.",
             { reason: "stale_reservation", attempts: [] },
           );
         }
         throw new IdempotencyInProgressError(args.key);
-      }
       case "rejected":
         // The store only returns a same-fingerprint rejected record when it failed to re-reserve it.
         throw new IdempotencyInProgressError(args.key);
-      default:
-        throw new ConfigurationError("idempotency.store returned a record with an unrecognized state.");
+      default: {
+        const _exhaustive: never = record;
+        return _exhaustive;
+      }
     }
   };
 
@@ -916,6 +880,135 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       );
     },
   };
+}
+
+type ReserveSnapshot =
+  | { readonly kind: "reserved"; readonly reservationId: string }
+  | {
+      readonly kind: "existing";
+      readonly record:
+        | { readonly state: "accepted"; readonly fingerprint: string; readonly result: SmsSendResult }
+        | { readonly state: "unknown"; readonly fingerprint: string; readonly attempts: readonly SendAttempt[] }
+        | { readonly state: "reserved"; readonly fingerprint: string; readonly reservedAt: number }
+        | { readonly state: "rejected"; readonly fingerprint: string };
+    };
+
+const ENCODINGS: ReadonlySet<unknown> = new Set(["gsm7", "ucs2"]);
+
+/** Reads a store's reserve() result once inside try/catch; anything off-contract throws ConfigurationError. */
+function snapshotReserveResult(raw: unknown): ReserveSnapshot {
+  const malformed = (detail: string): ConfigurationError =>
+    new ConfigurationError(`idempotency.store.reserve() returned a malformed result: ${detail}.`);
+  try {
+    if (!isRecord(raw)) {
+      throw malformed("not an object");
+    }
+    const kind = raw["kind"];
+    if (kind === "reserved") {
+      const reservationId = raw["reservationId"];
+      if (typeof reservationId !== "string" || reservationId.length === 0) {
+        throw malformed("reserved without a reservationId");
+      }
+      return { kind, reservationId };
+    }
+    if (kind !== "existing") {
+      throw malformed("unrecognized kind");
+    }
+    const record = raw["record"];
+    if (!isRecord(record)) {
+      throw malformed("existing without a record");
+    }
+    const fingerprint = record["fingerprint"];
+    const state = record["state"];
+    if (typeof fingerprint !== "string") {
+      throw malformed("record without a fingerprint");
+    }
+    switch (state) {
+      case "accepted": {
+        const r = record["result"];
+        if (!isRecord(r)) {
+          throw malformed("accepted record without a result");
+        }
+        const id = r["id"];
+        const provider = r["provider"];
+        const providerId = r["providerId"];
+        const handoff = r["handoff"];
+        const delivery = r["delivery"];
+        const encoding = r["encoding"];
+        const segments = r["segments"];
+        const attemptedProviders = r["attemptedProviders"];
+        const attempts = r["attempts"];
+        const replayed = r["replayed"];
+        if (
+          typeof id !== "string" ||
+          id.length === 0 ||
+          typeof provider !== "string" ||
+          provider.length === 0 ||
+          typeof providerId !== "string" ||
+          providerId.length === 0 ||
+          handoff !== "accepted" ||
+          !DELIVERIES.has(delivery) ||
+          !ENCODINGS.has(encoding) ||
+          typeof segments !== "number" ||
+          !Number.isSafeInteger(segments) ||
+          segments < 0 ||
+          !Array.isArray(attemptedProviders) ||
+          !attemptedProviders.every((name) => typeof name === "string") ||
+          !Array.isArray(attempts) ||
+          typeof replayed !== "boolean"
+        ) {
+          throw malformed("accepted record without a valid result");
+        }
+        return {
+          kind,
+          record: {
+            state,
+            fingerprint,
+            result: {
+              id,
+              provider,
+              providerId,
+              handoff,
+              delivery: delivery as SmsSendResult["delivery"],
+              encoding: encoding as SmsSendResult["encoding"],
+              segments,
+              attemptedProviders: Object.freeze([...(attemptedProviders as string[])]),
+              attempts: Object.freeze([...(attempts as SendAttempt[])]),
+              replayed: true,
+            },
+          },
+        };
+      }
+      case "unknown": {
+        const error = record["error"];
+        const attempts = isRecord(error) ? error["attempts"] : undefined;
+        return {
+          kind,
+          record: {
+            state,
+            fingerprint,
+            attempts: Array.isArray(attempts) ? Object.freeze([...(attempts as SendAttempt[])]) : [],
+          },
+        };
+      }
+      case "reserved": {
+        const reservedAt = record["reservedAt"];
+        if (typeof reservedAt !== "number" || !Number.isFinite(reservedAt)) {
+          throw malformed("reserved record without a finite reservedAt");
+        }
+        return { kind, record: { state, fingerprint, reservedAt } };
+      }
+      case "rejected":
+        return { kind, record: { state, fingerprint } };
+      default:
+        throw malformed("record with an unrecognized state");
+    }
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw malformed("unreadable");
+  }
 }
 
 const MAX_IDEMPOTENCY_SECONDS = Math.floor(Number.MAX_SAFE_INTEGER / 1000);

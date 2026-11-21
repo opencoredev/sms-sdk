@@ -241,7 +241,7 @@ type ProviderErrorInfo = {
 };
 ```
 
-It ends up in thrown errors and logs. Never put message bodies or credentials in it. Pass provider text through `redactText()`, which masks phone numbers and cuts the text to 200 characters. The built-in adapters do this.
+It ends up in thrown errors and logs. Keep it structural: `provider`, `httpStatus`, compact `code`, and `requestId`. Built-in adapters omit `message`, and the client strips `message`, unvalidated free-form strings, and out-of-range status codes before surfacing errors. Never put message bodies or credentials in it, and use `redactText()` if you ever format provider text for your own logs.
 
 ## Check an adapter
 

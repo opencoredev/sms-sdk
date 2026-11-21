@@ -1120,5 +1120,166 @@ describe("send: fromByAdapter", () => {
     await expect(
       badReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-res" }),
     ).rejects.toBeInstanceOf(ConfigurationError);
+
+    // 20. sanitizeProviderDetails uses fallback adapter name and validates HTTP status 100..599
+    const spoofedDetailsClient = createSmsClient({
+      adapters: [
+        {
+          name: "spoof-adapter",
+          capabilities: new ProtoCaps(),
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            return {
+              kind: "rejected",
+              category: "request",
+              details: {
+                provider: "forged +14155550123 secret",
+                httpStatus: 14155550123,
+                code: "BAD_REQ",
+              },
+            };
+          },
+        },
+      ],
+    });
+    const spoofedErr = (await rejection(spoofedDetailsClient.send({ to: "+14155550123", body: "hi" }))) as {
+      provider?: { provider?: string; httpStatus?: number };
+    };
+    expect(spoofedErr.provider?.provider).toBe("spoof-adapter");
+    expect(spoofedErr.provider?.httpStatus).toBeUndefined();
+    expect(JSON.stringify(spoofedErr)).not.toContain("14155550123");
+
+    // 21. idempotency.store.reserve throwing getters & incomplete/TOCTOU accepted records throw ConfigurationError
+    for (const badReturn of [
+      {
+        get kind() {
+          throw new Error("kind boom");
+        },
+      },
+      {
+        kind: "existing",
+        record: {
+          state: "accepted",
+          fingerprint: capturedFp,
+          result: { provider: "memory", providerId: "m1", delivery: "queued" },
+        },
+      },
+      {
+        kind: "existing",
+        record: {
+          state: "accepted",
+          fingerprint: capturedFp,
+          result: (() => {
+            let reads = 0;
+            return {
+              id: "sms_1",
+              provider: "memory",
+              providerId: "m1",
+              handoff: "accepted",
+              get delivery() {
+                reads += 1;
+                return reads === 1 ? "queued" : "EVIL";
+              },
+              encoding: "gsm7",
+              segments: 1,
+              attemptedProviders: ["memory"],
+              attempts: [],
+              replayed: false,
+            };
+          })(),
+        },
+      },
+    ]) {
+      const probeClient = createSmsClient({
+        adapters: [memory()],
+        idempotency: {
+          store: {
+            async get() {
+              return null;
+            },
+            async reserve(i) {
+              if (
+                typeof badReturn === "object" &&
+                badReturn !== null &&
+                "record" in badReturn &&
+                typeof badReturn.record === "object" &&
+                badReturn.record !== null
+              ) {
+                (badReturn.record as { fingerprint: string }).fingerprint = i.fingerprint;
+              }
+              return badReturn as unknown as never;
+            },
+            async finalize() {
+              return { kind: "finalized" };
+            },
+          },
+        },
+      });
+      if ("record" in badReturn && (badReturn.record as { result?: { id?: string } }).result?.id === "sms_1") {
+        const res = await probeClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-toctou" });
+        expect(res.delivery).toBe("queued");
+        expect(res.replayed).toBe(true);
+      } else {
+        await expect(
+          probeClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-throw-res" }),
+        ).rejects.toBeInstanceOf(ConfigurationError);
+      }
+    }
+
+    // 22. memory().enqueue snapshots outcomes and wraps throwing getters in ConfigurationError
+    expect(() =>
+      memory().enqueue({
+        get kind() {
+          throw new Error("outcome boom");
+        },
+      } as unknown as never),
+    ).toThrow(ConfigurationError);
+    const mutableAccepted = { kind: "accepted" as const, providerId: "orig-1", delivery: "queued" as const };
+    const snapMem = memory();
+    snapMem.enqueue(mutableAccepted);
+    (mutableAccepted as { providerId: string }).providerId = "mutated-2";
+    const snapClient = createSmsClient({ adapters: [snapMem] });
+    expect((await snapClient.send({ to: "+14155550123", body: "hi" })).providerId).toBe("orig-1");
+
+    // 23. Webhook parsers read duck-typed Request getters only once
+    const { parseTwilioWebhook } = await import("../../src/webhooks/index.js");
+    let headerReads = 0;
+    let urlReads = 0;
+    let methodReads = 0;
+    const rawHeaders = new Headers({ "content-type": "application/x-www-form-urlencoded" });
+    const singleReadReq = {
+      get headers() {
+        headerReads += 1;
+        if (headerReads > 1) throw new Error("headers read twice");
+        return rawHeaders;
+      },
+      get url() {
+        urlReads += 1;
+        if (urlReads > 1) throw new Error("url read twice");
+        return "https://example.com/webhooks/twilio";
+      },
+      get method() {
+        methodReads += 1;
+        if (methodReads > 1) throw new Error("method read twice");
+        return "POST";
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("MessageSid=SM123&MessageStatus=delivered&To=%2B14155550123&From=%2B15005550006"));
+          controller.close();
+        },
+      }),
+      bodyUsed: false,
+    } as unknown as Request;
+    const parsedWebhook = await parseTwilioWebhook({
+      request: singleReadReq,
+      credentials: { authToken: "unused" },
+      unsafeSkipVerification: true,
+    });
+    expect(parsedWebhook.type).toBe("message.delivered");
+    expect(headerReads).toBe(1);
+    expect(urlReads).toBe(1);
+    expect(methodReads).toBe(1);
   });
 });

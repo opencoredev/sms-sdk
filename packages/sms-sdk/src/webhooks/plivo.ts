@@ -6,7 +6,7 @@ import {
   paramsToRecord,
   readFormParams,
   readHeaderString,
-  readWebhookBody,
+  readWebhookRequest,
   requireField,
   resolveSignedUrl,
   skipVerification,
@@ -115,17 +115,18 @@ export async function parsePlivoWebhook(rawOptions: PlivoWebhookOptions): Promis
   );
   const skip = skipVerification(options);
   const { request } = options;
-  const rawBody = await readWebhookBody(request, "plivo");
-  const url = resolveSignedUrl(request, options, "plivo");
+  const req = await readWebhookRequest(request, "plivo");
+  const { rawBody } = req;
+  const url = resolveSignedUrl(req, options, "plivo");
 
   if (!skip) {
     if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
       throw new ConfigurationError("Plivo webhook credentials require a non-empty authToken.");
     }
-    const nonce = readHeaderString(request.headers, "x-plivo-signature-v2-nonce", "plivo");
+    const nonce = readHeaderString(req.headers, "x-plivo-signature-v2-nonce", "plivo");
     const signatures = [
-      readHeaderString(request.headers, "x-plivo-signature-v2", "plivo"),
-      readHeaderString(request.headers, "x-plivo-signature-ma-v2", "plivo"),
+      readHeaderString(req.headers, "x-plivo-signature-v2", "plivo"),
+      readHeaderString(req.headers, "x-plivo-signature-ma-v2", "plivo"),
     ].filter((value): value is string => value !== null && value.length > 0);
     if (nonce === null || nonce.length === 0 || signatures.length === 0) {
       throw new WebhookSignatureError("Missing X-Plivo-Signature-V2 or its nonce.", {
@@ -145,7 +146,7 @@ export async function parsePlivoWebhook(rawOptions: PlivoWebhookOptions): Promis
     }
   }
 
-  return interpretPlivoParams(paramsToRecord(readFormParams(request, rawBody)), options.detectKeywords ?? true);
+  return interpretPlivoParams(paramsToRecord(readFormParams(req, rawBody)), options.detectKeywords ?? true);
 }
 
 /** Normalizes verified Plivo callback fields. */

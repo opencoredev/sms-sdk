@@ -5,7 +5,7 @@ import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase 
 import {
   parseDate,
   readHeaderString,
-  readWebhookBody,
+  readWebhookRequest,
   requireTolerance,
   skipVerification,
   snapshotWebhookOptions,
@@ -116,7 +116,8 @@ export async function parseTelnyxWebhook(rawOptions: TelnyxWebhookOptions): Prom
     ["publicKey"],
   );
   const skip = skipVerification(options);
-  const rawBody = await readWebhookBody(options.request, "telnyx");
+  const req = await readWebhookRequest(options.request, "telnyx");
+  const { rawBody } = req;
 
   if (!skip) {
     if (!isRecord(options.credentials) || typeof options.credentials.publicKey !== "string" || options.credentials.publicKey.length === 0) {
@@ -125,8 +126,8 @@ export async function parseTelnyxWebhook(rawOptions: TelnyxWebhookOptions): Prom
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,
       rawBody,
-      signature: readHeaderString(options.request.headers, "telnyx-signature-ed25519", "telnyx"),
-      timestamp: readHeaderString(options.request.headers, "telnyx-timestamp", "telnyx"),
+      signature: readHeaderString(req.headers, "telnyx-signature-ed25519", "telnyx"),
+      timestamp: readHeaderString(req.headers, "telnyx-timestamp", "telnyx"),
       ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
       now: (options.now ?? Date.now)(),
     });

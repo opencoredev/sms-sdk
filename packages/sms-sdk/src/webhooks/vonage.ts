@@ -5,7 +5,7 @@ import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase 
 import {
   parseDate,
   readHeaderString,
-  readWebhookBody,
+  readWebhookRequest,
   requireTolerance,
   skipVerification,
   snapshotWebhookOptions,
@@ -129,7 +129,8 @@ export async function parseVonageWebhook(rawOptions: VonageWebhookOptions): Prom
     ["signatureSecret"],
   );
   const skip = skipVerification(options);
-  const rawBody = await readWebhookBody(options.request, "vonage");
+  const req = await readWebhookRequest(options.request, "vonage");
+  const { rawBody } = req;
 
   if (!skip) {
     if (
@@ -141,7 +142,7 @@ export async function parseVonageWebhook(rawOptions: VonageWebhookOptions): Prom
     }
     const verification = await verifyVonageSignature({
       signatureSecret: options.credentials.signatureSecret,
-      authorization: readHeaderString(options.request.headers, "authorization", "vonage"),
+      authorization: readHeaderString(req.headers, "authorization", "vonage"),
       rawBody,
       ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
       now: (options.now ?? Date.now)(),

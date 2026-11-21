@@ -351,12 +351,15 @@ function sanitizeDiagnosticToken(value: unknown, maxLength: number): string | un
 
 /** Copies only structural provider details, reading each field once. Free-form `message` and unvalidated strings are dropped. */
 export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string): ProviderErrorInfo {
-  const rawProvider = raw["provider"];
   const rawStatus = raw["httpStatus"];
   const rawCode = raw["code"];
   const rawRequestId = raw["requestId"];
-  const provider = typeof rawProvider === "string" && rawProvider.length > 0 ? rawProvider : fallbackProvider;
-  const httpStatus = typeof rawStatus === "number" && Number.isFinite(rawStatus) ? rawStatus : undefined;
+  // The client knows which adapter answered; an adapter-supplied name is untrusted free text.
+  const provider = fallbackProvider;
+  const httpStatus =
+    typeof rawStatus === "number" && Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599
+      ? rawStatus
+      : undefined;
   const code = sanitizeDiagnosticToken(rawCode, 64);
   const requestId = sanitizeDiagnosticToken(rawRequestId, 128);
   return {

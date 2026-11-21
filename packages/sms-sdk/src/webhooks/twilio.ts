@@ -6,7 +6,7 @@ import {
   paramsToRecord,
   readFormParams,
   readHeaderString,
-  readWebhookBody,
+  readWebhookRequest,
   requireField,
   resolveSignedUrl,
   skipVerification,
@@ -159,22 +159,23 @@ export async function parseTwilioWebhook(rawOptions: TwilioWebhookOptions): Prom
   );
   const skip = skipVerification(options);
   const { request } = options;
-  const rawBody = await readWebhookBody(request, "twilio");
-  const url = resolveSignedUrl(request, options, "twilio");
+  const req = await readWebhookRequest(request, "twilio");
+  const { rawBody } = req;
+  const url = resolveSignedUrl(req, options, "twilio");
   const bodyHash = new URL(url).searchParams.get("bodySHA256");
-  const contentType = readHeaderString(request.headers, "content-type", "twilio") ?? "";
+  const contentType = readHeaderString(req.headers, "content-type", "twilio") ?? "";
   const isJson = contentType.toLowerCase().includes("application/json");
   const jsonMode = isJson && bodyHash !== null;
 
   // JSON signatures cover the URL alone, so the body is parsed only after the
   // signature and body hash pass. Form parameters are part of the signature.
-  const formParams = jsonMode ? [] : readFormParams(request, rawBody);
+  const formParams = jsonMode ? [] : readFormParams(req, rawBody);
 
   if (!skip) {
     if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
       throw new ConfigurationError("Twilio webhook credentials require a non-empty authToken.");
     }
-    const signature = readHeaderString(request.headers, "x-twilio-signature", "twilio");
+    const signature = readHeaderString(req.headers, "x-twilio-signature", "twilio");
     if (signature === null || signature.length === 0) {
       throw new WebhookSignatureError("Missing X-Twilio-Signature header.", { reason: "missing_signature", provider: "twilio" });
     }
@@ -184,7 +185,7 @@ export async function parseTwilioWebhook(rawOptions: TwilioWebhookOptions): Prom
         provider: "twilio",
       });
     }
-    const signedParams = request.method.toUpperCase() === "GET" ? [] : formParams;
+    const signedParams = req.method.toUpperCase() === "GET" ? [] : formParams;
     const valid = await verifyTwilioSignature({
       authToken: options.credentials.authToken,
       url,

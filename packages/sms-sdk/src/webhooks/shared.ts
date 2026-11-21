@@ -11,8 +11,16 @@ const readableStreamLockedGetter =
     ? Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
     : undefined;
 
-/** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
-export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
+/** Validated single-read snapshot of a webhook request's metadata and bounded body. */
+export type WebhookRequestSnapshot = {
+  readonly rawBody: string;
+  readonly url: string;
+  readonly method: string;
+  readonly headers: Headers;
+};
+
+/** Validates a webhook Request once and reads its body up to {@link MAX_WEBHOOK_BYTES}. */
+export async function readWebhookRequest(request: Request, provider: WebhookProvider): Promise<WebhookRequestSnapshot> {
   let headers: Headers;
   let url: string;
   let method: string;
@@ -73,7 +81,12 @@ export async function readWebhookBody(request: Request, provider: WebhookProvide
       reason: "body_too_large",
     });
   }
-  return text;
+  return { rawBody: text, url, method, headers };
+}
+
+/** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
+export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
+  return (await readWebhookRequest(request, provider)).rawBody;
 }
 
 /** Options shared by every provider's webhook parser. */
@@ -232,7 +245,11 @@ export function onlyEvent(provider: WebhookProvider, events: readonly SmsEvent[]
 }
 
 /** Returns the URL a provider signed, per {@link SignedUrlOptions}. */
-export function resolveSignedUrl(request: Request, options: SignedUrlOptions, provider?: WebhookProvider): string {
+export function resolveSignedUrl(
+  request: Pick<Request, "url" | "headers">,
+  options: SignedUrlOptions,
+  provider?: WebhookProvider,
+): string {
   let requestUrl: URL;
   try {
     requestUrl = new URL(request.url);
@@ -318,7 +335,7 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions, pr
 }
 
 /** Reads form fields from a POST body or, for GET, the query string. Repeated keys keep every value. */
-export function readFormParams(request: Request, rawBody: string): Array<[string, string]> {
+export function readFormParams(request: Pick<Request, "method" | "url">, rawBody: string): Array<[string, string]> {
   const source = request.method.toUpperCase() === "GET" ? new URL(request.url).searchParams : new URLSearchParams(rawBody);
   return [...source.entries()];
 }
