@@ -6,14 +6,19 @@ import {
   InvalidMessageError,
   InvalidRecipientError,
   InvalidSenderError,
+  MessageLookupError,
   SmsError,
   UnsupportedFieldError,
+  WebhookSignatureError,
 } from "../../src/core/errors.js";
 import type { SmsSendInput } from "../../src/core/types.js";
+import { bandwidth } from "../../src/providers/bandwidth.js";
+import { plivo } from "../../src/providers/plivo.js";
+import { sinch } from "../../src/providers/sinch.js";
 import { telnyx } from "../../src/providers/telnyx.js";
 import { twilio } from "../../src/providers/twilio.js";
 import { vonage } from "../../src/providers/vonage.js";
-import { plivo } from "../../src/providers/plivo.js";
+import { parseSmsWebhook } from "../../src/webhooks/index.js";
 import { memory } from "../../src/testing/memory.js";
 import { mockFetch } from "../../src/testing/fetch.js";
 import { rejection, TWILIO_SERVICE_SID, TWILIO_SID } from "../helpers.js";
@@ -512,5 +517,145 @@ describe("malformed runtime input", () => {
     // Object.hasOwn guard for prototype keys in providerOptions
     const protoClient = createSmsClient({ adapters: [memory({ name: "toString" })] });
     expect(protoClient.validate({ to: "+14155550123", body: "hi", providerOptions: {} }).supported).toBe(true);
+  });
+
+  test("rejects spoofed AbortSignal, malformed adapters/fallback/hooks, invalid baseUrl/region/fetch, and malformed webhooks", async () => {
+    const client = createSmsClient({ adapters: [memory()] });
+
+    // Symbol.toStringTag and Object.create(AbortSignal.prototype) spoofs
+    const tagSpoof = { [Symbol.toStringTag]: "AbortSignal", aborted: false, addEventListener() {}, removeEventListener() {} };
+    const protoSpoof = Object.create(AbortSignal.prototype);
+    for (const badSignal of [tagSpoof, protoSpoof]) {
+      expect(await rejection(client.send({ to: "+14155550123", body: "hi" }, { signal: badSignal }))).toBeInstanceOf(
+        ConfigurationError,
+      );
+      expect(await rejection(client.getMessage("id", { signal: badSignal }))).toBeInstanceOf(ConfigurationError);
+    }
+
+    // createSmsClient fallback, hooks, and adapter capabilities shape
+    // @ts-expect-error -- invalid fallback string
+    expect(() => createSmsClient({ adapters: [memory()], fallback: "on-known-rejections" })).toThrow(ConfigurationError);
+    // @ts-expect-error -- invalid hooks
+    expect(() => createSmsClient({ adapters: [memory()], hooks: "x" })).toThrow(ConfigurationError);
+    // @ts-expect-error -- invalid hook value
+    expect(() => createSmsClient({ adapters: [memory()], hooks: { onAttempt: 5 } })).toThrow(ConfigurationError);
+    expect(() =>
+      createSmsClient({
+        // @ts-expect-error -- missing capabilities.senderTypes
+        adapters: [{ name: "bad", capabilities: {}, send: async () => ({ kind: "sent", providerId: "1" }) }],
+      }),
+    ).toThrow(ConfigurationError);
+
+    // All 6 factories validate baseUrl (whitespace/query/hash/protocol) and fetch; Vonage validates region
+    expect(() => twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", baseUrl: "https://api.twilio.com " })).toThrow(
+      ConfigurationError,
+    );
+    expect(() => twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", baseUrl: "https://api.twilio.com?x=1" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() => telnyx({ apiKey: "k", baseUrl: "ftp://example.com" })).toThrow(ConfigurationError);
+    // @ts-expect-error -- non-function fetch
+    expect(() => telnyx({ apiKey: "k", fetch: "no" })).toThrow(ConfigurationError);
+    expect(() => plivo({ authId: "a", authToken: "t", baseUrl: "https://api.plivo.com#frag" })).toThrow(ConfigurationError);
+    // @ts-expect-error -- non-function fetch
+    expect(() => plivo({ authId: "a", authToken: "t", fetch: null })).toThrow(ConfigurationError);
+    // @ts-expect-error -- invalid Vonage region
+    expect(() => vonage({ apiKey: "k", apiSecret: "s", region: "attacker.example/steal#" })).toThrow(ConfigurationError);
+    expect(() => vonage({ apiKey: "k", apiSecret: "s", baseUrl: "junk" })).toThrow(ConfigurationError);
+    expect(() =>
+      bandwidth({ userId: "a", applicationId: "app", apiToken: "u", apiSecret: "p", baseUrl: "junk" }),
+    ).toThrow(ConfigurationError);
+    expect(() => sinch({ servicePlanId: "sp", apiToken: "t", baseUrl: "junk" })).toThrow(ConfigurationError);
+
+    // Plivo validates publicUrl before signature headers and even with unsafeSkipVerification
+    const unsigned = () => new Request("https://example.com/hook", { method: "POST", body: "{}" });
+    expect(
+      await rejection(
+        parseSmsWebhook({ provider: "plivo", request: unsigned(), credentials: { authToken: "tok" }, publicUrl: "not-a-url" }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "plivo",
+          request: unsigned(),
+          credentials: { authToken: "tok" },
+          publicUrl: "ftp://example.com/hook",
+          unsafeSkipVerification: true,
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // Malformed forwarded proxy headers fail closed with WebhookSignatureError instead of TypeError
+    const badProxyReq = new Request("https://example.com/hook", {
+      method: "POST",
+      headers: { "x-forwarded-host": "[invalid" },
+      body: "{}",
+    });
+    expect(
+      await rejection(
+        parseSmsWebhook({ provider: "twilio", request: badProxyReq, credentials: { authToken: "tok" }, trustProxy: true }),
+      ),
+    ).toBeInstanceOf(WebhookSignatureError);
+
+    // Malformed Request object (missing body/url/method) and non-function now throw ConfigurationError
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "telnyx",
+          credentials: { publicKey: "a" },
+          request: { headers: { get: () => null } } as unknown as Request,
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(
+      await rejection(
+        parseSmsWebhook({
+          provider: "telnyx",
+          credentials: { publicKey: "a" },
+          request: unsigned(),
+          now: 123 as unknown as () => number,
+        }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+
+    // Bandwidth & Sinch Basic auth validate credentials before reading headers
+    let headerRead = false;
+    const spyReq = {
+      url: "https://example.com/hook",
+      method: "POST",
+      body: null,
+      headers: {
+        get: (name: string) => {
+          if (name.toLowerCase() === "authorization") headerRead = true;
+          return null;
+        },
+      },
+    } as unknown as Request;
+    expect(
+      await rejection(
+        parseSmsWebhook({ provider: "bandwidth", request: spyReq, credentials: { username: "", password: "p" } }),
+      ),
+    ).toBeInstanceOf(ConfigurationError);
+    expect(headerRead).toBe(false);
+
+    // Prototype keys inside providerOptions[provider] are ignored
+    const inheritedEntry = Object.create({ validityPeriod: 60 });
+    const twilioClient = createSmsClient({
+      adapters: [twilio({ accountSid: "AC" + "0".repeat(32), authToken: "t", from: "+15005550006" })],
+    });
+    expect(
+      twilioClient.validate({
+        to: "+14155550123",
+        body: "hi",
+        providerOptions: { twilio: inheritedEntry },
+      }).supported,
+    ).toBe(true);
+
+    // Error toJSON includes providerName and reason
+    const lookupErr = new MessageLookupError({ providerName: "twilio", providerId: "SM1", reason: "network" });
+    expect(lookupErr.toJSON()).toMatchObject({ providerName: "twilio", reason: "network" });
+    const sigErr = new WebhookSignatureError("bad sig", { provider: "plivo", reason: "invalid_signature" });
+    expect(sigErr.toJSON()).toMatchObject({ providerName: "plivo", reason: "invalid_signature" });
   });
 });

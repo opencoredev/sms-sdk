@@ -77,7 +77,7 @@ export async function parseTwilioWebhook(options: TwilioWebhookOptions): Promise
   const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "twilio");
-  const url = resolveSignedUrl(request, options);
+  const url = resolveSignedUrl(request, options, "twilio");
   const bodyHash = new URL(url).searchParams.get("bodySHA256");
   const isJson = (request.headers.get("content-type") ?? "").toLowerCase().includes("application/json");
   const jsonMode = isJson && bodyHash !== null;

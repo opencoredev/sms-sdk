@@ -59,6 +59,7 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
   const skip = skipVerification(options);
   const { request } = options;
   const rawBody = await readWebhookBody(request, "plivo");
+  const url = resolveSignedUrl(request, options, "plivo");
 
   if (!skip) {
     if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
@@ -74,7 +75,6 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
         provider: "plivo",
       });
     }
-    const url = resolveSignedUrl(request, options);
     let valid = false;
     for (const signature of signatures) {
       valid ||= await verifyPlivoSignatureV2({ authToken: options.credentials.authToken, url, nonce, signature });

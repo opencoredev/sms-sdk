@@ -6,6 +6,7 @@ import {
   onlyEvent,
   parseDate,
   readWebhookBody,
+  requireBasicCredentials,
   skipVerification,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
@@ -43,6 +44,7 @@ export async function parseBandwidthWebhooks(options: BandwidthWebhookOptions): 
   const skip = skipVerification(options);
   const rawBody = await readWebhookBody(options.request, "bandwidth");
   if (!skip) {
+    requireBasicCredentials(options.credentials);
     const header = options.request.headers.get("authorization");
     if (!hasBasicAuthorization(header, options.credentials)) {
       throw new WebhookSignatureError("Bandwidth webhook Basic authorization failed.", {

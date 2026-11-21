@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "../core/crypto.js";
-import { ConfigurationError, WebhookPayloadError } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { basicAuthorization, isRecord, MAX_RESPONSE_BYTES, readBoundedText } from "../core/http.js";
 import type { SmsEvent, WebhookProvider } from "./events.js";
 
@@ -8,8 +8,18 @@ export const MAX_WEBHOOK_BYTES = MAX_RESPONSE_BYTES;
 
 /** Reads a webhook request body up to {@link MAX_WEBHOOK_BYTES}, failing with {@link WebhookPayloadError} (`reason: "body_too_large"`) if exceeded. */
 export async function readWebhookBody(request: Request, provider: WebhookProvider): Promise<string> {
-  if (!isRecord(request) || !isRecord(request.headers) || typeof request.headers.get !== "function") {
+  if (
+    !isRecord(request) ||
+    !isRecord(request.headers) ||
+    typeof request.headers.get !== "function" ||
+    typeof request.url !== "string" ||
+    typeof request.method !== "string" ||
+    (request.body !== null && (!isRecord(request.body) || typeof request.body.getReader !== "function"))
+  ) {
     throw new ConfigurationError(`The ${provider} webhook parser requires a Request object.`);
+  }
+  if (request.body !== null && request.body.locked === true) {
+    throw new ConfigurationError(`The ${provider} webhook request body is locked or has already been read.`);
   }
   const text = await readBoundedText(request, MAX_WEBHOOK_BYTES);
   if (text === undefined) {
@@ -59,9 +69,14 @@ export type SignedUrlOptions = {
  *
  * @throws {ConfigurationError} when skipping is requested and `NODE_ENV` is `"production"`.
  */
-export function skipVerification(options: Pick<WebhookCommonOptions, "unsafeSkipVerification">): boolean {
+export function skipVerification(
+  options: Pick<WebhookCommonOptions, "unsafeSkipVerification" | "now">,
+): boolean {
   if (!isRecord(options)) {
     throw new ConfigurationError("Webhook options must be an object.");
+  }
+  if (options.now !== undefined && typeof options.now !== "function") {
+    throw new ConfigurationError("Webhook now option must be a function.");
   }
   if (options.unsafeSkipVerification !== true) {
     return false;
@@ -96,8 +111,13 @@ export function onlyEvent(provider: WebhookProvider, events: readonly SmsEvent[]
 }
 
 /** Returns the URL a provider signed, per {@link SignedUrlOptions}. */
-export function resolveSignedUrl(request: Request, options: SignedUrlOptions): string {
-  const requestUrl = new URL(request.url);
+export function resolveSignedUrl(request: Request, options: SignedUrlOptions, provider?: WebhookProvider): string {
+  let requestUrl: URL;
+  try {
+    requestUrl = new URL(request.url);
+  } catch {
+    throw new ConfigurationError("The webhook request has an invalid URL.");
+  }
   if (options.publicUrl !== undefined) {
     if (typeof options.publicUrl !== "string" || options.publicUrl.length === 0) {
       throw new ConfigurationError("publicUrl must be a valid http or https URL.");
@@ -114,9 +134,24 @@ export function resolveSignedUrl(request: Request, options: SignedUrlOptions): s
     return options.publicUrl.includes("?") ? options.publicUrl : `${options.publicUrl}${requestUrl.search}`;
   }
   if (options.trustProxy === true) {
-    const proto = firstHeaderValue(request.headers.get("x-forwarded-proto")) ?? requestUrl.protocol.replace(":", "");
+    const proto = (firstHeaderValue(request.headers.get("x-forwarded-proto")) ?? requestUrl.protocol.replace(":", "")).toLowerCase();
     const host = firstHeaderValue(request.headers.get("x-forwarded-host")) ?? request.headers.get("host") ?? requestUrl.host;
-    return `${proto}://${host}${requestUrl.pathname}${requestUrl.search}`;
+    if (proto !== "http" && proto !== "https") {
+      throw new WebhookSignatureError("Invalid X-Forwarded-Proto header.", {
+        reason: "invalid_signature",
+        provider: provider ?? "webhook",
+      });
+    }
+    const candidate = `${proto}://${host}${requestUrl.pathname}${requestUrl.search}`;
+    try {
+      new URL(candidate);
+    } catch {
+      throw new WebhookSignatureError("Invalid forwarded host header.", {
+        reason: "invalid_signature",
+        provider: provider ?? "webhook",
+      });
+    }
+    return candidate;
   }
   return request.url;
 }
@@ -151,11 +186,11 @@ export function requireField(provider: WebhookProvider, fields: Record<string, s
 export type BasicCallbackCredentials = { readonly username: string; readonly password: string };
 
 /**
- * Checks an `Authorization` header against Basic credentials in constant time.
+ * Validates Basic callback credentials before checking request headers.
  *
  * @throws {ConfigurationError} when the credentials are missing, empty, or not Latin-1.
  */
-export function hasBasicAuthorization(header: string | null, credentials: BasicCallbackCredentials): boolean {
+export function requireBasicCredentials(credentials: BasicCallbackCredentials): string {
   if (
     !isRecord(credentials) ||
     typeof credentials.username !== "string" ||
@@ -165,7 +200,16 @@ export function hasBasicAuthorization(header: string | null, credentials: BasicC
   ) {
     throw new ConfigurationError("Basic webhook credentials require non-empty username and password.");
   }
-  const expected = basicAuthorization(credentials.username, credentials.password);
+  return basicAuthorization(credentials.username, credentials.password);
+}
+
+/**
+ * Checks an `Authorization` header against Basic credentials in constant time.
+ *
+ * @throws {ConfigurationError} when the credentials are missing, empty, or not Latin-1.
+ */
+export function hasBasicAuthorization(header: string | null, credentials: BasicCallbackCredentials): boolean {
+  const expected = requireBasicCredentials(credentials);
   if (header === null) {
     return false;
   }

@@ -79,6 +79,9 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
     }
   }
   for (const [option, field] of Object.entries(spec.options)) {
+    if (!Object.hasOwn(entry, option)) {
+      continue;
+    }
     const value = entry[option];
     if (value === undefined) {
       continue;
@@ -91,7 +94,7 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
     }
   }
 
-  const extra = entry["extra"];
+  const extra = Object.hasOwn(entry, "extra") ? entry["extra"] : undefined;
   if (extra !== undefined) {
     if (!isRecord(extra)) {
       found.push(invalid(provider, `providerOptions.${provider}.extra must be an object.`));

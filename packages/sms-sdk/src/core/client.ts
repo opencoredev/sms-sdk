@@ -67,7 +67,10 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       typeof adapter["name"] !== "string" ||
       adapter["name"].length === 0 ||
       typeof adapter["send"] !== "function" ||
-      !isRecord(adapter["capabilities"])
+      !isRecord(adapter["capabilities"]) ||
+      !Array.isArray(adapter["capabilities"]["senderTypes"]) ||
+      (adapter["validate"] !== undefined && typeof adapter["validate"] !== "function") ||
+      (adapter["getMessage"] !== undefined && typeof adapter["getMessage"] !== "function")
     ) {
       throw new ConfigurationError("Each adapter must be an object with a non-empty name, capabilities, and send().");
     }
@@ -85,7 +88,20 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
   }
 
   const retry = resolveRetryOptions(options.retry);
+  if (options.fallback !== undefined && options.fallback !== "none" && options.fallback !== "on-known-rejection") {
+    throw new ConfigurationError('fallback must be "none" or "on-known-rejection".');
+  }
   const fallback = options.fallback === "on-known-rejection";
+  if (options.hooks !== undefined) {
+    if (!isRecord(options.hooks)) {
+      throw new ConfigurationError("hooks must be an object of callback functions.");
+    }
+    for (const [hookName, hookFn] of Object.entries(options.hooks)) {
+      if (hookFn !== undefined && typeof hookFn !== "function") {
+        throw new ConfigurationError(`hooks.${hookName} must be a function.`);
+      }
+    }
+  }
   const hooks = options.hooks ?? {};
   if (
     options.idempotency !== undefined &&
@@ -471,11 +487,21 @@ function requirePositiveSeconds(value: number, name: "ttlSec" | "staleReservatio
   return value;
 }
 
+const abortSignalAbortedGetter = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
+
 function requireOptionalSignal(value: AbortSignal | undefined, method: "send" | "getMessage"): AbortSignal | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (!(value instanceof AbortSignal) && Object.prototype.toString.call(value) !== "[object AbortSignal]") {
+  if (abortSignalAbortedGetter !== undefined) {
+    try {
+      abortSignalAbortedGetter.call(value);
+      return value;
+    } catch {
+      throw new ConfigurationError(`${method} signal must be an AbortSignal.`);
+    }
+  }
+  if (!(value instanceof AbortSignal)) {
     throw new ConfigurationError(`${method} signal must be an AbortSignal.`);
   }
   return value;

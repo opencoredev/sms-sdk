@@ -186,11 +186,17 @@ export type VonageMessageRequest = {
  *
  * @throws {ConfigurationError} when credentials are empty.
  */
+const VONAGE_REGIONS = new Set(["api", "api-eu", "api-us", "api-ap"]);
+
 export function vonage(options: VonageOptions): SmsAdapter {
   if (!isRecord(options)) {
     throw new ConfigurationError("Vonage options must be an object.");
   }
-  const baseUrl = resolveBaseUrl(options.baseUrl, `https://${options.region ?? "api"}.nexmo.com`, "Vonage");
+  const region = options.region ?? "api";
+  if (typeof region !== "string" || !VONAGE_REGIONS.has(region)) {
+    throw new ConfigurationError('Vonage region must be one of "api", "api-eu", "api-us", or "api-ap".');
+  }
+  const baseUrl = resolveBaseUrl(options.baseUrl, `https://${region}.nexmo.com`, "Vonage");
   const url = `${baseUrl}/v1/messages`;
   const fetcher: FetchLike = resolveFetcher(options.fetch, "Vonage");
   const authorize = createAuthorizer(options);

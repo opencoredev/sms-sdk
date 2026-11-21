@@ -10,7 +10,7 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   if (baseUrl === undefined) {
     return fallback;
   }
-  if (typeof baseUrl !== "string" || baseUrl.length === 0) {
+  if (typeof baseUrl !== "string" || baseUrl.length === 0 || baseUrl.trim() !== baseUrl) {
     throw new ConfigurationError(`${provider} baseUrl must be a valid http or https URL.`);
   }
   let parsed: URL;
@@ -21,6 +21,9 @@ export function resolveBaseUrl(baseUrl: unknown, fallback: string, provider: str
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ConfigurationError(`${provider} baseUrl must use http or https.`);
+  }
+  if (parsed.search.length > 0 || parsed.hash.length > 0) {
+    throw new ConfigurationError(`${provider} baseUrl must not include a query string or fragment.`);
   }
   return baseUrl.replace(/\/+$/, "");
 }

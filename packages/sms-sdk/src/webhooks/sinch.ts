@@ -1,5 +1,5 @@
 import { hmac, timingSafeEqual, toBase64 } from "../core/crypto.js";
-import { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import {
@@ -7,11 +7,13 @@ import {
   onlyEvent,
   parseDate,
   readWebhookBody,
+  requireBasicCredentials,
   requireTolerance,
   skipVerification,
   type BasicCallbackCredentials,
   type WebhookCommonOptions,
 } from "./shared.js";
+import type { WebhookVerification } from "./telnyx.js";
 
 /** Default allowed clock skew for HMAC timestamps, in seconds. */
 export const SINCH_DEFAULT_TOLERANCE_SEC = 300;
@@ -33,9 +35,7 @@ export type SinchWebhookOptions = WebhookCommonOptions & {
 };
 
 /** Result of {@link verifySinchSignature}. */
-export type SinchWebhookVerification =
-  | { readonly valid: true }
-  | { readonly valid: false; readonly reason: WebhookFailureReason };
+export type SinchWebhookVerification = WebhookVerification;
 
 /**
  * Verifies a Sinch HMAC callback signature: base64 HMAC-SHA256 of
@@ -101,6 +101,7 @@ async function verifySinchRequest(options: SinchWebhookOptions, rawBody: string)
   }
   switch (credentials.kind) {
     case "basic": {
+      requireBasicCredentials(credentials);
       const header = request.headers.get("authorization");
       if (!hasBasicAuthorization(header, credentials)) {
         throw new WebhookSignatureError("Sinch webhook Basic authorization failed.", {
