@@ -1735,5 +1735,81 @@ describe("send: fromByAdapter", () => {
     expect(rA.status).toBe("rejected");
     expect(rB.status).toBe("rejected");
     expect(adapterAborted).toBe(true);
+
+    // Same-tick immediate leader abort while peer joins -> peer still resolves cleanly
+    adapterCalls = 0;
+    adapterAborted = false;
+    const c4 = makeSlowClient();
+    const acImmediate = new AbortController();
+    const pImmLeader = c4.send(
+      { to: "+14155550123", body: "hi", idempotencyKey: "k-abort-4" },
+      { signal: acImmediate.signal },
+    );
+    const pImmPeer = c4.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-4" });
+    acImmediate.abort(new Error("same-tick-leader"));
+    const [rImmLeader, rImmPeer] = await Promise.allSettled([pImmLeader, pImmPeer]);
+    expect(adapterCalls).toBe(1);
+    expect(adapterAborted).toBe(false);
+    expect(rImmLeader.status).toBe("rejected");
+    expect(rImmPeer.status).toBe("fulfilled");
+    if (rImmPeer.status === "fulfilled") {
+      expect(rImmPeer.value.providerId).toBe("slow-1");
+    }
+
+    // Lone keyed caller abort mid-flight preserves attempts in HandoffUnknownError and frees key for immediate retry
+    adapterCalls = 0;
+    adapterAborted = false;
+    const c5 = makeSlowClient();
+    const acLone = new AbortController();
+    const pLone = c5.send(
+      { to: "+14155550123", body: "hi", idempotencyKey: "k-abort-5" },
+      { signal: acLone.signal },
+    );
+    setTimeout(() => acLone.abort(new Error("lone-abort")), 5);
+    const loneErr = await rejection(pLone);
+    expect(loneErr).toBeInstanceOf(HandoffUnknownError);
+    expect((loneErr as HandoffUnknownError).reason).toBe("aborted");
+    expect((loneErr as HandoffUnknownError).attempts).toHaveLength(1);
+    const retryRes = await c5.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-5" });
+    expect(retryRes.providerId).toBe("slow-1");
+    expect(adapterCalls).toBe(2);
+
+    // Lone keyed caller abort during retry backoff preserves SendAbortedError + attempts
+    let backoffAttempts = 0;
+    const failureCodes: string[] = [];
+    const acBackoff = new AbortController();
+    const c6 = createSmsClient({
+      adapters: [
+        {
+          name: "rl",
+          capabilities: memory().capabilities,
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          async send() {
+            backoffAttempts += 1;
+            setTimeout(() => acBackoff.abort(new Error("backoff-abort")), 10);
+            return {
+              kind: "rejected",
+              category: "rate_limited",
+              retryAfterMs: 500,
+              details: { provider: "rl", httpStatus: 429, code: "429" },
+            };
+          },
+        },
+      ],
+      retry: { maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 500 },
+      hooks: {
+        onFailure(event) {
+          failureCodes.push(event.errorCode);
+        },
+      },
+    });
+    const backoffErr = await rejection(
+      c6.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-6" }, { signal: acBackoff.signal }),
+    );
+    expect(backoffAttempts).toBe(1);
+    expect(backoffErr).toBeInstanceOf(SendAbortedError);
+    expect((backoffErr as SendAbortedError).attempts).toHaveLength(1);
+    expect(failureCodes).toEqual(["aborted"]);
   });
 });

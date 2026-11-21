@@ -46,6 +46,8 @@ type InFlight = {
   readonly promise: Promise<SmsSendResult>;
   readonly controller: AbortController;
   waiters: number;
+  abortedWaiter: boolean;
+  lastAbortReason: unknown;
 };
 
 type IdempotencyConfig = {
@@ -553,22 +555,41 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       fromByAdapter: canonicalFromByAdapter(adapters, input),
     });
 
-    const awaitShared = (entry: InFlight, replayed: boolean | undefined): Promise<SmsSendResult> => {
-      entry.waiters += 1;
+    const releaseEntry = (entry: InFlight, aborted: boolean, reason?: unknown): boolean => {
+      entry.waiters -= 1;
+      if (aborted) {
+        entry.abortedWaiter = true;
+        entry.lastAbortReason = reason;
+      }
+      if (entry.waiters === 0 && entry.abortedWaiter && !entry.controller.signal.aborted) {
+        if (inFlight.get(key) === entry) {
+          inFlight.delete(key);
+        }
+        entry.controller.abort(entry.lastAbortReason);
+        return true;
+      }
+      return false;
+    };
+
+    const awaitShared = (
+      entry: InFlight,
+      replayed: boolean | undefined,
+      alreadyCounted: boolean,
+    ): Promise<SmsSendResult> => {
+      if (!alreadyCounted) {
+        entry.waiters += 1;
+      }
       let released = false;
-      const release = (aborted: boolean, reason?: unknown): void => {
+      const release = (aborted: boolean, reason?: unknown): boolean => {
         if (released) {
-          return;
+          return false;
         }
         released = true;
-        entry.waiters -= 1;
-        if (aborted && entry.waiters === 0 && !entry.controller.signal.aborted) {
-          entry.controller.abort(reason);
-        }
+        return releaseEntry(entry, aborted, reason);
       };
 
-      if (signal === undefined) {
-        return entry.promise.then(
+      const waitOnEntry = (): Promise<SmsSendResult> =>
+        entry.promise.then(
           (result) => {
             release(false);
             return cloneSendResult(result, replayed ?? result.replayed);
@@ -578,10 +599,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             throw error;
           },
         );
+
+      if (signal === undefined) {
+        return waitOnEntry();
       }
 
       if (signal.aborted) {
-        release(true, signal.reason);
+        const abortedUnderlying = release(true, signal.reason);
+        if (abortedUnderlying) {
+          return waitOnEntry();
+        }
         return Promise.reject(
           new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
             reason: "aborted",
@@ -594,7 +621,12 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       return new Promise<SmsSendResult>((resolve, reject) => {
         const onAbort = (): void => {
           cleanup();
-          release(true, signal.reason);
+          const abortedUnderlying = release(true, signal.reason);
+          if (abortedUnderlying) {
+            // Last waiter cancelled the shared send: let entry.promise settle with the
+            // authoritative SendAbortedError or HandoffUnknownError (including attempts).
+            return;
+          }
           reject(
             new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
               reason: "aborted",
@@ -623,12 +655,21 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     };
 
     const running = inFlight.get(key);
-    if (running !== undefined) {
-      const [runningFingerprint, fingerprint] = await Promise.all([running.fingerprint, fingerprintPromise]);
+    if (running !== undefined && !running.controller.signal.aborted) {
+      running.waiters += 1;
+      let runningFingerprint: string;
+      let fingerprint: string;
+      try {
+        [runningFingerprint, fingerprint] = await Promise.all([running.fingerprint, fingerprintPromise]);
+      } catch (error) {
+        releaseEntry(running, false);
+        throw error;
+      }
       if (runningFingerprint !== fingerprint) {
+        releaseEntry(running, false);
         throw new IdempotencyConflictError(key);
       }
-      return awaitShared(running, true);
+      return awaitShared(running, true, true);
     }
 
     const controller = new AbortController();
@@ -651,10 +692,17 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           throw error;
         },
       );
-    const entry: InFlight = { fingerprint: fingerprintPromise, promise, controller, waiters: 0 };
+    const entry: InFlight = {
+      fingerprint: fingerprintPromise,
+      promise,
+      controller,
+      waiters: 0,
+      abortedWaiter: false,
+      lastAbortReason: undefined,
+    };
     inFlight.set(key, entry);
     void promise.catch(() => undefined);
-    return awaitShared(entry, undefined);
+    return awaitShared(entry, undefined, false);
   };
 
   /** Validates and builds the ordered candidates, throwing for the primary adapter's first issue. */
@@ -694,6 +742,9 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     readonly key: string;
     readonly fingerprint: string;
   }): Promise<SmsSendResult> => {
+    if (args.signal?.aborted === true) {
+      throw new SendAbortedError([], args.signal.reason);
+    }
     if (idempotency === undefined) {
       return execute({ ...args, id: newId(), reservation: undefined });
     }
