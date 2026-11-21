@@ -1,6 +1,6 @@
 {
   "name": "@opencoredev/sms-sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "One TypeScript SDK for SMS providers: Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch behind one typed send API with safe fallback and verified webhooks.",
   "keywords": [
     "sms",
