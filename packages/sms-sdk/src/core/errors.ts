@@ -7,6 +7,96 @@ import type {
 } from "./adapters.js";
 import type { SendAttempt } from "./events.js";
 
+const SAFE_DIAGNOSTIC_TOKEN = /^[A-Za-z0-9._:-]+$/;
+const OPAQUE_UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPAQUE_HEX32_ID = /^[A-Za-z]{0,4}[0-9a-f]{32}$/i;
+const DIGIT_SPAN = /\d[\d._:-]*\d/g;
+const CREDENTIAL_TOKEN_PREFIX =
+  /^(?:(?:sk|pk|rk|whsec|ghp|gho|ghu|ghs|ghr|github_pat|glpat|xox[baprs]|sq0[a-z]{3})[_-]|(?:akia|asia)[0-9a-z]{12}|aiza[0-9a-z_-]{10}|eyj[a-z0-9_-]{6,}\.)/i;
+const CREDENTIAL_REQUEST_ID_MARKER =
+  /(?:^|[_.:-])(?:secret|token|password|passwd|pwd|apikey|api_key|api-key|bearer|basic|auth_token|access_key|private_key)(?:[_.:-]|$)/i;
+
+function isOpaqueHexId(value: string): boolean {
+  if (OPAQUE_UUID_ID.test(value)) {
+    return /[a-f]/i.test(value);
+  }
+  if (OPAQUE_HEX32_ID.test(value)) {
+    return /[a-f]/i.test(value.slice(-32));
+  }
+  return false;
+}
+
+function containsPhoneLengthDigits(value: string): boolean {
+  for (const match of value.matchAll(DIGIT_SPAN)) {
+    if (match[0].replace(/\D/g, "").length >= 8) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Keeps only compact structural tokens (codes, request IDs), rejecting free-form text, credentials, PII, or phone-length digit runs. */
+export function sanitizeDiagnosticToken(value: unknown, maxLength: number, isRequestId = false): string | undefined {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength ||
+    !SAFE_DIAGNOSTIC_TOKEN.test(value) ||
+    CREDENTIAL_TOKEN_PREFIX.test(value) ||
+    (!isOpaqueHexId(value) && containsPhoneLengthDigits(value))
+  ) {
+    return undefined;
+  }
+  if (isRequestId && (value.includes(":") || CREDENTIAL_REQUEST_ID_MARKER.test(value))) {
+    return undefined;
+  }
+  return value;
+}
+
+/** Copies only structural provider details, reading each field once. Free-form `message` and unvalidated strings are dropped. */
+export function sanitizeProviderDetails(raw: Record<string, unknown>, fallbackProvider: string): ProviderErrorInfo {
+  const rawStatus = raw["httpStatus"];
+  const rawCode = raw["code"];
+  const rawRequestId = raw["requestId"];
+  // The client knows which adapter answered; an adapter-supplied name is untrusted free text.
+  const provider = fallbackProvider;
+  const httpStatus =
+    typeof rawStatus === "number" && Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599
+      ? rawStatus
+      : undefined;
+  const code = sanitizeDiagnosticToken(rawCode, 64);
+  const requestId = sanitizeDiagnosticToken(rawRequestId, 128, true);
+  return {
+    provider,
+    ...(httpStatus === undefined ? {} : { httpStatus }),
+    ...(code === undefined ? {} : { code }),
+    ...(requestId === undefined ? {} : { requestId }),
+  };
+}
+
+function sanitizeAttemptForJson(attempt: SendAttempt): SendAttempt {
+  const requestId =
+    "requestId" in attempt ? sanitizeDiagnosticToken(attempt.requestId, 128, true) : undefined;
+  const errorCode =
+    "errorCode" in attempt ? sanitizeDiagnosticToken(attempt.errorCode, 64) : undefined;
+  const copy = { ...attempt };
+  if ("requestId" in copy) {
+    if (requestId === undefined) {
+      delete (copy as { requestId?: string }).requestId;
+    } else {
+      (copy as { requestId?: string }).requestId = requestId;
+    }
+  }
+  if ("errorCode" in copy) {
+    if (errorCode === undefined) {
+      delete (copy as { errorCode?: string }).errorCode;
+    } else {
+      (copy as { errorCode?: string }).errorCode = errorCode;
+    }
+  }
+  return copy;
+}
+
 /** Stable machine-readable error codes. One per error class. */
 export type SmsErrorCode =
   | "configuration"
@@ -82,8 +172,15 @@ export class SmsError extends Error {
       code: this.code,
       message: this.message,
       retrySafe: this.retrySafe,
-      attempts: this.attempts.map((attempt) => ({ ...attempt })),
-      ...(this.provider === undefined ? {} : { provider: { ...this.provider } }),
+      attempts: this.attempts.map(sanitizeAttemptForJson),
+      ...(this.provider === undefined
+        ? {}
+        : {
+            provider: sanitizeProviderDetails(
+              this.provider as unknown as Record<string, unknown>,
+              this.provider.provider,
+            ),
+          }),
     };
   }
 }

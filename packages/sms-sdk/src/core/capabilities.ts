@@ -286,28 +286,32 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
         });
       } else {
         for (const item of rawIssues) {
-          if (
-            isRecord(item) &&
-            typeof item["code"] === "string" &&
-            typeof item["field"] === "string" &&
-            typeof item["message"] === "string" &&
-            VALID_ISSUE_CODES.has(item["code"]) &&
-            VALID_ISSUE_FIELDS.has(item["field"])
-          ) {
-            issues.push({
-              code: item["code"] as ValidationIssue["code"],
-              field: item["field"] as ValidationIssue["field"],
-              message: item["message"],
-              provider,
-            });
-          } else {
-            issues.push({
-              code: "invalid_field",
-              field: "body",
-              provider,
-              message: `Adapter "${provider}" validate() returned a malformed issue.`,
-            });
+          if (isRecord(item)) {
+            const code = item["code"];
+            const field = item["field"];
+            const issueMessage = item["message"];
+            if (
+              typeof code === "string" &&
+              typeof field === "string" &&
+              typeof issueMessage === "string" &&
+              VALID_ISSUE_CODES.has(code) &&
+              VALID_ISSUE_FIELDS.has(field)
+            ) {
+              issues.push({
+                code: code as ValidationIssue["code"],
+                field: field as ValidationIssue["field"],
+                message: issueMessage,
+                provider,
+              });
+              continue;
+            }
           }
+          issues.push({
+            code: "invalid_field",
+            field: "body",
+            provider,
+            message: `Adapter "${provider}" validate() returned a malformed issue.`,
+          });
         }
       }
     } catch {
@@ -369,7 +373,10 @@ export function issueToError(issue: ValidationIssue): SmsError {
       return new UnsupportedFieldError(issue.message, { field: issue.field, provider: issue.provider ?? "unknown" });
     default: {
       const _exhaustive: never = issue.code;
-      return _exhaustive;
+      void _exhaustive;
+      return new InvalidMessageError("Adapter validate() returned an unsupported issue code.", {
+        field: "body",
+      });
     }
   }
 }

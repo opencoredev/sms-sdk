@@ -5,6 +5,7 @@ import {
   ConfigurationError,
   HandoffUnknownError,
   IdempotencyConflictError,
+  InvalidMessageError,
   PolicyRejectedError,
   ProviderAuthError,
   ProviderRateLimitedError,
@@ -2062,5 +2063,63 @@ describe("send: fromByAdapter", () => {
     const credErr = await rejection(credClient.send({ to: "+14155550123", body: "hi" }));
     expect(credErr).toBeInstanceOf(HandoffUnknownError);
     expect(JSON.stringify((credErr as HandoffUnknownError).toJSON())).not.toContain("sk-live-DO-NOT-LEAK-9z");
+
+    // R31: adapter.validate() single-reads issue getters so flipping getters cannot bypass validation or throw non-SmsError
+    let codeReads = 0;
+    let fieldReads = 0;
+    let msgReads = 0;
+    const toctouValClient = createSmsClient({
+      adapters: [
+        {
+          name: "toctou-val",
+          capabilities: memory().capabilities,
+          support: { status: "supported", notes: [] },
+          defaultFrom: "+15005550006",
+          validate() {
+            return [
+              {
+                get code() {
+                  codeReads += 1;
+                  return (codeReads === 1 ? "invalid_field" : "bogus") as "invalid_field";
+                },
+                get field() {
+                  fieldReads += 1;
+                  return (fieldReads === 1 ? "body" : 42) as "body";
+                },
+                get message() {
+                  msgReads += 1;
+                  return (msgReads === 1 ? "bad body" : null) as unknown as string;
+                },
+              },
+            ];
+          },
+          async send() {
+            return { kind: "accepted", providerId: "x", delivery: "queued" };
+          },
+        },
+      ],
+    });
+    const toctouVal = toctouValClient.validate({ to: "+14155550123", body: "hi" });
+    expect(codeReads).toBe(1);
+    expect(fieldReads).toBe(1);
+    expect(msgReads).toBe(1);
+    expect(toctouVal.issues).toEqual([
+      { code: "invalid_field", field: "body", message: "bad body", provider: "toctou-val" },
+    ]);
+
+    codeReads = 0;
+    fieldReads = 0;
+    msgReads = 0;
+    const toctouErr = await rejection(toctouValClient.send({ to: "+14155550123", body: "hi" }));
+    expect(toctouErr).toBeInstanceOf(InvalidMessageError);
+    expect(codeReads).toBe(1);
+
+    // R31: direct HandoffUnknownError#toJSON() strips credential-shaped requestId
+    const directErr = new HandoffUnknownError("unknown", {
+      reason: "timeout",
+      attempts: [],
+      provider: { provider: "twilio", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
+    });
+    expect(directErr.toJSON().provider).toEqual({ provider: "twilio", httpStatus: 503 });
   });
 });
