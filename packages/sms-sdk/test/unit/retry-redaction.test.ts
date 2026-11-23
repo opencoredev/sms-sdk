@@ -17,7 +17,7 @@ import { sinch } from "../../src/providers/sinch.js";
 import { twilio } from "../../src/providers/twilio.js";
 import { telnyx } from "../../src/providers/telnyx.js";
 import { mockFetch } from "../../src/testing/fetch.js";
-import { memory, rejectedOutcome, unknownOutcome } from "../../src/testing/memory.js";
+import { acceptedOutcome, memory, rejectedOutcome, unknownOutcome } from "../../src/testing/memory.js";
 import { rejection, TWILIO_SID } from "../helpers.js";
 
 describe("decideRetry", () => {
@@ -228,7 +228,7 @@ describe("redaction", () => {
     expect(eAccB.cause).toBe("b-acc");
   });
 
-  test("single coalesced abort during retry backoff returns SendAbortedError with completed attempts", async () => {
+  test("single coalesced abort during retry backoff is not retry-safe while a peer keeps sending", async () => {
     const adapter = memory({
       outcomes: [rejectedOutcome("rate_limited", { retryAfterMs: 5_000 })],
     });
@@ -246,16 +246,41 @@ describe("redaction", () => {
     a.abort("only-a");
 
     const errorA = await pa;
-    expect(errorA).toBeInstanceOf(SendAbortedError);
-    expect(errorA.retrySafe).toBe(true);
+    expect(errorA).toBeInstanceOf(HandoffUnknownError);
+    expect(errorA.retrySafe).toBe(false);
+    expect(errorA.reason).toBe("aborted");
     expect(errorA.attempts).toHaveLength(1);
     expect(errorA.cause).toBe("only-a");
     expect(adapter.sent).toHaveLength(1);
 
+    // The last caller stops the shared send during backoff, so nothing more is sent.
     b.abort("cleanup-b");
     const errorB = await pb;
     expect(errorB).toBeInstanceOf(SendAbortedError);
+    expect(errorB.retrySafe).toBe(true);
     expect(errorB.cause).toBe("cleanup-b");
+  });
+
+  test("a caller that leaves during backoff is not told to retry when its peer goes on to send", async () => {
+    const adapter = memory({
+      outcomes: [rejectedOutcome("rate_limited", { retryAfterMs: 60 }), acceptedOutcome("peer-sent")],
+    });
+    const sms = createSmsClient({
+      adapters: [adapter],
+      retry: { maxAttempts: 2, baseDelayMs: 60, maxDelayMs: 1_000 },
+    });
+    const input = { to: "+14155550123", body: "hi", idempotencyKey: "leave-during-backoff" } as const;
+    const a = new AbortController();
+    const pa = sms.send(input, { signal: a.signal }).catch((e: unknown) => e);
+    const pb = sms.send(input);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    a.abort("leave");
+    const errorA = await pa;
+    await expect(pb).resolves.toMatchObject({ handoff: "accepted", providerId: "peer-sent" });
+    expect(adapter.sent).toHaveLength(2);
+    expect(errorA).toBeInstanceOf(HandoffUnknownError);
+    expect((errorA as HandoffUnknownError).retrySafe).toBe(false);
   });
 
   test("final coalesced in-flight abort preserves its own signal.reason", async () => {

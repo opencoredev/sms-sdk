@@ -27,7 +27,7 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 ### Parameters
 
 - `input: SmsSendInput`, the message. Fields below.
-- `options?: { signal?: AbortSignal }`. Aborting before any request (including when all coalesced callers for the same key abort before any provider request begins), or during a rate-limit backoff (even if another coalesced caller stays active), throws `SendAbortedError`. Retrying with the same `idempotencyKey` while an active peer finishes replays that peer's outcome. Aborting while a request is in flight (or while another caller keeps a coalesced same-key send active through dispatch) throws `HandoffUnknownError` with `reason: "aborted"`.
+- `options?: { signal?: AbortSignal }`. Aborting before any request or during a rate-limit backoff throws `SendAbortedError`, as long as no other coalesced caller for the same key keeps the send going. Aborting while a request is in flight, or while another coalesced caller keeps the same-key send going, throws `HandoffUnknownError` with `reason: "aborted"`, because that send may still reach the provider. Retrying with the same `idempotencyKey` while the peer is still sending replays its outcome.
 
 ## `SmsSendInput`
 

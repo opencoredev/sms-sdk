@@ -48,7 +48,6 @@ const DEFAULT_TTL_SEC = 86_400;
 const DEFAULT_STALE_RESERVATION_SEC = 300;
 
 type InFlightState = {
-  inBackoff: boolean;
   readonly attempts: SendAttempt[];
 };
 
@@ -622,16 +621,15 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         );
       };
 
-      const makeDetachedAbortError = (safeToAbort: boolean, attempts: readonly SendAttempt[], reason: unknown): SmsError => {
-        if (safeToAbort) {
-          return new SendAbortedError(attempts, reason);
-        }
-        return new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
+      // A caller that detaches leaves the shared send running for its peers, which
+      // may still hand the message to a provider. Without an idempotency store a
+      // later retry would send it again, so this is never retry-safe.
+      const makeDetachedAbortError = (attempts: readonly SendAttempt[], reason: unknown): HandoffUnknownError =>
+        new HandoffUnknownError("The send was aborted while waiting on an in-flight request.", {
           reason: "aborted",
           attempts,
           cause: reason,
         });
-      };
 
       const waitOnEntry = (abortReason?: { readonly value: unknown }): Promise<SmsSendResult> =>
         entry.promise.then(
@@ -653,13 +651,13 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
       }
 
       if (signal.aborted) {
-        const snapshotBackoff = entry.state.inBackoff;
         const snapshotAttempts = entry.state.attempts.map((a) => ({ ...a }));
         const abortedUnderlying = release(true, signal.reason);
-        if (abortedUnderlying) {
+        if (abortedUnderlying || entry.controller.signal.aborted) {
+          // The shared send has stopped, so its outcome says whether retrying is safe.
           return waitOnEntry({ value: signal.reason });
         }
-        return Promise.reject(makeDetachedAbortError(snapshotBackoff, snapshotAttempts, signal.reason));
+        return Promise.reject(makeDetachedAbortError(snapshotAttempts, signal.reason));
       }
 
       return new Promise<SmsSendResult>((resolve, reject) => {
@@ -667,7 +665,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
         let abortedByMe = false;
         const onAbort = (): void => {
           cleanup();
-          const snapshotBackoff = entry.state.inBackoff;
           const snapshotAttempts = entry.state.attempts.map((a) => ({ ...a }));
           const abortedUnderlying = release(true, signal.reason);
           if (abortedUnderlying) {
@@ -679,7 +676,8 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           detached = true;
           // Defer by one microtask so synchronous same-tick aborts of all coalesced
           // callers settle consistently from entry.promise (SendAbortedError pre-dispatch,
-          // during backoff, or on a proven rejection; HandoffUnknownError otherwise).
+          // during backoff, or on a proven rejection; HandoffUnknownError otherwise). If a
+          // peer is still waiting, the send keeps going and this caller detaches unsafely.
           queueMicrotask(() => {
             if (entry.controller.signal.aborted) {
               entry.promise.then(
@@ -692,7 +690,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
               );
               return;
             }
-            reject(makeDetachedAbortError(snapshotBackoff, snapshotAttempts, signal.reason));
+            reject(makeDetachedAbortError(snapshotAttempts, signal.reason));
           });
         };
         const cleanup = (): void => {
@@ -733,7 +731,7 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
     }
 
     const controller = new AbortController();
-    const state: InFlightState = { inBackoff: false, attempts: [] };
+    const state: InFlightState = { attempts: [] };
     const cleanup = (): void => {
       if (inFlight.get(key) === entry) {
         inFlight.delete(key);
@@ -1019,11 +1017,6 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
             args.inFlightState.attempts.push({ ...attempt });
           }
           emitHook(hooks.onAttempt, { ...base, attempt: { ...attempt } });
-        },
-        onBackoffState: (waiting) => {
-          if (args.inFlightState !== undefined) {
-            args.inFlightState.inBackoff = waiting;
-          }
         },
       });
     } catch (cause) {

@@ -35,7 +35,6 @@ type ChainInput = {
   readonly signal: AbortSignal | undefined;
   readonly idempotencyKey: string | undefined;
   readonly onAttempt: (attempt: SendAttempt) => void;
-  readonly onBackoffState?: (waiting: boolean) => void;
 };
 
 type AdapterRun =
@@ -161,14 +160,7 @@ async function runAdapter(
         if (outcome.category === "rate_limited") {
           const decision = decideRetry({ attempt, retryAfterMs: outcome.retryAfterMs, options: input.retry });
           if (decision.kind === "wait") {
-            input.onBackoffState?.(true);
-            let sleepResult: "slept" | "aborted";
-            try {
-              sleepResult = await sleep(decision.delayMs, input.signal);
-            } finally {
-              input.onBackoffState?.(false);
-            }
-            if (sleepResult === "aborted") {
+            if ((await sleep(decision.delayMs, input.signal)) === "aborted") {
               return { kind: "aborted" };
             }
             continue;
