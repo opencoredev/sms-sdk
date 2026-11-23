@@ -934,12 +934,16 @@ export function createSmsClient(options: SmsClientOptions): SmsClient {
           input.sendAt instanceof Date
             ? Object.freeze({ ...input, sendAt: new Date(input.sendAt.getTime()) })
             : input;
-        rawDecision = beforeSend({
-          id,
-          message: policyMessage,
-          encoding: preview.encoding,
-          segments: preview.segments,
-        });
+        // Call with `options` as the receiver, as `options.beforeSend(...)` would, so
+        // object and class method policies keep their `this`.
+        rawDecision = Reflect.apply(beforeSend, options, [
+          {
+            id,
+            message: policyMessage,
+            encoding: preview.encoding,
+            segments: preview.segments,
+          },
+        ]) as unknown;
       } catch (cause) {
         const policyError = new PolicyRejectedError("beforeSend threw");
         await finalize({ state: "rejected", fingerprint: reservation?.fingerprint ?? "", error: policyError.toJSON() });

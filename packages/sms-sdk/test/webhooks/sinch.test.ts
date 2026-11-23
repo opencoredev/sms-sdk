@@ -61,6 +61,9 @@ describe("Sinch webhooks", () => {
     ]);
     expect(new Set(events.map((event) => event.dedupeKey)).size).toBe(3);
     expect(events[1]).toMatchObject({ providerId: "batch-9", errorCode: "402" });
+    expect(events.map((event) => event.raw)).toEqual(
+      body.recipient_delivery_report.map((report) => ({ ...body, recipient_delivery_report: [report] })),
+    );
   });
 
   test("the single-event parser refuses to drop recipient reports", async () => {

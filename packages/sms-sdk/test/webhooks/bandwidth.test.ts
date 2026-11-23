@@ -49,6 +49,7 @@ describe("Bandwidth webhooks", () => {
       "bandwidth:msg-3:+15551230000:message-failed",
     ]);
     expect(events[2]).toMatchObject({ providerId: "msg-3", to: "+15551230000", errorCode: "4720" });
+    expect(events.map((event) => event.raw)).toEqual(batch.map((element) => [element]));
   });
 
   test("parseSmsWebhooks gives distinct dedupeKeys when a batch shares message.id across recipients", async () => {
@@ -68,6 +69,7 @@ describe("Bandwidth webhooks", () => {
     const events = await parseSmsWebhooks({ provider: "bandwidth", request: callback(delivered), credentials });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "message.delivered", providerId: "msg-1" });
+    expect(events[0]?.raw).toEqual(delivered);
   });
 
   test("the single-event parser refuses to drop events from a multi-event callback", async () => {

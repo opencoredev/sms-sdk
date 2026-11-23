@@ -86,7 +86,7 @@ Sending to a suppressed recipient throws `PolicyRejectedError` before any reques
 - `applySuppressionEvent(list, event)` adds the sender of a `recipient.opted_out` event, removes the sender of a `recipient.opted_in` event, ignores everything else, and returns `"added"`, `"removed"`, or `"ignored"`.
 - `memorySuppressionList()` keeps the list in process memory. It is lost on restart and not shared between processes, so use it in tests and single-process tools, and back `SuppressionList` with your database in production.
 
-Any object with `has`, `add`, and `remove` works as the list, such as a table in your database:
+Any object with `has`, `add`, and `remove` works as the list, such as a table in your database. `has` must return `true` or `false`; any other value, such as `undefined` from a failed read, makes `suppressionPolicy()` throw `ConfigurationError`, so the send fails and nothing is sent:
 
 ```ts
 import { applySuppressionEvent, createSmsClient, suppressionPolicy } from "@opencoredev/sms-sdk";

@@ -230,7 +230,14 @@ export function interpretSinchEvents(body: unknown, detectKeywords: boolean): Sm
   if (reports.length === 0) {
     return [{ ...base, type: "unrecognized", providerEventType: type || "unknown" }];
   }
-  return reports.map((report) => reportEvent({ report, base, type, batchId }));
+  if (!Array.isArray(nested) || nested.length === 1) {
+    return reports.map((report) => reportEvent({ report, base, type, batchId }));
+  }
+  // With several reports, each event's `raw` keeps the envelope but only its own
+  // report, so serializing every event does not repeat the whole batch.
+  return reports.map((report) =>
+    reportEvent({ report, base: { ...base, raw: { ...body, recipient_delivery_report: [report] } }, type, batchId }),
+  );
 }
 
 function reportEvent(input: {

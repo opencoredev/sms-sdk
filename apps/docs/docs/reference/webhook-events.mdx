@@ -72,7 +72,7 @@ Takes the same options as `parseSmsWebhook` and returns every event in the reque
 - Sinch: one event per entry of `recipient_delivery_report`, or one event otherwise.
 - Twilio, Telnyx, Plivo, and Vonage send one event per request, so the array has one element.
 
-Each event has its own `dedupeKey`. Store and skip each one, so a retried batch is handled once:
+Each event has its own `dedupeKey`. Store each key in the same transaction as the work it guards, so a retried batch is handled once and a failed update is retried instead of skipped:
 
 ```ts
 import { parseSmsWebhooks } from "@opencoredev/sms-sdk/webhooks";
@@ -85,10 +85,12 @@ export async function POST(request: Request): Promise<Response> {
     credentials: { username: process.env.BANDWIDTH_CALLBACK_USERNAME ?? "", password: process.env.BANDWIDTH_CALLBACK_PASSWORD ?? "" },
   });
   for (const event of events) {
-    if (!(await db.webhookEvents.insertIfNew(event.dedupeKey))) continue;
-    if (event.type === "message.delivered" || event.type === "message.undelivered") {
-      await db.messages.updateStatus(event.providerId, event.type, event.errorCode);
-    }
+    await db.transaction(async (tx) => {
+      if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+      if (event.type === "message.delivered" || event.type === "message.undelivered") {
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+      }
+    });
   }
   return new Response(null, { status: 200 });
 }
@@ -105,7 +107,7 @@ Every event has these fields.
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | Which provider sent it. |
 | `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
 | `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
-| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. |
+| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. When one callback carries several events, each event's `raw` keeps only that event: its Bandwidth array element, or the Sinch body with just its `recipient_delivery_report` entry. |
 
 ### `message.received`
 

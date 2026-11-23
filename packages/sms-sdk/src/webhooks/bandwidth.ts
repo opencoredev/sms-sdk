@@ -77,7 +77,12 @@ export function interpretBandwidthEvents(body: unknown, detectKeywords: boolean)
       provider: "bandwidth",
     });
   }
-  return body.map((event: unknown) => interpretBandwidthEvent({ event, raw: body, detectKeywords }));
+  // With several events, each event's `raw` holds only its own element, so
+  // serializing every event does not repeat the whole batch once per event.
+  const single = body.length === 1;
+  return body.map((event: unknown) =>
+    interpretBandwidthEvent({ event, raw: single ? body : [event], detectKeywords }),
+  );
 }
 
 function interpretBandwidthEvent(input: { readonly event: unknown; readonly raw: unknown; readonly detectKeywords: boolean }): SmsEvent {

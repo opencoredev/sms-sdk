@@ -6,20 +6,133 @@ import {
   HandoffUnknownError,
   IdempotencyConflictError,
   InvalidMessageError,
+  MessageLookupError,
   PolicyRejectedError,
   ProviderAuthError,
   ProviderRateLimitedError,
   ProviderRejectedError,
   SendAbortedError,
 } from "../../src/core/errors.js";
+import { parseRetryAfter } from "../../src/core/http.js";
 import { memoryIdempotencyStore } from "../../src/core/idempotency.js";
 import type { SmsAcceptedEvent, SmsAttemptEvent, SmsFailureEvent } from "../../src/core/events.js";
 import type { SmsSendInput } from "../../src/core/types.js";
 import { acceptedOutcome, memory, rejectedOutcome, unknownOutcome } from "../../src/testing/memory.js";
 import { rejection } from "../helpers.js";
+import { TWILIO_CAPABILITIES, twilio } from "../../src/providers/twilio.js";
+import { vonage } from "../../src/providers/vonage.js";
+import { computeTwilioSignature, verifyTwilioSignature } from "../../src/webhooks/twilio.js";
 
 const message = { to: "+14155550123", body: "Your order has shipped." } as const;
 const fastRetry = { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 50 };
+
+/** A slow single-adapter client whose send resolves after 40 ms unless its signal aborts. */
+function slowAdapterHarness(): { aborted: boolean; calls: number; client: () => ReturnType<typeof createSmsClient> } {
+  const state = {
+    aborted: false,
+    calls: 0,
+    client: (): ReturnType<typeof createSmsClient> =>
+      createSmsClient({
+        adapters: [
+          {
+            name: "slow",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            send(_msg, ctx) {
+              state.calls += 1;
+              return new Promise((resolve) => {
+                const timer = setTimeout(() => {
+                  resolve({ kind: "accepted", providerId: "slow-1", delivery: "queued" });
+                }, 40);
+                ctx.signal.addEventListener(
+                  "abort",
+                  () => {
+                    state.aborted = true;
+                    clearTimeout(timer);
+                    resolve({ kind: "unknown", reason: "aborted", cause: ctx.signal.reason });
+                  },
+                  { once: true },
+                );
+              });
+            },
+          },
+        ],
+      }),
+  };
+  return state;
+}
+
+/**
+ * Sends through an idempotency store whose reserve() returns an accepted record
+ * without a result, expects ConfigurationError, and returns the fingerprint reserve() saw.
+ */
+async function sendWithMalformedReserve(): Promise<string> {
+  let capturedFp = "";
+  const badReserveClient = createSmsClient({
+    adapters: [memory()],
+    idempotency: {
+      store: {
+        async get() {
+          return null;
+        },
+        async reserve(i) {
+          capturedFp = i.fingerprint;
+          return {
+            kind: "existing",
+            record: { state: "accepted", fingerprint: capturedFp },
+          } as unknown as never;
+        },
+        async finalize() {
+          return { kind: "finalized" };
+        },
+      },
+    },
+  });
+  await expect(
+    badReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-res" }),
+  ).rejects.toBeInstanceOf(ConfigurationError);
+  return capturedFp;
+}
+
+class Range {
+  get minSec() {
+    return 1;
+  }
+  get maxSec() {
+    return 10;
+  }
+}
+/** Capabilities exposed through prototype getters, as a class-based adapter would. */
+class ProtoCaps {
+  get sendText(): true {
+    return true;
+  }
+  get mms() {
+    return true;
+  }
+  get scheduling() {
+    return false;
+  }
+  get validityPeriod() {
+    return new Range();
+  }
+  get webhookUrlOverride() {
+    return false;
+  }
+  get inbound() {
+    return false;
+  }
+  get deliveryReceipts() {
+    return false;
+  }
+  get senderTypes() {
+    return ["long_code"] as const;
+  }
+  get nativeIdempotency() {
+    return false;
+  }
+}
 
 describe("send: accepted", () => {
   test("returns a normalized accepted result", async () => {
@@ -248,6 +361,23 @@ describe("send: fallback", () => {
     });
     await sms.send(message);
     expect(seen).toEqual([{ to: "+14155550123", encoding: "gsm7", segments: 1 }]);
+  });
+
+  test("a method-style beforeSend keeps options as its this", async () => {
+    class BlockList {
+      readonly blocked = new Set(["+14155550123"]);
+      readonly adapters: [ReturnType<typeof memory>] = [memory()];
+      async beforeSend(this: BlockList, context: { readonly message: SmsSendInput }) {
+        return this.blocked.has(context.message.to)
+          ? { kind: "reject" as const, reason: "blocked" }
+          : { kind: "allow" as const };
+      }
+    }
+    const sms = createSmsClient(new BlockList());
+    const error = await rejection(sms.send(message));
+    expect(error).toBeInstanceOf(PolicyRejectedError);
+    expect(error).toMatchObject({ reason: "blocked" });
+    await expect(sms.send({ ...message, to: "+14155550199" })).resolves.toMatchObject({ handoff: "accepted" });
   });
 
   test("an exception in beforeSend propagates and nothing is sent", async () => {
@@ -580,475 +710,358 @@ describe("send: fromByAdapter", () => {
     ).toThrow(ConfigurationError);
   });
 
-  test("hardens frozen capability constants, stateful class hooks, vonage class/reportsCredentials, providerOptions scoping, Object.prototype adapter names, beforeSend thenables, and Twilio params", async () => {
-    const { TWILIO_CAPABILITIES, twilio } = await import("../../src/providers/twilio.js");
-    const { vonage } = await import("../../src/providers/vonage.js");
-    const { computeTwilioSignature, verifyTwilioSignature } = await import("../../src/webhooks/twilio.js");
+  describe("hardening regressions", () => {
+    test("1. Exported capability constants and capabilities() output are deep-frozen", async () => {
+      expect(Object.isFrozen(TWILIO_CAPABILITIES)).toBe(true);
+      expect(Object.isFrozen(TWILIO_CAPABILITIES.senderTypes)).toBe(true);
+      expect(Object.isFrozen(TWILIO_CAPABILITIES.validityPeriod)).toBe(true);
+      const baseMem = memory({ from: { senderId: "ACME" } });
+      const caps = createSmsClient({ adapters: [baseMem] }).capabilities();
+      expect(Object.isFrozen(caps)).toBe(true);
+      expect(Object.isFrozen(caps[0])).toBe(true);
+      expect(Object.isFrozen(caps[0]?.capabilities)).toBe(true);
+      expect(Object.isFrozen(caps[0]?.capabilities.senderTypes)).toBe(true);
 
-    // 1. Exported capability constants and capabilities() output are deep-frozen
-    expect(Object.isFrozen(TWILIO_CAPABILITIES)).toBe(true);
-    expect(Object.isFrozen(TWILIO_CAPABILITIES.senderTypes)).toBe(true);
-    expect(Object.isFrozen(TWILIO_CAPABILITIES.validityPeriod)).toBe(true);
-    const baseMem = memory({ from: { senderId: "ACME" } });
-    const caps = createSmsClient({ adapters: [baseMem] }).capabilities();
-    expect(Object.isFrozen(caps)).toBe(true);
-    expect(Object.isFrozen(caps[0])).toBe(true);
-    expect(Object.isFrozen(caps[0]?.capabilities)).toBe(true);
-    expect(Object.isFrozen(caps[0]?.capabilities.senderTypes)).toBe(true);
-
-    // Mutating caller-supplied from object does not mutate memory() defaultFrom
-    const senderObj = { senderId: "ACME" };
-    const memAdapter = memory({ from: senderObj });
-    senderObj.senderId = "EVIL";
-    const memClient = createSmsClient({ adapters: [memAdapter] });
-    await memClient.send({ to: "+14155550123", body: "hi" });
-    expect(memAdapter.sent[0]?.message.from).toEqual({ kind: "alphanumeric", value: "ACME" });
-
-    // 2. Stateful class-instance hooks work with bound `this` and known hook getters are read once
-    class StatefulHooks {
-      accepted: string[] = [];
-      onAccepted(e: { providerId: string }) {
-        this.accepted.push(e.providerId);
-      }
-    }
-    const statefulHooks = new StatefulHooks();
-    const hookClient = createSmsClient({ adapters: [memory()], hooks: statefulHooks });
-    await hookClient.send({ to: "+14155550123", body: "hi" });
-    expect(statefulHooks.accepted).toHaveLength(1);
-
-    let hookReads = 0;
-    const singleReadHooks = {};
-    Object.defineProperty(singleReadHooks, "onAccepted", {
-      enumerable: true,
-      get() {
-        hookReads += 1;
-        if (hookReads > 1) throw new Error("read twice");
-        return () => {};
-      },
+      // Mutating caller-supplied from object does not mutate memory() defaultFrom
+      const senderObj = { senderId: "ACME" };
+      const memAdapter = memory({ from: senderObj });
+      senderObj.senderId = "EVIL";
+      const memClient = createSmsClient({ adapters: [memAdapter] });
+      await memClient.send({ to: "+14155550123", body: "hi" });
+      expect(memAdapter.sent[0]?.message.from).toEqual({ kind: "alphanumeric", value: "ACME" });
     });
-    createSmsClient({ adapters: [memory()], hooks: singleReadHooks });
-    expect(hookReads).toBe(1);
 
-    // 3. Vonage accepts class-instance options and single-reads/guards reportsCredentials
-    class VonageBasicClass {
-      get apiKey() {
-        return "key12345";
+    test("2. Stateful class-instance hooks work with bound `this` and known hook getters are read once", async () => {
+      class StatefulHooks {
+        accepted: string[] = [];
+        onAccepted(e: { providerId: string }) {
+          this.accepted.push(e.providerId);
+        }
       }
-      get apiSecret() {
-        return "sec1234567890";
-      }
-      get from() {
-        return "+14155550100";
-      }
-    }
-    const vonageFromClass = vonage(new VonageBasicClass() as unknown as Parameters<typeof vonage>[0]);
-    expect(vonageFromClass.name).toBe("vonage");
+      const statefulHooks = new StatefulHooks();
+      const hookClient = createSmsClient({ adapters: [memory()], hooks: statefulHooks });
+      await hookClient.send({ to: "+14155550123", body: "hi" });
+      expect(statefulHooks.accepted).toHaveLength(1);
 
-    const pem = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----";
-    expect(() =>
+      let hookReads = 0;
+      const singleReadHooks = {};
+      Object.defineProperty(singleReadHooks, "onAccepted", {
+        enumerable: true,
+        get() {
+          hookReads += 1;
+          if (hookReads > 1) throw new Error("read twice");
+          return () => {};
+        },
+      });
+      createSmsClient({ adapters: [memory()], hooks: singleReadHooks });
+      expect(hookReads).toBe(1);
+    });
+
+    test("3. Vonage accepts class-instance options and single-reads/guards reportsCredentials", async () => {
+      class VonageBasicClass {
+        get apiKey() {
+          return "key12345";
+        }
+        get apiSecret() {
+          return "sec1234567890";
+        }
+        get from() {
+          return "+14155550100";
+        }
+      }
+      const vonageFromClass = vonage(new VonageBasicClass() as unknown as Parameters<typeof vonage>[0]);
+      expect(vonageFromClass.name).toBe("vonage");
+
+      const pem = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----";
+      expect(() =>
+        vonage({
+          applicationId: "app-1",
+          privateKey: pem,
+          reportsCredentials: {
+            get apiKey(): string {
+              throw new Error("reports boom");
+            },
+            apiSecret: "sec",
+          },
+        }),
+      ).toThrow(ConfigurationError);
+
+      let reportKeyReads = 0;
       vonage({
         applicationId: "app-1",
         privateKey: pem,
         reportsCredentials: {
-          get apiKey(): string {
-            throw new Error("reports boom");
+          get apiKey() {
+            reportKeyReads += 1;
+            return "goodkey";
           },
           apiSecret: "sec",
         },
-      }),
-    ).toThrow(ConfigurationError);
-
-    let reportKeyReads = 0;
-    vonage({
-      applicationId: "app-1",
-      privateKey: pem,
-      reportsCredentials: {
-        get apiKey() {
-          reportKeyReads += 1;
-          return "goodkey";
-        },
-        apiSecret: "sec",
-      },
+      });
+      expect(reportKeyReads).toBe(1);
     });
-    expect(reportKeyReads).toBe(1);
 
-    // 4. Unconfigured providerOptions keys with throwing getters are ignored
-    const memOnly = createSmsClient({ adapters: [memory()] });
-    const res = memOnly.validate({
-      to: "+14155550123",
-      body: "hi",
-      providerOptions: {
-        get unconfigured() {
-          throw new Error("should not read");
-        },
-      } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
-    });
-    expect(res.supported).toBe(true);
-
-    // 5. Adapter named "toString" does not trip Object.prototype in fromByAdapter
-    const protoNamed = createSmsClient({ adapters: [memory({ name: "toString" })] });
-    expect(protoNamed.validate({ to: "+14155550123", body: "hi", fromByAdapter: {} }).supported).toBe(true);
-
-    // 6. Revoked Proxy for adapters, from, and missing adapter.support throw ConfigurationError
-    const revoked = Proxy.revocable({}, {});
-    revoked.revoke();
-    expect(() => createSmsClient({ adapters: revoked.proxy as unknown as [ReturnType<typeof memory>] })).toThrow(
-      ConfigurationError,
-    );
-    expect(() =>
-      twilio({
-        accountSid: `AC${"a".repeat(32)}`,
-        authToken: "tok",
-        from: revoked.proxy as unknown as NonNullable<SmsSendInput["from"]>,
-      }),
-    ).toThrow(ConfigurationError);
-    expect(() =>
-      createSmsClient({
-        adapters: [{ ...memory(), support: undefined as unknown as ReturnType<typeof memory>["support"] }],
-      }),
-    ).toThrow(ConfigurationError);
-
-    // 7. beforeSend returning a throwing thenable or revoked Proxy fails closed with PolicyRejectedError
-    const badThenableClient = createSmsClient({
-      adapters: [memory()],
-      beforeSend: () =>
-        ({
-          get then() {
-            throw new Error("then-boom");
-          },
-        }) as unknown as { kind: "allow" },
-    });
-    await expect(badThenableClient.send({ to: "+14155550123", body: "hi" })).rejects.toThrow(PolicyRejectedError);
-
-    const revokedPolicyClient = createSmsClient({
-      adapters: [memory()],
-      beforeSend: () => revoked.proxy as unknown as { kind: "allow" },
-    });
-    await expect(revokedPolicyClient.send({ to: "+14155550123", body: "hi" })).rejects.toThrow(PolicyRejectedError);
-
-    // 8. Twilio verify/compute reject revoked or throwing params with ConfigurationError
-    await expect(
-      computeTwilioSignature({
-        authToken: "tok",
-        url: "https://example.com/hook",
-        params: revoked.proxy as unknown as Array<[string, string]>,
-      }),
-    ).rejects.toThrow(ConfigurationError);
-
-    const throwingParams: Array<[string, string]> = [];
-    Object.defineProperty(throwingParams, 0, {
-      enumerable: true,
-      get() {
-        throw new Error("param boom");
-      },
-    });
-    Object.defineProperty(throwingParams, "length", { value: 1 });
-    await expect(
-      verifyTwilioSignature({
-        authToken: "tok",
-        url: "https://example.com/hook",
-        params: throwingParams,
-        signature: "abc",
-      }),
-    ).rejects.toThrow(ConfigurationError);
-
-    // 9. Exported *_PROVIDER_OPTIONS are deep-frozen and custom specs are snapshotted upfront
-    const { TWILIO_PROVIDER_OPTIONS } = await import("../../src/providers/twilio.js");
-    expect(Object.isFrozen(TWILIO_PROVIDER_OPTIONS)).toBe(true);
-    expect(Object.isFrozen(TWILIO_PROVIDER_OPTIONS.reserved)).toBe(true);
-    const mutableSpec = {
-      options: { tag: { type: "string" as const, wire: "tag" } },
-      reserved: ["to"],
-    };
-    const specClient = createSmsClient({
-      adapters: [memory({ name: "custom", providerOptions: mutableSpec })],
-    });
-    mutableSpec.reserved.length = 0;
-    expect(
-      specClient.validate({
+    test("4. Unconfigured providerOptions keys with throwing getters are ignored", async () => {
+      const memOnly = createSmsClient({ adapters: [memory()] });
+      const res = memOnly.validate({
         to: "+14155550123",
         body: "hi",
         providerOptions: {
-          custom: { extra: { to: "+19990000000" } },
+          get unconfigured() {
+            throw new Error("should not read");
+          },
         } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
-      }).supported,
-    ).toBe(false);
-
-    // 10. Class-instance capabilities and validityPeriod prototype getters are preserved
-    class Range {
-      get minSec() {
-        return 1;
-      }
-      get maxSec() {
-        return 10;
-      }
-    }
-    class ProtoCaps {
-      get sendText(): true {
-        return true;
-      }
-      get mms() {
-        return true;
-      }
-      get scheduling() {
-        return false;
-      }
-      get validityPeriod() {
-        return new Range();
-      }
-      get webhookUrlOverride() {
-        return false;
-      }
-      get inbound() {
-        return false;
-      }
-      get deliveryReceipts() {
-        return false;
-      }
-      get senderTypes() {
-        return ["long_code"] as const;
-      }
-      get nativeIdempotency() {
-        return false;
-      }
-    }
-    let nameReads = 0;
-    const protoClient = createSmsClient({
-      adapters: [
-        {
-          get name() {
-            nameReads += 1;
-            return "proto";
-          },
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return { kind: "accepted", providerId: "p1", delivery: "queued" };
-          },
-        },
-      ],
+      });
+      expect(res.supported).toBe(true);
     });
-    expect(nameReads).toBe(1);
-    expect(protoClient.capabilities()[0]?.capabilities.mms).toBe(true);
-    expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 11 }).supported).toBe(false);
-    expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 5 }).supported).toBe(true);
 
-    // 11. memory() rejects null, revoked Proxy, throwing option getters, invalid outcomes, capabilities, and providerOptions
-    expect(() => memory(null as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
-    expect(() => memory(revoked.proxy as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
-    expect(() =>
-      memory({
-        get name(): string {
-          throw new Error("mem-boom");
-        },
-      }),
-    ).toThrow(ConfigurationError);
-    expect(() => memory({ outcomes: [42 as unknown as never] })).toThrow(ConfigurationError);
-    expect(() => memory({ capabilities: { mms: "yes" as unknown as boolean } })).toThrow(ConfigurationError);
-    expect(() => memory({ capabilities: { senderTypes: "abc" as unknown as never } })).toThrow(ConfigurationError);
-    expect(() => memory({ capabilities: { sendText: false as unknown as true } })).toThrow(ConfigurationError);
-    expect(() => memory({ providerOptions: "bad" as unknown as never })).toThrow(ConfigurationError);
-
-    // 12. Class-instance ProviderOptionField preserves prototype getters and __proto__ option key does not mutate prototype
-    class FieldDef {
-      get type() {
-        return "enum" as const;
-      }
-      get wire() {
-        return "mode";
-      }
-      get values() {
-        return ["a", "b"] as const;
-      }
-    }
-    const protoFieldClient = createSmsClient({
-      adapters: [
-        {
-          name: "proto-po",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          providerOptions: { options: { mode: new FieldDef() }, reserved: [] },
-          async send() {
-            return { kind: "accepted", providerId: "1", delivery: "queued" };
-          },
-        },
-      ],
+    test("5. Adapter named 'toString' does not trip Object.prototype in fromByAdapter", async () => {
+      const protoNamed = createSmsClient({ adapters: [memory({ name: "toString" })] });
+      expect(protoNamed.validate({ to: "+14155550123", body: "hi", fromByAdapter: {} }).supported).toBe(true);
     });
-    expect(
-      protoFieldClient.validate({
-        to: "+14155550123",
-        body: "hi",
-        providerOptions: { "proto-po": { mode: "a" } } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
-      }).supported,
-    ).toBe(true);
 
-    // 13. Single-read TOCTOU protection on capabilities/support/providerOptions and sendText: true enforcement
-    let mmsReads = 0;
-    const toctouClient = createSmsClient({
-      adapters: [
-        {
-          name: "toctou",
-          capabilities: {
-            sendText: true,
-            get mms() {
-              mmsReads += 1;
-              return mmsReads === 1 ? true : ("INJECTED" as unknown as boolean);
+    test("6. Revoked Proxy for adapters, from, and missing adapter.support throw ConfigurationError", async () => {
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      expect(() => createSmsClient({ adapters: revoked.proxy as unknown as [ReturnType<typeof memory>] })).toThrow(
+        ConfigurationError,
+      );
+      expect(() =>
+        twilio({
+          accountSid: `AC${"a".repeat(32)}`,
+          authToken: "tok",
+          from: revoked.proxy as unknown as NonNullable<SmsSendInput["from"]>,
+        }),
+      ).toThrow(ConfigurationError);
+      expect(() =>
+        createSmsClient({
+          adapters: [{ ...memory(), support: undefined as unknown as ReturnType<typeof memory>["support"] }],
+        }),
+      ).toThrow(ConfigurationError);
+    });
+
+    test("7. beforeSend returning a throwing thenable or revoked Proxy fails closed with PolicyRejectedError", async () => {
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      const badThenableClient = createSmsClient({
+        adapters: [memory()],
+        beforeSend: () =>
+          ({
+            get then() {
+              throw new Error("then-boom");
             },
-            scheduling: false,
-            validityPeriod: null,
-            webhookUrlOverride: false,
-            inbound: false,
-            deliveryReceipts: false,
-            senderTypes: ["long_code"],
-            nativeIdempotency: false,
-          },
-          support: { status: "supported", notes: [] },
-          async send() {
-            return { kind: "accepted", providerId: "1", delivery: "queued" };
-          },
-        },
-      ],
+          }) as unknown as { kind: "allow" },
+      });
+      await expect(badThenableClient.send({ to: "+14155550123", body: "hi" })).rejects.toThrow(PolicyRejectedError);
+
+      const revokedPolicyClient = createSmsClient({
+        adapters: [memory()],
+        beforeSend: () => revoked.proxy as unknown as { kind: "allow" },
+      });
+      await expect(revokedPolicyClient.send({ to: "+14155550123", body: "hi" })).rejects.toThrow(PolicyRejectedError);
     });
-    expect(mmsReads).toBe(1);
-    expect(toctouClient.capabilities()[0]?.capabilities.mms).toBe(true);
-    expect(() =>
-      createSmsClient({
+
+    test("8. Twilio verify/compute reject revoked or throwing params with ConfigurationError", async () => {
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      await expect(
+        computeTwilioSignature({
+          authToken: "tok",
+          url: "https://example.com/hook",
+          params: revoked.proxy as unknown as Array<[string, string]>,
+        }),
+      ).rejects.toThrow(ConfigurationError);
+
+      const throwingParams: Array<[string, string]> = [];
+      Object.defineProperty(throwingParams, 0, {
+        enumerable: true,
+        get() {
+          throw new Error("param boom");
+        },
+      });
+      Object.defineProperty(throwingParams, "length", { value: 1 });
+      await expect(
+        verifyTwilioSignature({
+          authToken: "tok",
+          url: "https://example.com/hook",
+          params: throwingParams,
+          signature: "abc",
+        }),
+      ).rejects.toThrow(ConfigurationError);
+    });
+
+    test("9. Exported *_PROVIDER_OPTIONS are deep-frozen and custom specs are snapshotted upfront", async () => {
+      const { TWILIO_PROVIDER_OPTIONS } = await import("../../src/providers/twilio.js");
+      expect(Object.isFrozen(TWILIO_PROVIDER_OPTIONS)).toBe(true);
+      expect(Object.isFrozen(TWILIO_PROVIDER_OPTIONS.reserved)).toBe(true);
+      const mutableSpec = {
+        options: { tag: { type: "string" as const, wire: "tag" } },
+        reserved: ["to"],
+      };
+      const specClient = createSmsClient({
+        adapters: [memory({ name: "custom", providerOptions: mutableSpec })],
+      });
+      mutableSpec.reserved.length = 0;
+      expect(
+        specClient.validate({
+          to: "+14155550123",
+          body: "hi",
+          providerOptions: {
+            custom: { extra: { to: "+19990000000" } },
+          } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
+        }).supported,
+      ).toBe(false);
+    });
+
+    test("10. Class-instance capabilities and validityPeriod prototype getters are preserved", async () => {
+      let nameReads = 0;
+      const protoClient = createSmsClient({
         adapters: [
           {
-            ...memory(),
-            capabilities: { ...memory().capabilities, sendText: false as unknown as true },
+            get name() {
+              nameReads += 1;
+              return "proto";
+            },
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return { kind: "accepted", providerId: "p1", delivery: "queued" };
+            },
           },
         ],
-      }),
-    ).toThrow(ConfigurationError);
-
-    // 14. Malformed send() outcome fails closed as HandoffUnknownError and does not strand idempotency lock
-    const { memoryIdempotencyStore } = await import("../../src/testing/index.js");
-    const badSendStore = memoryIdempotencyStore();
-    const badSendClient = createSmsClient({
-      adapters: [
-        {
-          name: "bad-send",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return { kind: "queued", providerId: "p" } as unknown as never;
-          },
-        },
-      ],
-      idempotency: { store: badSendStore },
+      });
+      expect(nameReads).toBe(1);
+      expect(protoClient.capabilities()[0]?.capabilities.mms).toBe(true);
+      expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 11 }).supported).toBe(false);
+      expect(protoClient.validate({ to: "+14155550123", body: "hi", validityPeriodSec: 5 }).supported).toBe(true);
     });
-    await expect(badSendClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad" })).rejects.toBeInstanceOf(
-      HandoffUnknownError,
-    );
-    await expect(badSendClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad" })).rejects.toBeInstanceOf(
-      HandoffUnknownError,
-    );
 
-    // 15. Malformed getMessage() outcome rejects with MessageLookupError
-    const { MessageLookupError } = await import("../../src/core/errors.js");
-    const badLookupClient = createSmsClient({
-      adapters: [
-        {
-          name: "bad-lookup",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return { kind: "accepted", providerId: "1", delivery: "queued" };
+    test("11. memory() rejects null, revoked Proxy, throwing option getters, invalid outcomes, capabilities, and providerOptions", async () => {
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      expect(() => memory(null as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
+      expect(() => memory(revoked.proxy as unknown as Parameters<typeof memory>[0])).toThrow(ConfigurationError);
+      expect(() =>
+        memory({
+          get name(): string {
+            throw new Error("mem-boom");
           },
-          async getMessage() {
-            return null as unknown as never;
-          },
-        },
-      ],
+        }),
+      ).toThrow(ConfigurationError);
+      expect(() => memory({ outcomes: [42 as unknown as never] })).toThrow(ConfigurationError);
+      expect(() => memory({ capabilities: { mms: "yes" as unknown as boolean } })).toThrow(ConfigurationError);
+      expect(() => memory({ capabilities: { senderTypes: "abc" as unknown as never } })).toThrow(ConfigurationError);
+      expect(() => memory({ capabilities: { sendText: false as unknown as true } })).toThrow(ConfigurationError);
+      expect(() => memory({ providerOptions: "bad" as unknown as never })).toThrow(ConfigurationError);
     });
-    await expect(badLookupClient.getMessage("m1")).rejects.toBeInstanceOf(MessageLookupError);
 
-    // 16. Custom adapter rejected details.message does not leak full phone numbers into error.message or toJSON()
-    const leakyRejectClient = createSmsClient({
-      adapters: [
-        {
-          name: "leaky-reject",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return {
-              kind: "rejected",
-              category: "request",
-              details: { provider: "leaky-reject", message: "bad +14155550123 SECRET_BODY" },
-            };
-          },
-        },
-      ],
-    });
-    const leakyErr = (await rejection(leakyRejectClient.send({ to: "+14155550123", body: "hi" }))) as Error;
-    expect(leakyErr.message).not.toContain("+14155550123");
-    expect(leakyErr.message).not.toContain("SECRET_BODY");
-    expect(JSON.stringify(leakyErr)).not.toContain("+14155550123");
-    expect(JSON.stringify(leakyErr)).not.toContain("SECRET_BODY");
-
-    // 17. Accepted send outcome validates delivery & reads providerId once; malformed fails closed
-    const badDeliveryClient = createSmsClient({
-      adapters: [
-        {
-          name: "bad-del",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return { kind: "accepted", providerId: "id1", delivery: "bogus" } as unknown as never;
-          },
-        },
-      ],
-    });
-    await expect(badDeliveryClient.send({ to: "+14155550123", body: "hi" })).rejects.toBeInstanceOf(HandoffUnknownError);
-
-    let pidReads = 0;
-    const toctouPidClient = createSmsClient({
-      adapters: [
-        {
-          name: "pid-once",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return {
-              kind: "accepted",
-              get providerId() {
-                pidReads += 1;
-                return pidReads === 1 ? "msg_ok" : (undefined as unknown as string);
-              },
-              delivery: "queued",
-            };
-          },
-        },
-      ],
-    });
-    const toctouPidRes = await toctouPidClient.send({ to: "+14155550123", body: "hi" });
-    expect(toctouPidRes.providerId).toBe("msg_ok");
-    expect(pidReads).toBe(1);
-
-    // 18. getMessage() normalizes missing reason, empty status, throwing getters, and strips details.message
-    const badLookupShapes = [
-      { kind: "failed" },
-      { kind: "failed", reason: 123 },
-      { kind: "found", status: {} },
-      {
-        get kind() {
-          throw new Error("getter-boom");
-        },
-      },
-    ];
-    for (const shape of badLookupShapes) {
-      const c = createSmsClient({
+    test("12. Class-instance ProviderOptionField preserves prototype getters and __proto__ option key does not mutate prototype", async () => {
+      class FieldDef {
+        get type() {
+          return "enum" as const;
+        }
+        get wire() {
+          return "mode";
+        }
+        get values() {
+          return ["a", "b"] as const;
+        }
+      }
+      const protoFieldClient = createSmsClient({
         adapters: [
           {
-            name: "bad-lkp",
+            name: "proto-po",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            providerOptions: { options: { mode: new FieldDef() }, reserved: [] },
+            async send() {
+              return { kind: "accepted", providerId: "1", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      expect(
+        protoFieldClient.validate({
+          to: "+14155550123",
+          body: "hi",
+          providerOptions: { "proto-po": { mode: "a" } } as unknown as NonNullable<SmsSendInput["providerOptions"]>,
+        }).supported,
+      ).toBe(true);
+    });
+
+    test("13. Single-read TOCTOU protection on capabilities/support/providerOptions and sendText: true enforcement", async () => {
+      let mmsReads = 0;
+      const toctouClient = createSmsClient({
+        adapters: [
+          {
+            name: "toctou",
+            capabilities: {
+              sendText: true,
+              get mms() {
+                mmsReads += 1;
+                return mmsReads === 1 ? true : ("INJECTED" as unknown as boolean);
+              },
+              scheduling: false,
+              validityPeriod: null,
+              webhookUrlOverride: false,
+              inbound: false,
+              deliveryReceipts: false,
+              senderTypes: ["long_code"],
+              nativeIdempotency: false,
+            },
+            support: { status: "supported", notes: [] },
+            async send() {
+              return { kind: "accepted", providerId: "1", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      expect(mmsReads).toBe(1);
+      expect(toctouClient.capabilities()[0]?.capabilities.mms).toBe(true);
+      expect(() =>
+        createSmsClient({
+          adapters: [
+            {
+              ...memory(),
+              capabilities: { ...memory().capabilities, sendText: false as unknown as true },
+            },
+          ],
+        }),
+      ).toThrow(ConfigurationError);
+    });
+
+    test("14. Malformed send() outcome fails closed as HandoffUnknownError and does not strand idempotency lock", async () => {
+      const { memoryIdempotencyStore } = await import("../../src/testing/index.js");
+      const badSendStore = memoryIdempotencyStore();
+      const badSendClient = createSmsClient({
+        adapters: [
+          {
+            name: "bad-send",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return { kind: "queued", providerId: "p" } as unknown as never;
+            },
+          },
+        ],
+        idempotency: { store: badSendStore },
+      });
+      await expect(badSendClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad" })).rejects.toBeInstanceOf(
+        HandoffUnknownError,
+      );
+      await expect(badSendClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad" })).rejects.toBeInstanceOf(
+        HandoffUnknownError,
+      );
+    });
+
+    test("15. Malformed getMessage() outcome rejects with MessageLookupError", async () => {
+      const badLookupClient = createSmsClient({
+        adapters: [
+          {
+            name: "bad-lookup",
             capabilities: new ProtoCaps(),
             support: { status: "supported", notes: [] },
             defaultFrom: "+15005550006",
@@ -1056,161 +1069,363 @@ describe("send: fromByAdapter", () => {
               return { kind: "accepted", providerId: "1", delivery: "queued" };
             },
             async getMessage() {
-              return shape as unknown as never;
+              return null as unknown as never;
             },
           },
         ],
       });
-      await expect(c.getMessage("m1")).rejects.toBeInstanceOf(MessageLookupError);
-    }
+      await expect(badLookupClient.getMessage("m1")).rejects.toBeInstanceOf(MessageLookupError);
+    });
 
-    const leakyLookupClient = createSmsClient({
-      adapters: [
+    test("16. Custom adapter rejected details.message does not leak full phone numbers into error.message or toJSON()", async () => {
+      const leakyRejectClient = createSmsClient({
+        adapters: [
+          {
+            name: "leaky-reject",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return {
+                kind: "rejected",
+                category: "request",
+                details: { provider: "leaky-reject", message: "bad +14155550123 SECRET_BODY" },
+              };
+            },
+          },
+        ],
+      });
+      const leakyErr = (await rejection(leakyRejectClient.send({ to: "+14155550123", body: "hi" }))) as Error;
+      expect(leakyErr.message).not.toContain("+14155550123");
+      expect(leakyErr.message).not.toContain("SECRET_BODY");
+      expect(JSON.stringify(leakyErr)).not.toContain("+14155550123");
+      expect(JSON.stringify(leakyErr)).not.toContain("SECRET_BODY");
+    });
+
+    test("17. Accepted send outcome validates delivery & reads providerId once; malformed fails closed", async () => {
+      const badDeliveryClient = createSmsClient({
+        adapters: [
+          {
+            name: "bad-del",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return { kind: "accepted", providerId: "id1", delivery: "bogus" } as unknown as never;
+            },
+          },
+        ],
+      });
+      await expect(badDeliveryClient.send({ to: "+14155550123", body: "hi" })).rejects.toBeInstanceOf(HandoffUnknownError);
+
+      let pidReads = 0;
+      const toctouPidClient = createSmsClient({
+        adapters: [
+          {
+            name: "pid-once",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return {
+                kind: "accepted",
+                get providerId() {
+                  pidReads += 1;
+                  return pidReads === 1 ? "msg_ok" : (undefined as unknown as string);
+                },
+                delivery: "queued",
+              };
+            },
+          },
+        ],
+      });
+      const toctouPidRes = await toctouPidClient.send({ to: "+14155550123", body: "hi" });
+      expect(toctouPidRes.providerId).toBe("msg_ok");
+      expect(pidReads).toBe(1);
+    });
+
+    test("18. getMessage() normalizes missing reason, empty status, throwing getters, and strips details.message", async () => {
+      const badLookupShapes = [
+        { kind: "failed" },
+        { kind: "failed", reason: 123 },
+        { kind: "found", status: {} },
         {
-          name: "leaky-lkp",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return { kind: "accepted", providerId: "1", delivery: "queued" };
+          get kind() {
+            throw new Error("getter-boom");
           },
-          async getMessage() {
-            return {
-              kind: "failed",
-              reason: "request",
-              details: {
-                provider: "leaky-lkp",
-                code: "body secret +14155550123 alice@example.com",
-                requestId: "body secret +14155550123 alice@example.com",
-                message: "SECRET_KEY +14155550123 alice@example.com",
+        },
+      ];
+      for (const shape of badLookupShapes) {
+        const c = createSmsClient({
+          adapters: [
+            {
+              name: "bad-lkp",
+              capabilities: new ProtoCaps(),
+              support: { status: "supported", notes: [] },
+              defaultFrom: "+15005550006",
+              async send() {
+                return { kind: "accepted", providerId: "1", delivery: "queued" };
               },
-            };
+              async getMessage() {
+                return shape as unknown as never;
+              },
+            },
+          ],
+        });
+        await expect(c.getMessage("m1")).rejects.toBeInstanceOf(MessageLookupError);
+      }
+
+      const leakyLookupClient = createSmsClient({
+        adapters: [
+          {
+            name: "leaky-lkp",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return { kind: "accepted", providerId: "1", delivery: "queued" };
+            },
+            async getMessage() {
+              return {
+                kind: "failed",
+                reason: "request",
+                details: {
+                  provider: "leaky-lkp",
+                  code: "body secret +14155550123 alice@example.com",
+                  requestId: "body secret +14155550123 alice@example.com",
+                  message: "SECRET_KEY +14155550123 alice@example.com",
+                },
+              };
+            },
           },
-        },
-      ],
+        ],
+      });
+      const leakyLookupErr = (await rejection(leakyLookupClient.getMessage("m1"))) as Error;
+      expect(leakyLookupErr).toBeInstanceOf(MessageLookupError);
+      expect(leakyLookupErr.message).not.toContain("SECRET_KEY");
+      expect(JSON.stringify(leakyLookupErr)).not.toContain("+14155550123");
+      expect(JSON.stringify(leakyLookupErr)).not.toContain("alice@example.com");
     });
-    const leakyLookupErr = (await rejection(leakyLookupClient.getMessage("m1"))) as Error;
-    expect(leakyLookupErr).toBeInstanceOf(MessageLookupError);
-    expect(leakyLookupErr.message).not.toContain("SECRET_KEY");
-    expect(JSON.stringify(leakyLookupErr)).not.toContain("+14155550123");
-    expect(JSON.stringify(leakyLookupErr)).not.toContain("alice@example.com");
 
-    // 19. memory().enqueue rejects malformed outcomes; malformed idempotency.store.reserve throws ConfigurationError
-    expect(() => memory().enqueue({ kind: "queued" } as unknown as never)).toThrow(ConfigurationError);
+    test("19. memory().enqueue rejects malformed outcomes; malformed idempotency.store.reserve throws ConfigurationError", async () => {
+      expect(() => memory().enqueue({ kind: "queued" } as unknown as never)).toThrow(ConfigurationError);
 
-    let capturedFp = "";
-    const badReserveClient = createSmsClient({
-      adapters: [memory()],
-      idempotency: {
-        store: {
-          async get() {
-            return null;
-          },
-          async reserve(i) {
-            capturedFp = i.fingerprint;
-            return {
-              kind: "existing",
-              record: { state: "accepted", fingerprint: capturedFp },
-            } as unknown as never;
-          },
-          async finalize() {
-            return { kind: "finalized" };
-          },
-        },
-      },
+      await sendWithMalformedReserve();
     });
-    await expect(
-      badReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-res" }),
-    ).rejects.toBeInstanceOf(ConfigurationError);
 
-    // 20. sanitizeProviderDetails uses fallback adapter name and validates HTTP status 100..599
-    const spoofedDetailsClient = createSmsClient({
-      adapters: [
+    test("20. sanitizeProviderDetails uses fallback adapter name and validates HTTP status 100..599", async () => {
+      const spoofedDetailsClient = createSmsClient({
+        adapters: [
+          {
+            name: "spoof-adapter",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return {
+                kind: "rejected",
+                category: "request",
+                details: {
+                  provider: "forged +14155550123 secret",
+                  httpStatus: 14155550123,
+                  code: "BAD_REQ",
+                },
+              };
+            },
+          },
+        ],
+      });
+      const spoofedErr = (await rejection(spoofedDetailsClient.send({ to: "+14155550123", body: "hi" }))) as {
+        provider?: { provider?: string; httpStatus?: number };
+      };
+      expect(spoofedErr.provider?.provider).toBe("spoof-adapter");
+      expect(spoofedErr.provider?.httpStatus).toBeUndefined();
+      expect(JSON.stringify(spoofedErr)).not.toContain("14155550123");
+    });
+
+    test("21. idempotency.store.reserve throwing getters & incomplete/TOCTOU accepted records throw ConfigurationError", async () => {
+      const capturedFp = await sendWithMalformedReserve();
+      for (const badReturn of [
         {
-          name: "spoof-adapter",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return {
-              kind: "rejected",
-              category: "request",
-              details: {
-                provider: "forged +14155550123 secret",
-                httpStatus: 14155550123,
-                code: "BAD_REQ",
-              },
-            };
+          get kind() {
+            throw new Error("kind boom");
           },
         },
-      ],
-    });
-    const spoofedErr = (await rejection(spoofedDetailsClient.send({ to: "+14155550123", body: "hi" }))) as {
-      provider?: { provider?: string; httpStatus?: number };
-    };
-    expect(spoofedErr.provider?.provider).toBe("spoof-adapter");
-    expect(spoofedErr.provider?.httpStatus).toBeUndefined();
-    expect(JSON.stringify(spoofedErr)).not.toContain("14155550123");
-
-    // 21. idempotency.store.reserve throwing getters & incomplete/TOCTOU accepted records throw ConfigurationError
-    for (const badReturn of [
-      {
-        get kind() {
-          throw new Error("kind boom");
+        {
+          kind: "existing",
+          record: {
+            state: "accepted",
+            fingerprint: capturedFp,
+            result: { provider: "memory", providerId: "m1", delivery: "queued" },
+          },
         },
-      },
-      {
-        kind: "existing",
-        record: {
-          state: "accepted",
-          fingerprint: capturedFp,
-          result: { provider: "memory", providerId: "m1", delivery: "queued" },
+        {
+          kind: "existing",
+          record: {
+            state: "accepted",
+            fingerprint: capturedFp,
+            result: (() => {
+              let reads = 0;
+              return {
+                id: "sms_1",
+                provider: "memory",
+                providerId: "m1",
+                handoff: "accepted",
+                get delivery() {
+                  reads += 1;
+                  return reads === 1 ? "queued" : "EVIL";
+                },
+                encoding: "gsm7",
+                segments: 1,
+                attemptedProviders: ["memory"],
+                attempts: [],
+                replayed: false,
+              };
+            })(),
+          },
         },
-      },
-      {
-        kind: "existing",
-        record: {
-          state: "accepted",
-          fingerprint: capturedFp,
-          result: (() => {
-            let reads = 0;
-            return {
-              id: "sms_1",
-              provider: "memory",
-              providerId: "m1",
-              handoff: "accepted",
-              get delivery() {
-                reads += 1;
-                return reads === 1 ? "queued" : "EVIL";
+      ]) {
+        const probeClient = createSmsClient({
+          adapters: [memory()],
+          idempotency: {
+            store: {
+              async get() {
+                return null;
               },
-              encoding: "gsm7",
-              segments: 1,
-              attemptedProviders: ["memory"],
-              attempts: [],
-              replayed: false,
-            };
-          })(),
+              async reserve(i) {
+                if (
+                  typeof badReturn === "object" &&
+                  badReturn !== null &&
+                  "record" in badReturn &&
+                  typeof badReturn.record === "object" &&
+                  badReturn.record !== null
+                ) {
+                  (badReturn.record as { fingerprint: string }).fingerprint = i.fingerprint;
+                }
+                return badReturn as unknown as never;
+              },
+              async finalize() {
+                return { kind: "finalized" };
+              },
+            },
+          },
+        });
+        if ("record" in badReturn && (badReturn.record as { result?: { id?: string } }).result?.id === "sms_1") {
+          const res = await probeClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-toctou" });
+          expect(res.delivery).toBe("queued");
+          expect(res.replayed).toBe(true);
+        } else {
+          await expect(
+            probeClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-throw-res" }),
+          ).rejects.toBeInstanceOf(ConfigurationError);
+        }
+      }
+    });
+
+    test("22. memory().enqueue snapshots outcomes and wraps throwing getters in ConfigurationError", async () => {
+      expect(() =>
+        memory().enqueue({
+          get kind() {
+            throw new Error("outcome boom");
+          },
+        } as unknown as never),
+      ).toThrow(ConfigurationError);
+      const mutableAccepted = { kind: "accepted" as const, providerId: "orig-1", delivery: "queued" as const };
+      const snapMem = memory();
+      snapMem.enqueue(mutableAccepted);
+      (mutableAccepted as { providerId: string }).providerId = "mutated-2";
+      const snapClient = createSmsClient({ adapters: [snapMem] });
+      expect((await snapClient.send({ to: "+14155550123", body: "hi" })).providerId).toBe("orig-1");
+    });
+
+    test("23. Webhook parsers read duck-typed Request getters only once", async () => {
+      const { parseTwilioWebhook } = await import("../../src/webhooks/index.js");
+      let headerReads = 0;
+      let urlReads = 0;
+      let methodReads = 0;
+      const rawHeaders = new Headers({ "content-type": "application/x-www-form-urlencoded" });
+      const singleReadReq = {
+        get headers() {
+          headerReads += 1;
+          if (headerReads > 1) throw new Error("headers read twice");
+          return rawHeaders;
         },
-      },
-    ]) {
-      const probeClient = createSmsClient({
+        get url() {
+          urlReads += 1;
+          if (urlReads > 1) throw new Error("url read twice");
+          return "https://example.com/webhooks/twilio";
+        },
+        get method() {
+          methodReads += 1;
+          if (methodReads > 1) throw new Error("method read twice");
+          return "POST";
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("MessageSid=SM123&MessageStatus=delivered&To=%2B14155550123&From=%2B15005550006"));
+            controller.close();
+          },
+        }),
+        bodyUsed: false,
+      } as unknown as Request;
+      const parsedWebhook = await parseTwilioWebhook({
+        request: singleReadReq,
+        credentials: { authToken: "unused" },
+        unsafeSkipVerification: true,
+      });
+      expect(parsedWebhook.type).toBe("message.delivered");
+      expect(headerReads).toBe(1);
+      expect(urlReads).toBe(1);
+      expect(methodReads).toBe(1);
+    });
+
+    test("24. Diagnostic tokens drop phone-length digit runs anywhere in token; hooks/callers cannot mutate stored idempotency records; reserve() errors normalize to ConfigurationError", async () => {
+      const phoneTokenClient = createSmsClient({
+        adapters: [
+          {
+            name: "phone-tok",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return {
+                kind: "rejected",
+                category: "request",
+                details: { provider: "phone-tok", code: "recipient:14155550123", requestId: "to-14155550123" },
+              };
+            },
+          },
+        ],
+      });
+      const phoneTokErr = (await rejection(phoneTokenClient.send({ to: "+14155550123", body: "hi" }))) as Error;
+      expect(JSON.stringify(phoneTokErr)).not.toContain("14155550123");
+
+      const isoStore = memoryIdempotencyStore();
+      const isoClient = createSmsClient({
+        adapters: [memory()],
+        idempotency: { store: isoStore },
+        hooks: {
+          onAccepted: (e) => {
+            (e.attempts as unknown[]).length = 0;
+          },
+        },
+      });
+      const firstIso = await isoClient.send({ to: "+14155550123", body: "iso", idempotencyKey: "k-iso" });
+      (firstIso as { providerId: string }).providerId = "TAMPERED";
+      const replayIso = await isoClient.send({ to: "+14155550123", body: "iso", idempotencyKey: "k-iso" });
+      expect(firstIso.attempts).toHaveLength(1);
+      expect(replayIso.attempts).toHaveLength(1);
+      expect(replayIso.providerId).toBe("memory_1");
+
+      const throwingReserveClient = createSmsClient({
         adapters: [memory()],
         idempotency: {
           store: {
             async get() {
               return null;
             },
-            async reserve(i) {
-              if (
-                typeof badReturn === "object" &&
-                badReturn !== null &&
-                "record" in badReturn &&
-                typeof badReturn.record === "object" &&
-                badReturn.record !== null
-              ) {
-                (badReturn.record as { fingerprint: string }).fingerprint = i.fingerprint;
-              }
-              return badReturn as unknown as never;
+            async reserve() {
+              throw new Error("db offline");
             },
             async finalize() {
               return { kind: "finalized" };
@@ -1218,421 +1433,307 @@ describe("send: fromByAdapter", () => {
           },
         },
       });
-      if ("record" in badReturn && (badReturn.record as { result?: { id?: string } }).result?.id === "sms_1") {
-        const res = await probeClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-toctou" });
-        expect(res.delivery).toBe("queued");
-        expect(res.replayed).toBe(true);
-      } else {
-        await expect(
-          probeClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-throw-res" }),
-        ).rejects.toBeInstanceOf(ConfigurationError);
-      }
-    }
-
-    // 22. memory().enqueue snapshots outcomes and wraps throwing getters in ConfigurationError
-    expect(() =>
-      memory().enqueue({
-        get kind() {
-          throw new Error("outcome boom");
-        },
-      } as unknown as never),
-    ).toThrow(ConfigurationError);
-    const mutableAccepted = { kind: "accepted" as const, providerId: "orig-1", delivery: "queued" as const };
-    const snapMem = memory();
-    snapMem.enqueue(mutableAccepted);
-    (mutableAccepted as { providerId: string }).providerId = "mutated-2";
-    const snapClient = createSmsClient({ adapters: [snapMem] });
-    expect((await snapClient.send({ to: "+14155550123", body: "hi" })).providerId).toBe("orig-1");
-
-    // 23. Webhook parsers read duck-typed Request getters only once
-    const { parseTwilioWebhook } = await import("../../src/webhooks/index.js");
-    let headerReads = 0;
-    let urlReads = 0;
-    let methodReads = 0;
-    const rawHeaders = new Headers({ "content-type": "application/x-www-form-urlencoded" });
-    const singleReadReq = {
-      get headers() {
-        headerReads += 1;
-        if (headerReads > 1) throw new Error("headers read twice");
-        return rawHeaders;
-      },
-      get url() {
-        urlReads += 1;
-        if (urlReads > 1) throw new Error("url read twice");
-        return "https://example.com/webhooks/twilio";
-      },
-      get method() {
-        methodReads += 1;
-        if (methodReads > 1) throw new Error("method read twice");
-        return "POST";
-      },
-      body: new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode("MessageSid=SM123&MessageStatus=delivered&To=%2B14155550123&From=%2B15005550006"));
-          controller.close();
-        },
-      }),
-      bodyUsed: false,
-    } as unknown as Request;
-    const parsedWebhook = await parseTwilioWebhook({
-      request: singleReadReq,
-      credentials: { authToken: "unused" },
-      unsafeSkipVerification: true,
+      await expect(
+        throwingReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-db" }),
+      ).rejects.toBeInstanceOf(ConfigurationError);
     });
-    expect(parsedWebhook.type).toBe("message.delivered");
-    expect(headerReads).toBe(1);
-    expect(urlReads).toBe(1);
-    expect(methodReads).toBe(1);
 
-    // 24. Diagnostic tokens drop phone-length digit runs anywhere in token; hooks/callers cannot mutate stored idempotency records; reserve() errors normalize to ConfigurationError
-    const phoneTokenClient = createSmsClient({
-      adapters: [
-        {
-          name: "phone-tok",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return {
-              kind: "rejected",
-              category: "request",
-              details: { provider: "phone-tok", code: "recipient:14155550123", requestId: "to-14155550123" },
-            };
-          },
-        },
-      ],
+    test("25. memory() preserves unknown.cause and rejects sparse arrays; Sinch expire_at anchors to sendAt", async () => {
+      const causeErr = new Error("socket reset");
+      const causeClient = createSmsClient({
+        adapters: [memory({ outcomes: [{ kind: "unknown", reason: "network", cause: causeErr }] })],
+      });
+      const unknownOut = (await rejection(causeClient.send({ to: "+14155550123", body: "hi" }))) as HandoffUnknownError;
+      expect(unknownOut).toBeInstanceOf(HandoffUnknownError);
+      expect(unknownOut.cause).toBe(causeErr);
+      expect(() => memory({ outcomes: new Array(1) as unknown as never })).toThrow(ConfigurationError);
+      expect(() => memory({ capabilities: { senderTypes: new Array(1) as unknown as never } })).toThrow(ConfigurationError);
+
+      const { buildSinchRequest } = await import("../../src/providers/sinch.js");
+      const futureSendAt = new Date("2030-01-01T12:00:00.000Z");
+      const sinchReq = buildSinchRequest({
+        to: "+14155550123",
+        from: { kind: "phone_number", value: "+15005550006" },
+        body: "hi",
+        mediaUrls: [],
+        sendAt: futureSendAt,
+        validityPeriodSec: 3600,
+      });
+      expect(sinchReq.send_at).toBe("2030-01-01T12:00:00.000Z");
+      expect(sinchReq.expire_at).toBe("2030-01-01T13:00:00.000Z");
     });
-    const phoneTokErr = (await rejection(phoneTokenClient.send({ to: "+14155550123", body: "hi" }))) as Error;
-    expect(JSON.stringify(phoneTokErr)).not.toContain("14155550123");
 
-    const isoStore = memoryIdempotencyStore();
-    const isoClient = createSmsClient({
-      adapters: [memory()],
-      idempotency: { store: isoStore },
-      hooks: {
-        onAccepted: (e) => {
-          (e.attempts as unknown[]).length = 0;
-        },
-      },
+    test("26. Oversized duck-typed webhook body without cancel() still reports body_too_large", async () => {
+      const { parseSmsWebhook } = await import("../../src/webhooks/index.js");
+      const { WebhookPayloadError } = await import("../../src/core/errors.js");
+      const noCancelErr = await rejection(
+        parseSmsWebhook({
+          provider: "twilio",
+          request: {
+            headers: new Headers({ "content-length": "2000000" }),
+            url: "https://example.com/wh/twilio",
+            method: "POST",
+            body: {
+              locked: false,
+              getReader() {
+                throw new Error("should not read");
+              },
+            },
+            bodyUsed: false,
+          } as unknown as Request,
+          credentials: { authToken: "secret" },
+        }),
+      );
+      expect(noCancelErr).toBeInstanceOf(WebhookPayloadError);
+      expect((noCancelErr as { reason?: string }).reason).toBe("body_too_large");
     });
-    const firstIso = await isoClient.send({ to: "+14155550123", body: "iso", idempotencyKey: "k-iso" });
-    (firstIso as { providerId: string }).providerId = "TAMPERED";
-    const replayIso = await isoClient.send({ to: "+14155550123", body: "iso", idempotencyKey: "k-iso" });
-    expect(firstIso.attempts).toHaveLength(1);
-    expect(replayIso.attempts).toHaveLength(1);
-    expect(replayIso.providerId).toBe("memory_1");
 
-    const throwingReserveClient = createSmsClient({
-      adapters: [memory()],
-      idempotency: {
-        store: {
-          async get() {
-            return null;
-          },
-          async reserve() {
-            throw new Error("db offline");
-          },
-          async finalize() {
-            return { kind: "finalized" };
-          },
-        },
-      },
+    test("27. Suppression helpers validate malformed inputs with ConfigurationError", async () => {
+      const { memorySuppressionList, suppressionPolicy, applySuppressionEvent } = await import(
+        "../../src/core/suppression.js"
+      );
+      expect(() => memorySuppressionList(123 as unknown as Iterable<string>)).toThrow(ConfigurationError);
+      expect(() => suppressionPolicy(null as unknown as never)).toThrow(ConfigurationError);
+      await expect(applySuppressionEvent(memorySuppressionList(), null as unknown as never)).rejects.toBeInstanceOf(
+        ConfigurationError,
+      );
+      await expect(
+        applySuppressionEvent(
+          {
+            get add() {
+              throw new Error("boom");
+            },
+            remove() {},
+            has() {
+              return false;
+            },
+          } as unknown as never,
+          { type: "recipient.opted_out", from: "+14155550123" },
+        ),
+      ).rejects.toBeInstanceOf(ConfigurationError);
     });
-    await expect(
-      throwingReserveClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-db" }),
-    ).rejects.toBeInstanceOf(ConfigurationError);
 
-    // 25. memory() preserves unknown.cause and rejects sparse arrays; Sinch expire_at anchors to sendAt
-    const causeErr = new Error("socket reset");
-    const causeClient = createSmsClient({
-      adapters: [memory({ outcomes: [{ kind: "unknown", reason: "network", cause: causeErr }] })],
-    });
-    const unknownOut = (await rejection(causeClient.send({ to: "+14155550123", body: "hi" }))) as HandoffUnknownError;
-    expect(unknownOut).toBeInstanceOf(HandoffUnknownError);
-    expect(unknownOut.cause).toBe(causeErr);
-    expect(() => memory({ outcomes: new Array(1) as unknown as never })).toThrow(ConfigurationError);
-    expect(() => memory({ capabilities: { senderTypes: new Array(1) as unknown as never } })).toThrow(ConfigurationError);
-
-    const { buildSinchRequest } = await import("../../src/providers/sinch.js");
-    const futureSendAt = new Date("2030-01-01T12:00:00.000Z");
-    const sinchReq = buildSinchRequest({
-      to: "+14155550123",
-      from: { kind: "phone_number", value: "+15005550006" },
-      body: "hi",
-      mediaUrls: [],
-      sendAt: futureSendAt,
-      validityPeriodSec: 3600,
-    });
-    expect(sinchReq.send_at).toBe("2030-01-01T12:00:00.000Z");
-    expect(sinchReq.expire_at).toBe("2030-01-01T13:00:00.000Z");
-
-    // 26. Oversized duck-typed webhook body without cancel() still reports body_too_large
-    const { parseSmsWebhook } = await import("../../src/webhooks/index.js");
-    const { WebhookPayloadError } = await import("../../src/core/errors.js");
-    const noCancelErr = await rejection(
-      parseSmsWebhook({
-        provider: "twilio",
-        request: {
-          headers: new Headers({ "content-length": "2000000" }),
-          url: "https://example.com/wh/twilio",
-          method: "POST",
-          body: {
-            locked: false,
-            getReader() {
-              throw new Error("should not read");
+    test("28. Diagnostic tokens keep opaque UUID/Twilio RQ IDs while dropping punctuated phone numbers; reserve() preserves cause; coalesced results are isolated; stored attempts reject HandoffUnknown-only reasons; webhook reads content-length & getReader once", async () => {
+      const diagClient = createSmsClient({
+        adapters: [
+          {
+            name: "diag",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return {
+                kind: "rejected",
+                category: "request",
+                details: {
+                  provider: "diag",
+                  code: "to:1-415-555-0123",
+                  requestId: "3f2c1b7a-9d4e-4c1a-8b2f-202611210735",
+                },
+              };
             },
           },
-          bodyUsed: false,
-        } as unknown as Request,
-        credentials: { authToken: "secret" },
-      }),
-    );
-    expect(noCancelErr).toBeInstanceOf(WebhookPayloadError);
-    expect((noCancelErr as { reason?: string }).reason).toBe("body_too_large");
+        ],
+      });
+      const diagErr = (await rejection(diagClient.send({ to: "+14155550123", body: "hi" }))) as {
+        provider?: { code?: string; requestId?: string };
+      };
+      expect(diagErr.provider?.code).toBeUndefined();
+      expect(diagErr.provider?.requestId).toBe("3f2c1b7a-9d4e-4c1a-8b2f-202611210735");
 
-    // 27. Suppression helpers validate malformed inputs with ConfigurationError
-    const { memorySuppressionList, suppressionPolicy, applySuppressionEvent } = await import(
-      "../../src/core/suppression.js"
-    );
-    expect(() => memorySuppressionList(123 as unknown as Iterable<string>)).toThrow(ConfigurationError);
-    expect(() => suppressionPolicy(null as unknown as never)).toThrow(ConfigurationError);
-    await expect(applySuppressionEvent(memorySuppressionList(), null as unknown as never)).rejects.toBeInstanceOf(
-      ConfigurationError,
-    );
-    await expect(
-      applySuppressionEvent(
-        {
-          get add() {
-            throw new Error("boom");
-          },
-          remove() {},
-          has() {
-            return false;
-          },
-        } as unknown as never,
-        { type: "recipient.opted_out", from: "+14155550123" },
-      ),
-    ).rejects.toBeInstanceOf(ConfigurationError);
-
-    // 28. Diagnostic tokens keep opaque UUID/Twilio RQ IDs while dropping punctuated phone numbers; reserve() preserves cause; coalesced results are isolated; stored attempts reject HandoffUnknown-only reasons; webhook reads content-length & getReader once
-    const diagClient = createSmsClient({
-      adapters: [
-        {
-          name: "diag",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return {
-              kind: "rejected",
-              category: "request",
-              details: {
-                provider: "diag",
-                code: "to:1-415-555-0123",
-                requestId: "3f2c1b7a-9d4e-4c1a-8b2f-202611210735",
-              },
-            };
+      const dbErr = new Error("redis down");
+      const causeResClient = createSmsClient({
+        adapters: [memory()],
+        idempotency: {
+          store: {
+            async get() {
+              return null;
+            },
+            async reserve() {
+              throw dbErr;
+            },
+            async finalize() {
+              return { kind: "finalized" };
+            },
           },
         },
-      ],
-    });
-    const diagErr = (await rejection(diagClient.send({ to: "+14155550123", body: "hi" }))) as {
-      provider?: { code?: string; requestId?: string };
-    };
-    expect(diagErr.provider?.code).toBeUndefined();
-    expect(diagErr.provider?.requestId).toBe("3f2c1b7a-9d4e-4c1a-8b2f-202611210735");
+      });
+      const causeResErr = (await rejection(
+        causeResClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-cause" }),
+      )) as Error;
+      expect(causeResErr).toBeInstanceOf(ConfigurationError);
+      expect(causeResErr.cause).toBe(dbErr);
 
-    const dbErr = new Error("redis down");
-    const causeResClient = createSmsClient({
-      adapters: [memory()],
-      idempotency: {
-        store: {
-          async get() {
-            return null;
-          },
-          async reserve() {
-            throw dbErr;
-          },
-          async finalize() {
-            return { kind: "finalized" };
-          },
-        },
-      },
-    });
-    const causeResErr = (await rejection(
-      causeResClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-cause" }),
-    )) as Error;
-    expect(causeResErr).toBeInstanceOf(ConfigurationError);
-    expect(causeResErr.cause).toBe(dbErr);
-
-    const badAttemptReasonClient = createSmsClient({
-      adapters: [memory()],
-      idempotency: {
-        store: {
-          async get() {
-            return null;
-          },
-          async reserve({ fingerprint }) {
-            return {
-              kind: "existing",
-              record: {
-                state: "accepted",
-                fingerprint,
-                result: {
-                  id: "sms_1",
-                  provider: "memory",
-                  providerId: "p1",
-                  handoff: "accepted",
-                  delivery: "queued",
-                  encoding: "gsm7",
-                  segments: 1,
-                  attemptedProviders: ["memory"],
-                  attempts: [
-                    { provider: "memory", attempt: 1, outcome: "unknown", reason: "stale_reservation", durationMs: 5 },
-                  ],
-                  replayed: false,
+      const badAttemptReasonClient = createSmsClient({
+        adapters: [memory()],
+        idempotency: {
+          store: {
+            async get() {
+              return null;
+            },
+            async reserve({ fingerprint }) {
+              return {
+                kind: "existing",
+                record: {
+                  state: "accepted",
+                  fingerprint,
+                  result: {
+                    id: "sms_1",
+                    provider: "memory",
+                    providerId: "p1",
+                    handoff: "accepted",
+                    delivery: "queued",
+                    encoding: "gsm7",
+                    segments: 1,
+                    attemptedProviders: ["memory"],
+                    attempts: [
+                      { provider: "memory", attempt: 1, outcome: "unknown", reason: "stale_reservation", durationMs: 5 },
+                    ],
+                    replayed: false,
+                  },
                 },
-              },
-            } as unknown as never;
-          },
-          async finalize() {
-            return { kind: "finalized" };
+              } as unknown as never;
+            },
+            async finalize() {
+              return { kind: "finalized" };
+            },
           },
         },
-      },
-    });
-    await expect(
-      badAttemptReasonClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-reason" }),
-    ).rejects.toBeInstanceOf(ConfigurationError);
+      });
+      await expect(
+        badAttemptReasonClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-bad-reason" }),
+      ).rejects.toBeInstanceOf(ConfigurationError);
 
-    let clReads = 0;
-    let grReads = 0;
-    const whPayload = new TextEncoder().encode(
-      JSON.stringify([{ type: "message-delivered", message: { id: "m1", from: "+15005550006", to: ["+14155550123"] } }]),
-    );
-    let whSent = false;
-    const { parseSmsWebhooks } = await import("../../src/webhooks/index.js");
-    await parseSmsWebhooks({
-      provider: "bandwidth",
-      credentials: { username: "u", password: "p" },
-      request: {
-        url: "https://example.com/wh",
-        method: "POST",
-        bodyUsed: false,
-        headers: {
-          get(n: string) {
-            if (n.toLowerCase() === "content-length") {
-              clReads += 1;
-              return String(whPayload.byteLength);
-            }
-            if (n.toLowerCase() === "authorization") return `Basic ${btoa("u:p")}`;
-            return null;
+      let clReads = 0;
+      let grReads = 0;
+      const whPayload = new TextEncoder().encode(
+        JSON.stringify([{ type: "message-delivered", message: { id: "m1", from: "+15005550006", to: ["+14155550123"] } }]),
+      );
+      let whSent = false;
+      const { parseSmsWebhooks } = await import("../../src/webhooks/index.js");
+      await parseSmsWebhooks({
+        provider: "bandwidth",
+        credentials: { username: "u", password: "p" },
+        request: {
+          url: "https://example.com/wh",
+          method: "POST",
+          bodyUsed: false,
+          headers: {
+            get(n: string) {
+              if (n.toLowerCase() === "content-length") {
+                clReads += 1;
+                return String(whPayload.byteLength);
+              }
+              if (n.toLowerCase() === "authorization") return `Basic ${btoa("u:p")}`;
+              return null;
+            },
           },
-        },
-        body: {
-          locked: false,
-          get getReader() {
-            grReads += 1;
-            return () => ({
-              async read() {
-                if (whSent) return { done: true, value: undefined };
-                whSent = true;
-                return { done: false, value: whPayload };
-              },
-            });
+          body: {
+            locked: false,
+            get getReader() {
+              grReads += 1;
+              return () => ({
+                async read() {
+                  if (whSent) return { done: true, value: undefined };
+                  whSent = true;
+                  return { done: false, value: whPayload };
+                },
+              });
+            },
           },
-        },
-      } as unknown as Request,
+        } as unknown as Request,
+      });
+      expect(clReads).toBe(1);
+      expect(grReads).toBe(1);
     });
-    expect(clReads).toBe(1);
-    expect(grReads).toBe(1);
 
-    // 29. R25: coalesced fast sends without store share 1 call & isolate results; SmsError#toJSON clones attempts/provider; diagnostic tokens keep RQ+32-hex & drop colon/all-digit phone numbers; readBoundedText uses intrinsic byteLength
-    let fastCalls = 0;
-    const fastClient = createSmsClient({
-      adapters: [
+    test("29. R25: coalesced fast sends without store share 1 call & isolate results; SmsError#toJSON clones attempts/provider; diagnostic tokens keep RQ+32-hex & drop colon/all-digit phone numbers; readBoundedText uses intrinsic byteLength", async () => {
+      let fastCalls = 0;
+      const fastClient = createSmsClient({
+        adapters: [
+          {
+            name: "fast",
+            capabilities: new ProtoCaps(),
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              fastCalls += 1;
+              return { kind: "accepted", providerId: "msg-fast", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      const [f1, f2, f3] = await Promise.all([
+        fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
+        fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
+        fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
+      ]);
+      expect(fastCalls).toBe(1);
+      expect(f1.replayed).toBe(false);
+      expect(f2.replayed).toBe(true);
+      expect(f3.replayed).toBe(true);
+      (f1.attemptedProviders as string[]).push("tampered");
+      (f1.attempts as unknown as Array<{ provider: string }>)[0]!.provider = "tampered";
+      expect(f2.attemptedProviders).toEqual(["fast"]);
+      expect(f2.attempts[0]!.provider).toBe("fast");
+
+      const { sanitizeProviderDetails, readBoundedText } = await import("../../src/core/http.js");
+      expect(
+        sanitizeProviderDetails(
+          { code: "415:555:0123", requestId: "RQ1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" },
+          "twilio",
+        ),
+      ).toEqual({
+        provider: "twilio",
+        requestId: "RQ1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+      });
+      expect(
+        sanitizeProviderDetails(
+          { code: "415.555.0123", requestId: "RQ14155550123000000000000000000000" },
+          "twilio",
+        ),
+      ).toEqual({ provider: "twilio" });
+      expect(
+        sanitizeProviderDetails(
+          { requestId: "14155550-1234-4123-8123-414155550123" },
+          "twilio",
+        ),
+      ).toEqual({ provider: "twilio" });
+
+      const spoofChunk = new Uint8Array(64);
+      Object.defineProperty(spoofChunk, "byteLength", { value: 1 });
+      let spoofDone = false;
+      const bounded = await readBoundedText(
         {
-          name: "fast",
-          capabilities: new ProtoCaps(),
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            fastCalls += 1;
-            return { kind: "accepted", providerId: "msg-fast", delivery: "queued" };
-          },
+          headers: new Headers(),
+          body: {
+            getReader() {
+              return {
+                async read() {
+                  if (spoofDone) return { done: true, value: undefined };
+                  spoofDone = true;
+                  return { done: false, value: spoofChunk };
+                },
+                async cancel() {},
+              };
+            },
+          } as unknown as ReadableStream<Uint8Array>,
         },
-      ],
-    });
-    const [f1, f2, f3] = await Promise.all([
-      fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
-      fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
-      fastClient.send({ to: "+14155550123", body: "hi", idempotencyKey: "fast-k1" }),
-    ]);
-    expect(fastCalls).toBe(1);
-    expect(f1.replayed).toBe(false);
-    expect(f2.replayed).toBe(true);
-    expect(f3.replayed).toBe(true);
-    (f1.attemptedProviders as string[]).push("tampered");
-    (f1.attempts as unknown as Array<{ provider: string }>)[0]!.provider = "tampered";
-    expect(f2.attemptedProviders).toEqual(["fast"]);
-    expect(f2.attempts[0]!.provider).toBe("fast");
+        32,
+      );
+      expect(bounded).toBeUndefined();
 
-    const { sanitizeProviderDetails, readBoundedText } = await import("../../src/core/http.js");
-    expect(
-      sanitizeProviderDetails(
-        { code: "415:555:0123", requestId: "RQ1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" },
-        "twilio",
-      ),
-    ).toEqual({
-      provider: "twilio",
-      requestId: "RQ1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+      const errJsonTest = new HandoffUnknownError("unknown", {
+        reason: "network",
+        provider: { provider: "p1", httpStatus: 500 },
+        attempts: [{ provider: "p1", attempt: 1, outcome: "unknown", reason: "network", durationMs: 1 }],
+      });
+      const j1 = errJsonTest.toJSON();
+      (j1.attempts as unknown as Array<{ provider: string }>)[0]!.provider = "mutated";
+      (j1.provider as { provider: string }).provider = "mutated";
+      expect(errJsonTest.toJSON().attempts[0]!.provider).toBe("p1");
+      expect(errJsonTest.toJSON().provider!.provider).toBe("p1");
     });
-    expect(
-      sanitizeProviderDetails(
-        { code: "415.555.0123", requestId: "RQ14155550123000000000000000000000" },
-        "twilio",
-      ),
-    ).toEqual({ provider: "twilio" });
-    expect(
-      sanitizeProviderDetails(
-        { requestId: "14155550-1234-4123-8123-414155550123" },
-        "twilio",
-      ),
-    ).toEqual({ provider: "twilio" });
-
-    const spoofChunk = new Uint8Array(64);
-    Object.defineProperty(spoofChunk, "byteLength", { value: 1 });
-    let spoofDone = false;
-    const bounded = await readBoundedText(
-      {
-        headers: new Headers(),
-        body: {
-          getReader() {
-            return {
-              async read() {
-                if (spoofDone) return { done: true, value: undefined };
-                spoofDone = true;
-                return { done: false, value: spoofChunk };
-              },
-              async cancel() {},
-            };
-          },
-        } as unknown as ReadableStream<Uint8Array>,
-      },
-      32,
-    );
-    expect(bounded).toBeUndefined();
-
-    const errJsonTest = new HandoffUnknownError("unknown", {
-      reason: "network",
-      provider: { provider: "p1", httpStatus: 500 },
-      attempts: [{ provider: "p1", attempt: 1, outcome: "unknown", reason: "network", durationMs: 1 }],
-    });
-    const j1 = errJsonTest.toJSON();
-    (j1.attempts as unknown as Array<{ provider: string }>)[0]!.provider = "mutated";
-    (j1.provider as { provider: string }).provider = "mutated";
-    expect(errJsonTest.toJSON().attempts[0]!.provider).toBe("p1");
-    expect(errJsonTest.toJSON().provider!.provider).toBe("p1");
   });
 
   test("preserves valid 32-hex provider IDs with long digit runs while dropping all-decimal phone-padded IDs", async () => {
@@ -1654,671 +1755,671 @@ describe("send: fromByAdapter", () => {
     ).toEqual({ provider: "twilio" });
   });
 
-  test("isolates AbortSignal cancellation per caller across coalesced same-key sends", async () => {
-    let adapterAborted = false;
-    let adapterCalls = 0;
-    const makeSlowClient = () =>
-      createSmsClient({
+  describe("coalesced cancellation and later hardening", () => {
+    test("Leader aborts while peer stays active -> leader rejects aborted, peer resolves cleanly", async () => {
+      const slow = slowAdapterHarness();
+      const c1 = slow.client();
+      const acLeader = new AbortController();
+      const pLeader = c1.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-1" }, { signal: acLeader.signal });
+      const pPeer = c1.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-1" });
+      setTimeout(() => acLeader.abort(new Error("leader-cancel")), 5);
+      const [rLeader, rPeer] = await Promise.allSettled([pLeader, pPeer]);
+      expect(slow.calls).toBe(1);
+      expect(slow.aborted).toBe(false);
+      expect(rLeader.status).toBe("rejected");
+      if (rLeader.status === "rejected") {
+        expect(rLeader.reason).toBeInstanceOf(HandoffUnknownError);
+        expect((rLeader.reason as HandoffUnknownError).reason).toBe("aborted");
+      }
+      expect(rPeer.status).toBe("fulfilled");
+      if (rPeer.status === "fulfilled") {
+        expect(rPeer.value.providerId).toBe("slow-1");
+      }
+    });
+
+    test("Peer aborts while leader stays active -> peer rejects aborted immediately, leader resolves cleanly", async () => {
+      const slow = slowAdapterHarness();
+      slow.calls = 0;
+      const c2 = slow.client();
+      const acPeer = new AbortController();
+      const pLeader2 = c2.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-2" });
+      const pPeer2 = c2.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-2" }, { signal: acPeer.signal });
+      setTimeout(() => acPeer.abort(new Error("peer-cancel")), 5);
+      const [rLeader2, rPeer2] = await Promise.allSettled([pLeader2, pPeer2]);
+      expect(slow.calls).toBe(1);
+      expect(slow.aborted).toBe(false);
+      expect(rLeader2.status).toBe("fulfilled");
+      expect(rPeer2.status).toBe("rejected");
+      if (rPeer2.status === "rejected") {
+        expect(rPeer2.reason).toBeInstanceOf(HandoffUnknownError);
+        expect((rPeer2.reason as HandoffUnknownError).reason).toBe("aborted");
+      }
+    });
+
+    test("Both abort -> underlying adapter signal aborts", async () => {
+      const slow = slowAdapterHarness();
+      slow.calls = 0;
+      const c3 = slow.client();
+      const acA = new AbortController();
+      const acB = new AbortController();
+      const pA = c3.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-3" }, { signal: acA.signal });
+      const pB = c3.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-3" }, { signal: acB.signal });
+      setTimeout(() => {
+        acA.abort();
+        acB.abort();
+      }, 5);
+      const [rA, rB] = await Promise.allSettled([pA, pB]);
+      expect(rA.status).toBe("rejected");
+      expect(rB.status).toBe("rejected");
+      expect(slow.aborted).toBe(true);
+    });
+
+    test("Same-tick immediate leader abort while peer joins -> peer still resolves cleanly", async () => {
+      const slow = slowAdapterHarness();
+      slow.calls = 0;
+      slow.aborted = false;
+      const c4 = slow.client();
+      const acImmediate = new AbortController();
+      const pImmLeader = c4.send(
+        { to: "+14155550123", body: "hi", idempotencyKey: "k-abort-4" },
+        { signal: acImmediate.signal },
+      );
+      const pImmPeer = c4.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-4" });
+      acImmediate.abort(new Error("same-tick-leader"));
+      const [rImmLeader, rImmPeer] = await Promise.allSettled([pImmLeader, pImmPeer]);
+      expect(slow.calls).toBe(1);
+      expect(slow.aborted).toBe(false);
+      expect(rImmLeader.status).toBe("rejected");
+      expect(rImmPeer.status).toBe("fulfilled");
+      if (rImmPeer.status === "fulfilled") {
+        expect(rImmPeer.value.providerId).toBe("slow-1");
+      }
+    });
+
+    test("Lone keyed caller abort mid-flight preserves attempts in HandoffUnknownError and frees key for immediate retry", async () => {
+      const slow = slowAdapterHarness();
+      slow.calls = 0;
+      slow.aborted = false;
+      const c5 = slow.client();
+      const acLone = new AbortController();
+      const pLone = c5.send(
+        { to: "+14155550123", body: "hi", idempotencyKey: "k-abort-5" },
+        { signal: acLone.signal },
+      );
+      setTimeout(() => acLone.abort(new Error("lone-abort")), 5);
+      const loneErr = await rejection(pLone);
+      expect(loneErr).toBeInstanceOf(HandoffUnknownError);
+      expect((loneErr as HandoffUnknownError).reason).toBe("aborted");
+      expect((loneErr as HandoffUnknownError).attempts).toHaveLength(1);
+      const retryRes = await c5.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-5" });
+      expect(retryRes.providerId).toBe("slow-1");
+      expect(slow.calls).toBe(2);
+    });
+
+    test("Lone keyed caller abort during retry backoff preserves SendAbortedError + attempts", async () => {
+      let backoffAttempts = 0;
+      const failureCodes: string[] = [];
+      const acBackoff = new AbortController();
+      const c6 = createSmsClient({
         adapters: [
           {
-            name: "slow",
+            name: "rl",
             capabilities: memory().capabilities,
             support: { status: "supported", notes: [] },
             defaultFrom: "+15005550006",
-            send(_msg, ctx) {
-              adapterCalls += 1;
+            async send() {
+              backoffAttempts += 1;
+              setTimeout(() => acBackoff.abort(new Error("backoff-abort")), 10);
+              return {
+                kind: "rejected",
+                category: "rate_limited",
+                retryAfterMs: 500,
+                details: { provider: "rl", httpStatus: 429, code: "429" },
+              };
+            },
+          },
+        ],
+        retry: { maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 500 },
+        hooks: {
+          onFailure(event) {
+            failureCodes.push(event.errorCode);
+          },
+        },
+      });
+      const backoffErr = await rejection(
+        c6.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-6" }, { signal: acBackoff.signal }),
+      );
+      expect(backoffAttempts).toBe(1);
+      expect(backoffErr).toBeInstanceOf(SendAbortedError);
+      expect((backoffErr as SendAbortedError).attempts).toHaveLength(1);
+      expect(((backoffErr as SendAbortedError).cause as Error).message).toBe("backoff-abort");
+      expect(failureCodes).toEqual(["aborted"]);
+    });
+
+    test("R28: immediate peer abort rejects peer while leader succeeds (even on synchronous memory adapter)", async () => {
+      const syncClient = createSmsClient({ adapters: [memory()] });
+      const acFastPeer = new AbortController();
+      const fastInput = { to: "+14155550123" as const, body: "hi", idempotencyKey: "k-r28-peer" };
+      const pFastLeader = syncClient.send(fastInput);
+      const pFastPeer = syncClient.send(fastInput, { signal: acFastPeer.signal });
+      acFastPeer.abort(new Error("fast-peer"));
+      const [rFastLeader, rFastPeer] = await Promise.allSettled([pFastLeader, pFastPeer]);
+      expect(rFastLeader.status).toBe("fulfilled");
+      expect(rFastPeer.status).toBe("rejected");
+      if (rFastPeer.status === "rejected") {
+        expect(rFastPeer.reason).toBeInstanceOf(HandoffUnknownError);
+        expect((rFastPeer.reason as HandoffUnknownError).reason).toBe("aborted");
+      }
+    });
+
+    test("R28: same-tick leader abort + conflicting peer dispatches 0 adapter calls", async () => {
+      const slow = slowAdapterHarness();
+      slow.calls = 0;
+      const cConflict = slow.client();
+      const acConflict = new AbortController();
+      const pConfLeader = cConflict.send(
+        { to: "+14155550123", body: "A", idempotencyKey: "k-r28-conflict" },
+        { signal: acConflict.signal },
+      );
+      const pConfPeer = cConflict.send({ to: "+14155550123", body: "B", idempotencyKey: "k-r28-conflict" });
+      acConflict.abort(new Error("abort-conflict-leader"));
+      const [rConfLeader, rConfPeer] = await Promise.allSettled([pConfLeader, pConfPeer]);
+      expect(slow.calls).toBe(0);
+      expect(rConfLeader.status).toBe("rejected");
+      expect(rConfLeader.status === "rejected" && rConfLeader.reason).toBeInstanceOf(SendAbortedError);
+      expect(rConfPeer.status).toBe("rejected");
+      expect(rConfPeer.status === "rejected" && rConfPeer.reason).toBeInstanceOf(IdempotencyConflictError);
+    });
+
+    test("R28: both leader and matching peer abort in same tick -> 0 adapter calls, both reject", async () => {
+      const slow = slowAdapterHarness();
+      slow.calls = 0;
+      const cBothImm = slow.client();
+      const acBoth1 = new AbortController();
+      const acBoth2 = new AbortController();
+      const pBoth1 = cBothImm.send(
+        { to: "+14155550123", body: "same", idempotencyKey: "k-r28-both" },
+        { signal: acBoth1.signal },
+      );
+      const pBoth2 = cBothImm.send(
+        { to: "+14155550123", body: "same", idempotencyKey: "k-r28-both" },
+        { signal: acBoth2.signal },
+      );
+      acBoth1.abort(new Error("both-1"));
+      acBoth2.abort(new Error("both-2"));
+      const [rBoth1, rBoth2] = await Promise.allSettled([pBoth1, pBoth2]);
+      expect(slow.calls).toBe(0);
+      expect(rBoth1.status).toBe("rejected");
+      expect(rBoth1.status === "rejected" && rBoth1.reason).toBeInstanceOf(SendAbortedError);
+      expect(rBoth2.status).toBe("rejected");
+      expect(rBoth2.status === "rejected" && rBoth2.reason).toBeInstanceOf(SendAbortedError);
+    });
+
+    test("R28: abort during async reserve() does not invoke beforeSend and finalizes as rejected", async () => {
+      let beforeSendCalls = 0;
+      let finalizedState: string | undefined;
+      let resolveReserve!: (value: { kind: "reserved"; reservationId: string }) => void;
+      let markReserveStarted!: () => void;
+      const reserveStarted = new Promise<void>((resolve) => {
+        markReserveStarted = resolve;
+      });
+      const acReserve = new AbortController();
+      const cReserve = createSmsClient({
+        adapters: [memory()],
+        beforeSend() {
+          beforeSendCalls += 1;
+          return { kind: "reject", reason: "should-not-run" };
+        },
+        idempotency: {
+          store: {
+            async get() {
+              return null;
+            },
+            reserve() {
+              markReserveStarted();
               return new Promise((resolve) => {
-                const timer = setTimeout(() => {
-                  resolve({ kind: "accepted", providerId: "slow-1", delivery: "queued" });
-                }, 40);
-                ctx.signal.addEventListener(
-                  "abort",
-                  () => {
-                    adapterAborted = true;
-                    clearTimeout(timer);
-                    resolve({ kind: "unknown", reason: "aborted", cause: ctx.signal.reason });
-                  },
-                  { once: true },
-                );
+                resolveReserve = resolve;
               });
+            },
+            async finalize({ record }) {
+              finalizedState = record.state;
+              return { kind: "finalized" };
+            },
+          },
+        },
+      });
+      const pReserve = cReserve.send(
+        { to: "+14155550123", body: "hi", idempotencyKey: "k-r28-reserve" },
+        { signal: acReserve.signal },
+      );
+      await reserveStarted;
+      acReserve.abort(new Error("during-reserve"));
+      resolveReserve({ kind: "reserved", reservationId: "res-1" });
+      const reserveErr = await rejection(pReserve);
+      expect(beforeSendCalls).toBe(0);
+      expect(finalizedState).toBe("rejected");
+      expect(reserveErr).toBeInstanceOf(SendAbortedError);
+    });
+
+    test("R28: HandoffUnknownError#toJSON includes reason and providerName, and overflowing Retry-After clamps finite so retry stops", async () => {
+      const hu = new HandoffUnknownError("timed out", {
+        reason: "timeout",
+        providerName: "twilio",
+        attempts: [],
+      });
+      expect(hu.toJSON()).toMatchObject({ reason: "timeout", providerName: "twilio" });
+      const hugeRetry = parseRetryAfter("9".repeat(400));
+      expect(hugeRetry).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
+    test("R29: Infinity retryAfterMs from custom adapter stops retrying; throwing/malformed adapter.validate() fails closed; keyword arrays are frozen", async () => {
+      let infCalls = 0;
+      const infClient = createSmsClient({
+        retry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 100 },
+        adapters: [
+          {
+            name: "inf-rl",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              infCalls += 1;
+              return {
+                kind: "rejected",
+                category: "rate_limited",
+                retryAfterMs: Infinity,
+                details: { provider: "inf-rl", httpStatus: 429 },
+              };
             },
           },
         ],
       });
+      const infErr = await rejection(infClient.send({ to: "+14155550123", body: "hi" }));
+      expect(infErr).toBeInstanceOf(ProviderRateLimitedError);
+      expect(infCalls).toBe(1);
 
-    // Leader aborts while peer stays active -> leader rejects aborted, peer resolves cleanly
-    const c1 = makeSlowClient();
-    const acLeader = new AbortController();
-    const pLeader = c1.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-1" }, { signal: acLeader.signal });
-    const pPeer = c1.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-1" });
-    setTimeout(() => acLeader.abort(new Error("leader-cancel")), 5);
-    const [rLeader, rPeer] = await Promise.allSettled([pLeader, pPeer]);
-    expect(adapterCalls).toBe(1);
-    expect(adapterAborted).toBe(false);
-    expect(rLeader.status).toBe("rejected");
-    if (rLeader.status === "rejected") {
-      expect(rLeader.reason).toBeInstanceOf(HandoffUnknownError);
-      expect((rLeader.reason as HandoffUnknownError).reason).toBe("aborted");
-    }
-    expect(rPeer.status).toBe("fulfilled");
-    if (rPeer.status === "fulfilled") {
-      expect(rPeer.value.providerId).toBe("slow-1");
-    }
-
-    // Peer aborts while leader stays active -> peer rejects aborted immediately, leader resolves cleanly
-    adapterCalls = 0;
-    const c2 = makeSlowClient();
-    const acPeer = new AbortController();
-    const pLeader2 = c2.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-2" });
-    const pPeer2 = c2.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-2" }, { signal: acPeer.signal });
-    setTimeout(() => acPeer.abort(new Error("peer-cancel")), 5);
-    const [rLeader2, rPeer2] = await Promise.allSettled([pLeader2, pPeer2]);
-    expect(adapterCalls).toBe(1);
-    expect(adapterAborted).toBe(false);
-    expect(rLeader2.status).toBe("fulfilled");
-    expect(rPeer2.status).toBe("rejected");
-    if (rPeer2.status === "rejected") {
-      expect(rPeer2.reason).toBeInstanceOf(HandoffUnknownError);
-      expect((rPeer2.reason as HandoffUnknownError).reason).toBe("aborted");
-    }
-
-    // Both abort -> underlying adapter signal aborts
-    adapterCalls = 0;
-    const c3 = makeSlowClient();
-    const acA = new AbortController();
-    const acB = new AbortController();
-    const pA = c3.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-3" }, { signal: acA.signal });
-    const pB = c3.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-3" }, { signal: acB.signal });
-    setTimeout(() => {
-      acA.abort();
-      acB.abort();
-    }, 5);
-    const [rA, rB] = await Promise.allSettled([pA, pB]);
-    expect(rA.status).toBe("rejected");
-    expect(rB.status).toBe("rejected");
-    expect(adapterAborted).toBe(true);
-
-    // Same-tick immediate leader abort while peer joins -> peer still resolves cleanly
-    adapterCalls = 0;
-    adapterAborted = false;
-    const c4 = makeSlowClient();
-    const acImmediate = new AbortController();
-    const pImmLeader = c4.send(
-      { to: "+14155550123", body: "hi", idempotencyKey: "k-abort-4" },
-      { signal: acImmediate.signal },
-    );
-    const pImmPeer = c4.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-4" });
-    acImmediate.abort(new Error("same-tick-leader"));
-    const [rImmLeader, rImmPeer] = await Promise.allSettled([pImmLeader, pImmPeer]);
-    expect(adapterCalls).toBe(1);
-    expect(adapterAborted).toBe(false);
-    expect(rImmLeader.status).toBe("rejected");
-    expect(rImmPeer.status).toBe("fulfilled");
-    if (rImmPeer.status === "fulfilled") {
-      expect(rImmPeer.value.providerId).toBe("slow-1");
-    }
-
-    // Lone keyed caller abort mid-flight preserves attempts in HandoffUnknownError and frees key for immediate retry
-    adapterCalls = 0;
-    adapterAborted = false;
-    const c5 = makeSlowClient();
-    const acLone = new AbortController();
-    const pLone = c5.send(
-      { to: "+14155550123", body: "hi", idempotencyKey: "k-abort-5" },
-      { signal: acLone.signal },
-    );
-    setTimeout(() => acLone.abort(new Error("lone-abort")), 5);
-    const loneErr = await rejection(pLone);
-    expect(loneErr).toBeInstanceOf(HandoffUnknownError);
-    expect((loneErr as HandoffUnknownError).reason).toBe("aborted");
-    expect((loneErr as HandoffUnknownError).attempts).toHaveLength(1);
-    const retryRes = await c5.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-5" });
-    expect(retryRes.providerId).toBe("slow-1");
-    expect(adapterCalls).toBe(2);
-
-    // Lone keyed caller abort during retry backoff preserves SendAbortedError + attempts
-    let backoffAttempts = 0;
-    const failureCodes: string[] = [];
-    const acBackoff = new AbortController();
-    const c6 = createSmsClient({
-      adapters: [
-        {
-          name: "rl",
-          capabilities: memory().capabilities,
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            backoffAttempts += 1;
-            setTimeout(() => acBackoff.abort(new Error("backoff-abort")), 10);
-            return {
-              kind: "rejected",
-              category: "rate_limited",
-              retryAfterMs: 500,
-              details: { provider: "rl", httpStatus: 429, code: "429" },
-            };
+      const badValClient = createSmsClient({
+        adapters: [
+          {
+            name: "bad-val",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            validate() {
+              throw new Error("validator-boom");
+            },
+            async send() {
+              return { kind: "accepted", providerId: "x", delivery: "queued" };
+            },
           },
-        },
-      ],
-      retry: { maxAttempts: 2, baseDelayMs: 500, maxDelayMs: 500 },
-      hooks: {
-        onFailure(event) {
-          failureCodes.push(event.errorCode);
-        },
-      },
-    });
-    const backoffErr = await rejection(
-      c6.send({ to: "+14155550123", body: "hi", idempotencyKey: "k-abort-6" }, { signal: acBackoff.signal }),
-    );
-    expect(backoffAttempts).toBe(1);
-    expect(backoffErr).toBeInstanceOf(SendAbortedError);
-    expect((backoffErr as SendAbortedError).attempts).toHaveLength(1);
-    expect(((backoffErr as SendAbortedError).cause as Error).message).toBe("backoff-abort");
-    expect(failureCodes).toEqual(["aborted"]);
-
-    // R28: immediate peer abort rejects peer while leader succeeds (even on synchronous memory adapter)
-    const syncClient = createSmsClient({ adapters: [memory()] });
-    const acFastPeer = new AbortController();
-    const fastInput = { to: "+14155550123" as const, body: "hi", idempotencyKey: "k-r28-peer" };
-    const pFastLeader = syncClient.send(fastInput);
-    const pFastPeer = syncClient.send(fastInput, { signal: acFastPeer.signal });
-    acFastPeer.abort(new Error("fast-peer"));
-    const [rFastLeader, rFastPeer] = await Promise.allSettled([pFastLeader, pFastPeer]);
-    expect(rFastLeader.status).toBe("fulfilled");
-    expect(rFastPeer.status).toBe("rejected");
-    if (rFastPeer.status === "rejected") {
-      expect(rFastPeer.reason).toBeInstanceOf(HandoffUnknownError);
-      expect((rFastPeer.reason as HandoffUnknownError).reason).toBe("aborted");
-    }
-
-    // R28: same-tick leader abort + conflicting peer dispatches 0 adapter calls
-    adapterCalls = 0;
-    const cConflict = makeSlowClient();
-    const acConflict = new AbortController();
-    const pConfLeader = cConflict.send(
-      { to: "+14155550123", body: "A", idempotencyKey: "k-r28-conflict" },
-      { signal: acConflict.signal },
-    );
-    const pConfPeer = cConflict.send({ to: "+14155550123", body: "B", idempotencyKey: "k-r28-conflict" });
-    acConflict.abort(new Error("abort-conflict-leader"));
-    const [rConfLeader, rConfPeer] = await Promise.allSettled([pConfLeader, pConfPeer]);
-    expect(adapterCalls).toBe(0);
-    expect(rConfLeader.status).toBe("rejected");
-    expect(rConfLeader.status === "rejected" && rConfLeader.reason).toBeInstanceOf(SendAbortedError);
-    expect(rConfPeer.status).toBe("rejected");
-    expect(rConfPeer.status === "rejected" && rConfPeer.reason).toBeInstanceOf(IdempotencyConflictError);
-
-    // R28: both leader and matching peer abort in same tick -> 0 adapter calls, both reject
-    adapterCalls = 0;
-    const cBothImm = makeSlowClient();
-    const acBoth1 = new AbortController();
-    const acBoth2 = new AbortController();
-    const pBoth1 = cBothImm.send(
-      { to: "+14155550123", body: "same", idempotencyKey: "k-r28-both" },
-      { signal: acBoth1.signal },
-    );
-    const pBoth2 = cBothImm.send(
-      { to: "+14155550123", body: "same", idempotencyKey: "k-r28-both" },
-      { signal: acBoth2.signal },
-    );
-    acBoth1.abort(new Error("both-1"));
-    acBoth2.abort(new Error("both-2"));
-    const [rBoth1, rBoth2] = await Promise.allSettled([pBoth1, pBoth2]);
-    expect(adapterCalls).toBe(0);
-    expect(rBoth1.status).toBe("rejected");
-    expect(rBoth1.status === "rejected" && rBoth1.reason).toBeInstanceOf(SendAbortedError);
-    expect(rBoth2.status).toBe("rejected");
-    expect(rBoth2.status === "rejected" && rBoth2.reason).toBeInstanceOf(SendAbortedError);
-
-    // R28: abort during async reserve() does not invoke beforeSend and finalizes as rejected
-    let beforeSendCalls = 0;
-    let finalizedState: string | undefined;
-    let resolveReserve!: (value: { kind: "reserved"; reservationId: string }) => void;
-    let markReserveStarted!: () => void;
-    const reserveStarted = new Promise<void>((resolve) => {
-      markReserveStarted = resolve;
-    });
-    const acReserve = new AbortController();
-    const cReserve = createSmsClient({
-      adapters: [memory()],
-      beforeSend() {
-        beforeSendCalls += 1;
-        return { kind: "reject", reason: "should-not-run" };
-      },
-      idempotency: {
-        store: {
-          async get() {
-            return null;
-          },
-          reserve() {
-            markReserveStarted();
-            return new Promise((resolve) => {
-              resolveReserve = resolve;
-            });
-          },
-          async finalize({ record }) {
-            finalizedState = record.state;
-            return { kind: "finalized" };
-          },
-        },
-      },
-    });
-    const pReserve = cReserve.send(
-      { to: "+14155550123", body: "hi", idempotencyKey: "k-r28-reserve" },
-      { signal: acReserve.signal },
-    );
-    await reserveStarted;
-    acReserve.abort(new Error("during-reserve"));
-    resolveReserve({ kind: "reserved", reservationId: "res-1" });
-    const reserveErr = await rejection(pReserve);
-    expect(beforeSendCalls).toBe(0);
-    expect(finalizedState).toBe("rejected");
-    expect(reserveErr).toBeInstanceOf(SendAbortedError);
-
-    // R28: HandoffUnknownError#toJSON includes reason and providerName, and overflowing Retry-After clamps finite so retry stops
-    const hu = new HandoffUnknownError("timed out", {
-      reason: "timeout",
-      providerName: "twilio",
-      attempts: [],
-    });
-    expect(hu.toJSON()).toMatchObject({ reason: "timeout", providerName: "twilio" });
-    const { parseRetryAfter } = await import("../../src/core/http.js");
-    const hugeRetry = parseRetryAfter("9".repeat(400));
-    expect(hugeRetry).toBe(Number.MAX_SAFE_INTEGER);
-
-    // R29: Infinity retryAfterMs from custom adapter stops retrying; throwing/malformed adapter.validate() fails closed; keyword arrays are frozen
-    let infCalls = 0;
-    const infClient = createSmsClient({
-      retry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 100 },
-      adapters: [
-        {
-          name: "inf-rl",
-          capabilities: memory().capabilities,
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            infCalls += 1;
-            return {
-              kind: "rejected",
-              category: "rate_limited",
-              retryAfterMs: Infinity,
-              details: { provider: "inf-rl", httpStatus: 429 },
-            };
-          },
-        },
-      ],
-    });
-    const infErr = await rejection(infClient.send({ to: "+14155550123", body: "hi" }));
-    expect(infErr).toBeInstanceOf(ProviderRateLimitedError);
-    expect(infCalls).toBe(1);
-
-    const badValClient = createSmsClient({
-      adapters: [
-        {
-          name: "bad-val",
-          capabilities: memory().capabilities,
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          validate() {
-            throw new Error("validator-boom");
-          },
-          async send() {
-            return { kind: "accepted", providerId: "x", delivery: "queued" };
-          },
-        },
-      ],
-    });
-    expect(badValClient.validate({ to: "+14155550123", body: "hi" }).supported).toBe(false);
-    await expect(badValClient.send({ to: "+14155550123", body: "hi" })).rejects.toMatchObject({
-      code: "invalid_message",
-    });
-
-    const { OPT_OUT_KEYWORDS, HELP_KEYWORDS } = await import("../../src/webhooks/events.js");
-    expect(Object.isFrozen(OPT_OUT_KEYWORDS)).toBe(true);
-    expect(Object.isFrozen(HELP_KEYWORDS)).toBe(true);
-
-    // R30: abort during delayed accepted-record replay rejects with SendAbortedError
-    const seedStore = memoryIdempotencyStore();
-    const seedClient = createSmsClient({ adapters: [memory()], idempotency: { store: seedStore } });
-    const seeded = await seedClient.send({ to: "+14155550123", body: "replay-me", idempotencyKey: "k-r30-replay" });
-    const seedRecord = await seedStore.get("k-r30-replay");
-    expect(seedRecord?.state).toBe("accepted");
-    let resolveAccepted!: (value: { kind: "existing"; record: { state: "accepted"; fingerprint: string; result: typeof seeded } }) => void;
-    let markAcceptedStarted!: () => void;
-    const acceptedStarted = new Promise<void>((resolve) => {
-      markAcceptedStarted = resolve;
-    });
-    const acReplay = new AbortController();
-    const replayClient = createSmsClient({
-      adapters: [memory()],
-      idempotency: {
-        store: {
-          async get(k) {
-            return seedStore.get(k);
-          },
-          reserve() {
-            markAcceptedStarted();
-            return new Promise((resolve) => {
-              resolveAccepted = resolve;
-            });
-          },
-          async finalize() {
-            return { kind: "finalized" };
-          },
-        },
-      },
-    });
-    const pReplay = replayClient.send(
-      { to: "+14155550123", body: "replay-me", idempotencyKey: "k-r30-replay" },
-      { signal: acReplay.signal },
-    );
-    await acceptedStarted;
-    acReplay.abort(new Error("abort-during-accepted-replay"));
-    resolveAccepted({
-      kind: "existing",
-      record: { state: "accepted", fingerprint: seedRecord!.fingerprint, result: seeded },
-    });
-    const replayErr = await rejection(pReplay);
-    expect(replayErr).toBeInstanceOf(SendAbortedError);
-
-    // R30: adapter.validate() accepts valid field "message" without remapping to "body"
-    const msgFieldClient = createSmsClient({
-      adapters: [
-        {
-          name: "field-message",
-          capabilities: memory().capabilities,
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          validate() {
-            return [{ code: "invalid_field", field: "message", message: "whole-message issue" }];
-          },
-          async send() {
-            return { kind: "accepted", providerId: "x", delivery: "queued" };
-          },
-        },
-      ],
-    });
-    const msgVal = msgFieldClient.validate({ to: "+14155550123", body: "hi" });
-    expect(msgVal.issues).toEqual([
-      { code: "invalid_field", field: "message", message: "whole-message issue", provider: "field-message" },
-    ]);
-
-    // R30: credential-shaped requestId is stripped from HandoffUnknownError#toJSON while safe requestId is kept
-    const credClient = createSmsClient({
-      adapters: [
-        {
-          name: "redaction",
-          capabilities: memory().capabilities,
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          async send() {
-            return {
-              kind: "unknown",
-              reason: "timeout",
-              details: { provider: "redaction", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
-            };
-          },
-        },
-      ],
-    });
-    const credErr = await rejection(credClient.send({ to: "+14155550123", body: "hi" }));
-    expect(credErr).toBeInstanceOf(HandoffUnknownError);
-    expect(JSON.stringify((credErr as HandoffUnknownError).toJSON())).not.toContain("sk-live-DO-NOT-LEAK-9z");
-
-    // R31: adapter.validate() single-reads issue getters so flipping getters cannot bypass validation or throw non-SmsError
-    let codeReads = 0;
-    let fieldReads = 0;
-    let msgReads = 0;
-    const toctouValClient = createSmsClient({
-      adapters: [
-        {
-          name: "toctou-val",
-          capabilities: memory().capabilities,
-          support: { status: "supported", notes: [] },
-          defaultFrom: "+15005550006",
-          validate() {
-            return [
-              {
-                get code() {
-                  codeReads += 1;
-                  return (codeReads === 1 ? "invalid_field" : "bogus") as "invalid_field";
-                },
-                get field() {
-                  fieldReads += 1;
-                  return (fieldReads === 1 ? "body" : 42) as "body";
-                },
-                get message() {
-                  msgReads += 1;
-                  return (msgReads === 1 ? "bad body" : null) as unknown as string;
-                },
-              },
-            ];
-          },
-          async send() {
-            return { kind: "accepted", providerId: "x", delivery: "queued" };
-          },
-        },
-      ],
-    });
-    const toctouVal = toctouValClient.validate({ to: "+14155550123", body: "hi" });
-    expect(codeReads).toBe(1);
-    expect(fieldReads).toBe(1);
-    expect(msgReads).toBe(1);
-    expect(toctouVal.issues).toEqual([
-      { code: "invalid_field", field: "body", message: "bad body", provider: "toctou-val" },
-    ]);
-
-    codeReads = 0;
-    fieldReads = 0;
-    msgReads = 0;
-    const toctouErr = await rejection(toctouValClient.send({ to: "+14155550123", body: "hi" }));
-    expect(toctouErr).toBeInstanceOf(InvalidMessageError);
-    expect(codeReads).toBe(1);
-
-    // R31: direct HandoffUnknownError#toJSON() strips credential-shaped requestId
-    const directErr = new HandoffUnknownError("unknown", {
-      reason: "timeout",
-      attempts: [],
-      provider: { provider: "twilio", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
-    });
-    expect(directErr.toJSON().provider).toEqual({ provider: "twilio", httpStatus: 503 });
-
-    // R32: toJSON() strips credential-shaped providerCode in attempts and provider.code, while keeping hex UUID/RQ IDs
-    const rejErr = new ProviderRejectedError("rejected", {
-      category: "request",
-      provider: {
-        provider: "twilio",
-        code: "user:secret",
-        requestId: "00000000-0000-4000-8000-00000000000a",
-      },
-      attempts: [
-        {
-          provider: "twilio",
-          attempt: 1,
-          outcome: "rejected",
-          category: "request",
-          providerCode: "sk-live-DO-NOT-LEAK-9z",
-          durationMs: 5,
-        },
-      ],
-    });
-    const rejJson = rejErr.toJSON();
-    expect(rejJson.provider).toEqual({
-      provider: "twilio",
-      requestId: "00000000-0000-4000-8000-00000000000a",
-    });
-    expect(rejJson.attempts[0]).not.toHaveProperty("providerCode");
-
-    const codeCredErr = new HandoffUnknownError("cred-code", {
-      reason: "timeout",
-      attempts: [],
-      provider: { provider: "twilio", code: "api_key_123", requestId: "RQ0123456789abcdef0123456789abcdef" },
-    });
-    expect(codeCredErr.toJSON().provider).toEqual({
-      provider: "twilio",
-      requestId: "RQ0123456789abcdef0123456789abcdef",
-    });
-
-    // R32: coalesced callers both aborting during rate-limit backoff both get SendAbortedError with attempts
-    const backoffAdapter = memory({
-      outcomes: [rejectedOutcome("rate_limited", { retryAfterMs: 5000 })],
-    });
-    const backoffClient = createSmsClient({
-      adapters: [backoffAdapter],
-      retry: { maxAttempts: 2, baseDelayMs: 5000, maxDelayMs: 10000 },
-    });
-    const bac1 = new AbortController();
-    const bac2 = new AbortController();
-    const bp1 = backoffClient.send(
-      { to: "+14155550123", body: "hi", idempotencyKey: "k-r32-backoff" },
-      { signal: bac1.signal },
-    );
-    const bp2 = backoffClient.send(
-      { to: "+14155550123", body: "hi", idempotencyKey: "k-r32-backoff" },
-      { signal: bac2.signal },
-    );
-    await new Promise((r) => setTimeout(r, 25));
-    bac1.abort("b1");
-    bac2.abort("b2");
-    const [bs1, bs2] = await Promise.allSettled([bp1, bp2]);
-    expect(bs1.status).toBe("rejected");
-    expect(bs2.status).toBe("rejected");
-    if (bs1.status === "rejected" && bs2.status === "rejected") {
-      expect(bs1.reason).toBeInstanceOf(SendAbortedError);
-      expect(bs2.reason).toBeInstanceOf(SendAbortedError);
-      expect((bs1.reason as SendAbortedError).attempts).toHaveLength(1);
-      expect((bs2.reason as SendAbortedError).attempts).toHaveLength(1);
-      expect((bs1.reason as SendAbortedError).cause).toBe("b1");
-      expect((bs2.reason as SendAbortedError).cause).toBe("b2");
-    }
-
-    // R33: toJSON() allowlists attempt fields, single-reads/sanitizes provider.provider, handles throwing/revoked getters
-    let providerNameReads = 0;
-    const hostileProvider = {
-      get provider() {
-        providerNameReads += 1;
-        return providerNameReads === 1 ? "twilio" : "sk-live-FLIPPED";
-      },
-      get code() {
-        throw new Error("boom");
-      },
-    };
-    const r33Err = new HandoffUnknownError("r33", {
-      reason: "timeout",
-      provider: hostileProvider as unknown as NonNullable<HandoffUnknownError["provider"]>,
-      attempts: [
-        {
-          provider: "sk-live-LEAK",
-          attempt: 1,
-          outcome: "rejected",
-          category: "request",
-          durationMs: 3,
-          to: "+14155550123",
-          body: "secret body",
-          authToken: "sk-live-x",
-        } as unknown as HandoffUnknownError["attempts"][number],
-      ],
-    });
-    const r33Json = r33Err.toJSON();
-    expect(providerNameReads).toBe(1);
-    expect(r33Json.provider).toEqual({ provider: "twilio" });
-    expect(r33Json.attempts).toEqual([
-      { provider: "unknown", attempt: 1, outcome: "rejected", category: "request", durationMs: 3 },
-    ]);
-
-    const { proxy: revokedProvider, revoke: revokeProvider } = Proxy.revocable({}, {});
-    revokeProvider();
-    const revokedErr = new HandoffUnknownError("revoked", {
-      reason: "timeout",
-      provider: revokedProvider as unknown as NonNullable<HandoffUnknownError["provider"]>,
-      attempts: [],
-    });
-    expect(revokedErr.toJSON().provider).toBeUndefined();
-
-    // R33: adapter.validate() receives a frozen message copy so it cannot mutate what send() receives
-    let sentBody = "";
-    const baseMem = memory();
-    const mutatingValidatorClient = createSmsClient({
-      adapters: [
-        {
-          ...baseMem,
-          name: "mutval",
-          validate(msg) {
-            try {
-              (msg as { body: string }).body = "INJECTED";
-            } catch {
-              // Expected in strict mode on frozen object
-            }
-            return [];
-          },
-          async send(msg) {
-            sentBody = msg.body;
-            return { kind: "accepted", providerId: "ok1", delivery: "queued" };
-          },
-        },
-      ],
-    });
-    await mutatingValidatorClient.send({ to: "+14155550123", body: "original" });
-    expect(sentBody).toBe("original");
-
-    // R33: parseRetryAfter rejects signed/decimal numeric strings instead of Date.parse fallback
-    expect(parseRetryAfter("-5")).toBeUndefined();
-    expect(parseRetryAfter("+5")).toBeUndefined();
-    expect(parseRetryAfter("1.5")).toBeUndefined();
-    expect(parseRetryAfter(".5")).toBeUndefined();
-    expect(parseRetryAfter("5.")).toBeUndefined();
-    expect(parseRetryAfter("-5.")).toBeUndefined();
-    expect(parseRetryAfter("9999.")).toBeUndefined();
-    expect(parseRetryAfter("5 5")).toBeUndefined();
-    expect(parseRetryAfter("0")).toBe(0);
-
-    // R34: toJSON() preserves every valid Delivery, RejectionCategory, and UnknownReason value
-    for (const category of ["auth", "rate_limited", "recipient", "sender", "account", "compliance", "request"] as const) {
-      const err = new ProviderRejectedError("rej", {
-        category,
-        provider: { provider: "twilio" },
-        attempts: [{ provider: "twilio", attempt: 1, outcome: "rejected", category, durationMs: 1 }],
+        ],
       });
-      expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "rejected", category });
-    }
-    for (const reason of ["network", "timeout", "aborted", "malformed_response", "server_error", "unexpected_status", "adapter_exception"] as const) {
-      const err = new HandoffUnknownError("unk", {
-        reason,
-        attempts: [{ provider: "twilio", attempt: 1, outcome: "unknown", reason, durationMs: 1 }],
+      expect(badValClient.validate({ to: "+14155550123", body: "hi" }).supported).toBe(false);
+      await expect(badValClient.send({ to: "+14155550123", body: "hi" })).rejects.toMatchObject({
+        code: "invalid_message",
       });
-      expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "unknown", reason });
-    }
-    for (const delivery of ["unknown", "queued", "sent", "delivered", "undelivered", "filtered"] as const) {
-      const err = new HandoffUnknownError("acc", {
+
+      const { OPT_OUT_KEYWORDS, HELP_KEYWORDS } = await import("../../src/webhooks/events.js");
+      expect(Object.isFrozen(OPT_OUT_KEYWORDS)).toBe(true);
+      expect(Object.isFrozen(HELP_KEYWORDS)).toBe(true);
+    });
+
+    test("R30: abort during delayed accepted-record replay rejects with SendAbortedError", async () => {
+      const seedStore = memoryIdempotencyStore();
+      const seedClient = createSmsClient({ adapters: [memory()], idempotency: { store: seedStore } });
+      const seeded = await seedClient.send({ to: "+14155550123", body: "replay-me", idempotencyKey: "k-r30-replay" });
+      const seedRecord = await seedStore.get("k-r30-replay");
+      expect(seedRecord?.state).toBe("accepted");
+      let resolveAccepted!: (value: { kind: "existing"; record: { state: "accepted"; fingerprint: string; result: typeof seeded } }) => void;
+      let markAcceptedStarted!: () => void;
+      const acceptedStarted = new Promise<void>((resolve) => {
+        markAcceptedStarted = resolve;
+      });
+      const acReplay = new AbortController();
+      const replayClient = createSmsClient({
+        adapters: [memory()],
+        idempotency: {
+          store: {
+            async get(k) {
+              return seedStore.get(k);
+            },
+            reserve() {
+              markAcceptedStarted();
+              return new Promise((resolve) => {
+                resolveAccepted = resolve;
+              });
+            },
+            async finalize() {
+              return { kind: "finalized" };
+            },
+          },
+        },
+      });
+      const pReplay = replayClient.send(
+        { to: "+14155550123", body: "replay-me", idempotencyKey: "k-r30-replay" },
+        { signal: acReplay.signal },
+      );
+      await acceptedStarted;
+      acReplay.abort(new Error("abort-during-accepted-replay"));
+      resolveAccepted({
+        kind: "existing",
+        record: { state: "accepted", fingerprint: seedRecord!.fingerprint, result: seeded },
+      });
+      const replayErr = await rejection(pReplay);
+      expect(replayErr).toBeInstanceOf(SendAbortedError);
+    });
+
+    test("R30: adapter.validate() accepts valid field 'message' without remapping to 'body'", async () => {
+      const msgFieldClient = createSmsClient({
+        adapters: [
+          {
+            name: "field-message",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            validate() {
+              return [{ code: "invalid_field", field: "message", message: "whole-message issue" }];
+            },
+            async send() {
+              return { kind: "accepted", providerId: "x", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      const msgVal = msgFieldClient.validate({ to: "+14155550123", body: "hi" });
+      expect(msgVal.issues).toEqual([
+        { code: "invalid_field", field: "message", message: "whole-message issue", provider: "field-message" },
+      ]);
+    });
+
+    test("R30: credential-shaped requestId is stripped from HandoffUnknownError#toJSON while safe requestId is kept", async () => {
+      const credClient = createSmsClient({
+        adapters: [
+          {
+            name: "redaction",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            async send() {
+              return {
+                kind: "unknown",
+                reason: "timeout",
+                details: { provider: "redaction", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
+              };
+            },
+          },
+        ],
+      });
+      const credErr = await rejection(credClient.send({ to: "+14155550123", body: "hi" }));
+      expect(credErr).toBeInstanceOf(HandoffUnknownError);
+      expect(JSON.stringify((credErr as HandoffUnknownError).toJSON())).not.toContain("sk-live-DO-NOT-LEAK-9z");
+    });
+
+    test("R31: adapter.validate() single-reads issue getters so flipping getters cannot bypass validation or throw non-SmsError", async () => {
+      let codeReads = 0;
+      let fieldReads = 0;
+      let msgReads = 0;
+      const toctouValClient = createSmsClient({
+        adapters: [
+          {
+            name: "toctou-val",
+            capabilities: memory().capabilities,
+            support: { status: "supported", notes: [] },
+            defaultFrom: "+15005550006",
+            validate() {
+              return [
+                {
+                  get code() {
+                    codeReads += 1;
+                    return (codeReads === 1 ? "invalid_field" : "bogus") as "invalid_field";
+                  },
+                  get field() {
+                    fieldReads += 1;
+                    return (fieldReads === 1 ? "body" : 42) as "body";
+                  },
+                  get message() {
+                    msgReads += 1;
+                    return (msgReads === 1 ? "bad body" : null) as unknown as string;
+                  },
+                },
+              ];
+            },
+            async send() {
+              return { kind: "accepted", providerId: "x", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      const toctouVal = toctouValClient.validate({ to: "+14155550123", body: "hi" });
+      expect(codeReads).toBe(1);
+      expect(fieldReads).toBe(1);
+      expect(msgReads).toBe(1);
+      expect(toctouVal.issues).toEqual([
+        { code: "invalid_field", field: "body", message: "bad body", provider: "toctou-val" },
+      ]);
+
+      codeReads = 0;
+      fieldReads = 0;
+      msgReads = 0;
+      const toctouErr = await rejection(toctouValClient.send({ to: "+14155550123", body: "hi" }));
+      expect(toctouErr).toBeInstanceOf(InvalidMessageError);
+      expect(codeReads).toBe(1);
+    });
+
+    test("R31: direct HandoffUnknownError#toJSON() strips credential-shaped requestId", async () => {
+      const directErr = new HandoffUnknownError("unknown", {
         reason: "timeout",
-        attempts: [{ provider: "twilio", attempt: 1, outcome: "accepted", providerId: "SM1234567890abcdef1234567890abcdef", delivery, durationMs: 1 }],
+        attempts: [],
+        provider: { provider: "twilio", httpStatus: 503, requestId: "sk-live-DO-NOT-LEAK-9z" },
       });
-      expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "accepted", delivery });
-    }
-
-    // R34: adapter.validate() cannot mutate message.from before send()
-    let receivedFrom: unknown;
-    const mutFromClient = createSmsClient({
-      adapters: [
-        {
-          ...baseMem,
-          name: "mutfrom",
-          validate(msg) {
-            try {
-              (msg.from as { value: string }).value = "+19999999999";
-              (msg.from as { kind: string }).kind = "alphanumeric";
-            } catch {
-              // Expected in strict mode on frozen sender
-            }
-            return [];
-          },
-          async send(msg) {
-            receivedFrom = { ...msg.from };
-            return { kind: "accepted", providerId: "ok2", delivery: "queued" };
-          },
-        },
-      ],
+      expect(directErr.toJSON().provider).toEqual({ provider: "twilio", httpStatus: 503 });
     });
-    await mutFromClient.send({ to: "+14155550123", from: "+15005550006", body: "hi" });
-    expect(receivedFrom).toEqual({ kind: "phone_number", value: "+15005550006" });
+
+    test("R32: toJSON() strips credential-shaped providerCode in attempts and provider.code, while keeping hex UUID/RQ IDs", async () => {
+      const rejErr = new ProviderRejectedError("rejected", {
+        category: "request",
+        provider: {
+          provider: "twilio",
+          code: "user:secret",
+          requestId: "00000000-0000-4000-8000-00000000000a",
+        },
+        attempts: [
+          {
+            provider: "twilio",
+            attempt: 1,
+            outcome: "rejected",
+            category: "request",
+            providerCode: "sk-live-DO-NOT-LEAK-9z",
+            durationMs: 5,
+          },
+        ],
+      });
+      const rejJson = rejErr.toJSON();
+      expect(rejJson.provider).toEqual({
+        provider: "twilio",
+        requestId: "00000000-0000-4000-8000-00000000000a",
+      });
+      expect(rejJson.attempts[0]).not.toHaveProperty("providerCode");
+
+      const codeCredErr = new HandoffUnknownError("cred-code", {
+        reason: "timeout",
+        attempts: [],
+        provider: { provider: "twilio", code: "api_key_123", requestId: "RQ0123456789abcdef0123456789abcdef" },
+      });
+      expect(codeCredErr.toJSON().provider).toEqual({
+        provider: "twilio",
+        requestId: "RQ0123456789abcdef0123456789abcdef",
+      });
+    });
+
+    test("R32: coalesced callers both aborting during rate-limit backoff both get SendAbortedError with attempts", async () => {
+      const backoffAdapter = memory({
+        outcomes: [rejectedOutcome("rate_limited", { retryAfterMs: 5000 })],
+      });
+      const backoffClient = createSmsClient({
+        adapters: [backoffAdapter],
+        retry: { maxAttempts: 2, baseDelayMs: 5000, maxDelayMs: 10000 },
+      });
+      const bac1 = new AbortController();
+      const bac2 = new AbortController();
+      const bp1 = backoffClient.send(
+        { to: "+14155550123", body: "hi", idempotencyKey: "k-r32-backoff" },
+        { signal: bac1.signal },
+      );
+      const bp2 = backoffClient.send(
+        { to: "+14155550123", body: "hi", idempotencyKey: "k-r32-backoff" },
+        { signal: bac2.signal },
+      );
+      await new Promise((r) => setTimeout(r, 25));
+      bac1.abort("b1");
+      bac2.abort("b2");
+      const [bs1, bs2] = await Promise.allSettled([bp1, bp2]);
+      expect(bs1.status).toBe("rejected");
+      expect(bs2.status).toBe("rejected");
+      if (bs1.status === "rejected" && bs2.status === "rejected") {
+        expect(bs1.reason).toBeInstanceOf(SendAbortedError);
+        expect(bs2.reason).toBeInstanceOf(SendAbortedError);
+        expect((bs1.reason as SendAbortedError).attempts).toHaveLength(1);
+        expect((bs2.reason as SendAbortedError).attempts).toHaveLength(1);
+        expect((bs1.reason as SendAbortedError).cause).toBe("b1");
+        expect((bs2.reason as SendAbortedError).cause).toBe("b2");
+      }
+    });
+
+    test("R33: toJSON() allowlists attempt fields, single-reads/sanitizes provider.provider, handles throwing/revoked getters", async () => {
+      let providerNameReads = 0;
+      const hostileProvider = {
+        get provider() {
+          providerNameReads += 1;
+          return providerNameReads === 1 ? "twilio" : "sk-live-FLIPPED";
+        },
+        get code() {
+          throw new Error("boom");
+        },
+      };
+      const r33Err = new HandoffUnknownError("r33", {
+        reason: "timeout",
+        provider: hostileProvider as unknown as NonNullable<HandoffUnknownError["provider"]>,
+        attempts: [
+          {
+            provider: "sk-live-LEAK",
+            attempt: 1,
+            outcome: "rejected",
+            category: "request",
+            durationMs: 3,
+            to: "+14155550123",
+            body: "secret body",
+            authToken: "sk-live-x",
+          } as unknown as HandoffUnknownError["attempts"][number],
+        ],
+      });
+      const r33Json = r33Err.toJSON();
+      expect(providerNameReads).toBe(1);
+      expect(r33Json.provider).toEqual({ provider: "twilio" });
+      expect(r33Json.attempts).toEqual([
+        { provider: "unknown", attempt: 1, outcome: "rejected", category: "request", durationMs: 3 },
+      ]);
+
+      const { proxy: revokedProvider, revoke: revokeProvider } = Proxy.revocable({}, {});
+      revokeProvider();
+      const revokedErr = new HandoffUnknownError("revoked", {
+        reason: "timeout",
+        provider: revokedProvider as unknown as NonNullable<HandoffUnknownError["provider"]>,
+        attempts: [],
+      });
+      expect(revokedErr.toJSON().provider).toBeUndefined();
+    });
+
+    test("R33: adapter.validate() receives a frozen message copy so it cannot mutate what send() receives", async () => {
+      let sentBody = "";
+      const baseMem = memory();
+      const mutatingValidatorClient = createSmsClient({
+        adapters: [
+          {
+            ...baseMem,
+            name: "mutval",
+            validate(msg) {
+              try {
+                (msg as { body: string }).body = "INJECTED";
+              } catch {
+                // Expected in strict mode on frozen object
+              }
+              return [];
+            },
+            async send(msg) {
+              sentBody = msg.body;
+              return { kind: "accepted", providerId: "ok1", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      await mutatingValidatorClient.send({ to: "+14155550123", body: "original" });
+      expect(sentBody).toBe("original");
+    });
+
+    test("R33: parseRetryAfter rejects signed/decimal numeric strings instead of Date.parse fallback", async () => {
+      expect(parseRetryAfter("-5")).toBeUndefined();
+      expect(parseRetryAfter("+5")).toBeUndefined();
+      expect(parseRetryAfter("1.5")).toBeUndefined();
+      expect(parseRetryAfter(".5")).toBeUndefined();
+      expect(parseRetryAfter("5.")).toBeUndefined();
+      expect(parseRetryAfter("-5.")).toBeUndefined();
+      expect(parseRetryAfter("9999.")).toBeUndefined();
+      expect(parseRetryAfter("5 5")).toBeUndefined();
+      expect(parseRetryAfter("0")).toBe(0);
+    });
+
+    test("R34: toJSON() preserves every valid Delivery, RejectionCategory, and UnknownReason value", async () => {
+      for (const category of ["auth", "rate_limited", "recipient", "sender", "account", "compliance", "request"] as const) {
+        const err = new ProviderRejectedError("rej", {
+          category,
+          provider: { provider: "twilio" },
+          attempts: [{ provider: "twilio", attempt: 1, outcome: "rejected", category, durationMs: 1 }],
+        });
+        expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "rejected", category });
+      }
+      for (const reason of ["network", "timeout", "aborted", "malformed_response", "server_error", "unexpected_status", "adapter_exception"] as const) {
+        const err = new HandoffUnknownError("unk", {
+          reason,
+          attempts: [{ provider: "twilio", attempt: 1, outcome: "unknown", reason, durationMs: 1 }],
+        });
+        expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "unknown", reason });
+      }
+      for (const delivery of ["unknown", "queued", "sent", "delivered", "undelivered", "filtered"] as const) {
+        const err = new HandoffUnknownError("acc", {
+          reason: "timeout",
+          attempts: [{ provider: "twilio", attempt: 1, outcome: "accepted", providerId: "SM1234567890abcdef1234567890abcdef", delivery, durationMs: 1 }],
+        });
+        expect(err.toJSON().attempts[0]).toMatchObject({ outcome: "accepted", delivery });
+      }
+    });
+
+    test("R34: adapter.validate() cannot mutate message.from before send()", async () => {
+      const baseMem = memory();
+      let receivedFrom: unknown;
+      const mutFromClient = createSmsClient({
+        adapters: [
+          {
+            ...baseMem,
+            name: "mutfrom",
+            validate(msg) {
+              try {
+                (msg.from as { value: string }).value = "+19999999999";
+                (msg.from as { kind: string }).kind = "alphanumeric";
+              } catch {
+                // Expected in strict mode on frozen sender
+              }
+              return [];
+            },
+            async send(msg) {
+              receivedFrom = { ...msg.from };
+              return { kind: "accepted", providerId: "ok2", delivery: "queued" };
+            },
+          },
+        ],
+      });
+      await mutFromClient.send({ to: "+14155550123", from: "+15005550006", body: "hi" });
+      expect(receivedFrom).toEqual({ kind: "phone_number", value: "+15005550006" });
+    });
   });
 });

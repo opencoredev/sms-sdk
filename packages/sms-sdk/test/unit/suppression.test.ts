@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createSmsClient } from "../../src/core/client.js";
-import { PolicyRejectedError } from "../../src/core/errors.js";
+import { ConfigurationError, PolicyRejectedError } from "../../src/core/errors.js";
 import { applySuppressionEvent, memorySuppressionList, suppressionPolicy } from "../../src/core/suppression.js";
 import { memory } from "../../src/testing/memory.js";
 import { parseSmsWebhooks } from "../../src/webhooks/index.js";
@@ -49,6 +49,20 @@ describe("suppressionPolicy", () => {
     };
     const sms = createSmsClient({ adapters: [memory()], beforeSend: suppressionPolicy(list) });
     await expect(sms.send({ to: optedOut, body: "hi" })).rejects.toBeInstanceOf(PolicyRejectedError);
+  });
+
+  test("fails the send with ConfigurationError when has() returns something other than a boolean", async () => {
+    for (const unclear of [undefined, null, 0, "false", {}]) {
+      const adapter = memory();
+      const list = {
+        has: async () => unclear as unknown as boolean,
+        add: () => {},
+        remove: () => {},
+      };
+      const sms = createSmsClient({ adapters: [adapter], beforeSend: suppressionPolicy(list) });
+      await expect(sms.send({ to: "+14155550199", body: "hi" })).rejects.toBeInstanceOf(ConfigurationError);
+      expect(adapter.sent).toHaveLength(0);
+    }
   });
 });
 

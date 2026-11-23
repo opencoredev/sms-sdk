@@ -11,7 +11,11 @@ import type { BeforeSendContext, PolicyDecision } from "./types.js";
  * `SmsSendInput.to` use.
  */
 export interface SuppressionList {
-  /** True when `phoneNumber` is suppressed. */
+  /**
+   * True when `phoneNumber` is suppressed. Any value other than `true` or
+   * `false` makes {@link suppressionPolicy} throw `ConfigurationError`, so the
+   * send fails and nothing is sent.
+   */
   has(phoneNumber: string): boolean | Promise<boolean>;
   /** Suppresses `phoneNumber`. Adding a number twice is a no-op. */
   add(phoneNumber: string): void | Promise<void>;
@@ -89,8 +93,14 @@ export function suppressionPolicy(list: SuppressionList): (context: BeforeSendCo
     }
     throw new ConfigurationError("suppressionPolicy() requires a valid SuppressionList.");
   }
-  return async (context) =>
-    (await hasFn(context.message.to)) ? { kind: "reject", reason: "recipient suppressed" } : { kind: "allow" };
+  return async (context) => {
+    const suppressed: unknown = await hasFn(context.message.to);
+    if (typeof suppressed !== "boolean") {
+      // An unclear answer, such as undefined from a failed read, must not allow the send.
+      throw new ConfigurationError("SuppressionList.has() must return a boolean.");
+    }
+    return suppressed ? { kind: "reject", reason: "recipient suppressed" } : { kind: "allow" };
+  };
 }
 
 /** The webhook event fields {@link applySuppressionEvent} reads. Every `SmsEvent` fits. */
