@@ -134,7 +134,7 @@ What matters in this code:
 - **Accept only with an ID**, and map every 5xx to `unknown`, even when the provider says "try again". It may already have created the message.
 - **Treat a 429 as a rate limit only with the provider's documented rate-limit error.** A bare 429 can come from a proxy.
 - **Classify conservatively.** `auth`, `rate_limited`, `sender`, and `account` trigger fallback, so use them only when the provider's docs prove the problem is specific to this account. Opt-outs and blocks are `compliance`, which never falls back. Unlisted codes are `request`.
-- **Keep `details` log-safe.** The client does not redact them. Pass provider error text through `redactText()` from `@opencoredev/sms-sdk`, which masks phone numbers and cuts the text to 200 characters.
+- **Keep `details` structural and log-safe.** Return `provider`, `httpStatus`, compact `code`, and `requestId`, and omit free-form `message` text. The client also sanitizes `details` by dropping `message`, unvalidated free-form strings, and out-of-range status codes before throwing; use `redactText()` from `@opencoredev/sms-sdk` if you log raw provider text yourself.
 
 For other local rules, such as a body length limit, add an optional `validate(message)` that returns `ValidationIssue[]`. Its issues appear in `sms.validate()` and make `send()` throw before any request.
 
@@ -208,6 +208,10 @@ Set `providerOptions: ACME_PROVIDER_OPTIONS` on the adapter and build the reques
 ## 5. Webhooks
 
 `parseSmsWebhook` covers only the six built-in providers. For a new provider, verify the signature against the raw body yourself before reading any field, then map the payload to the `SmsEvent` union from `@opencoredev/sms-sdk/webhooks` so the rest of your app handles it like the others.
+
+## 6. Look up messages (optional)
+
+If the provider has an endpoint that returns one message by ID, implement `getMessage(providerId, context)` so `sms.getMessage()` works with your adapter. Pass `context.signal` to `fetch`, never throw, and return `{ kind: "found", status }`, `{ kind: "not_found" }`, or `{ kind: "failed", reason }`; see [`MessageLookupOutcome`](/reference/adapter-contract#messagelookupoutcome). Add `lookup` fixtures to the contract tests to check it. Leave it out if the provider has no such endpoint.
 
 ## Contribute it
 

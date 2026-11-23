@@ -9,6 +9,7 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  MessageLookupOutcome,
   ProviderOptionsOf,
   ProviderOptionsSpec,
   RejectionCategory,
@@ -22,14 +23,22 @@ import { hasTrueField } from "../core/provider-options.js";
 import {
   basicAuthorization,
   exchange,
+  foundMessage,
+  freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
   readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 const ACCOUNT_SID_PATTERN = /^AC[0-9a-fA-F]{32}$/;
@@ -67,7 +76,7 @@ export type TwilioApiKeyOptions = TwilioCommonOptions & {
 export type TwilioOptions = TwilioAuthTokenOptions | TwilioApiKeyOptions;
 
 /** Static capabilities of the Twilio adapter. */
-export const TWILIO_CAPABILITIES: SmsCapabilities = {
+export const TWILIO_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: true,
@@ -77,18 +86,9 @@ export const TWILIO_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
-/**
- * Twilio Message create parameters accepted in `providerOptions.twilio`, from
- * the Message resource reference. Parameters the SDK sets from portable fields
- * are reserved. Not typed: `MaxPrice` (obsolete), `ForceDelivery` (reserved by
- * Twilio), `TrafficType` (undocumented), and non-SMS channel parameters
- * (`PersistentAction`, `FallbackFrom`); send them through `extra` if needed.
- *
- * @see https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource
- */
-export const TWILIO_PROVIDER_OPTIONS = {
+const TWILIO_SPEC_SOURCE = {
   options: {
     /** `ApplicationSid`: TwiML App whose status callback URL receives status updates. Ignored by Twilio when `webhookUrl` is set. */
     applicationSid: { type: "string", wire: "ApplicationSid", pattern: /^AP[0-9a-fA-F]{32}$/ },
@@ -142,6 +142,17 @@ export const TWILIO_PROVIDER_OPTIONS = {
   ],
 } as const satisfies ProviderOptionsSpec;
 
+/**
+ * Twilio Message create parameters accepted in `providerOptions.twilio`, from
+ * the Message resource reference. Parameters the SDK sets from portable fields
+ * are reserved. Not typed: `MaxPrice` (obsolete), `ForceDelivery` (reserved by
+ * Twilio), `TrafficType` (undocumented), and non-SMS channel parameters
+ * (`PersistentAction`, `FallbackFrom`); send them through `extra` if needed.
+ *
+ * @see https://www.twilio.com/docs/messaging/api/message-resource#create-a-message-resource
+ */
+export const TWILIO_PROVIDER_OPTIONS = freezeProviderOptionsSpec(TWILIO_SPEC_SOURCE);
+
 /** Twilio-specific send options: `providerOptions.twilio`. */
 export type TwilioSendOptions = ProviderOptionsOf<typeof TWILIO_PROVIDER_OPTIONS>;
 
@@ -158,28 +169,52 @@ declare module "../index.js" {
  * Sends `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` with HTTP Basic
  * auth and a form-encoded body. A `{ messagingService }` sender becomes
  * `MessagingServiceSid`; every other sender becomes `From`. `sendAt` requires a
- * Messaging Service sender, per Twilio.
+ * Messaging Service sender, per Twilio. `getMessage` fetches
+ * `GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`.
  *
  * @throws {ConfigurationError} when the account SID or credentials are malformed.
  */
 export function twilio(options: TwilioOptions): SmsAdapter {
-  if (!ACCOUNT_SID_PATTERN.test(options.accountSid)) {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Twilio options must be an object.");
+  }
+  let accountSid: unknown;
+  let authToken: unknown;
+  let apiKeySid: unknown;
+  let apiKeySecret: unknown;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    accountSid = options.accountSid;
+    authToken = options.authToken;
+    apiKeySid = options.apiKeySid;
+    apiKeySecret = options.apiKeySecret;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Twilio options could not be read.");
+  }
+  if (typeof accountSid !== "string" || !ACCOUNT_SID_PATTERN.test(accountSid)) {
     throw new ConfigurationError("Twilio accountSid must be AC followed by 32 hex characters.");
   }
   const authorization =
-    options.authToken !== undefined
-      ? basicAuthorization(options.accountSid, requireSecret(options.authToken, "authToken"))
-      : basicAuthorization(requireSecret(options.apiKeySid, "apiKeySid"), requireSecret(options.apiKeySecret, "apiKeySecret"));
-  const baseUrl = (options.baseUrl ?? "https://api.twilio.com").replace(/\/+$/, "");
-  const url = `${baseUrl}/2010-04-01/Accounts/${options.accountSid}/Messages.json`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+    authToken !== undefined
+      ? basicAuthorization(accountSid, requireSecret(authToken as string, "authToken"))
+      : basicAuthorization(requireSecret(apiKeySid as string, "apiKeySid"), requireSecret(apiKeySecret as string, "apiKeySecret"));
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://api.twilio.com", "Twilio");
+  const messagesUrl = `${baseUrl}/2010-04-01/Accounts/${accountSid}/Messages`;
+  const url = `${messagesUrl}.json`;
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Twilio");
 
   return {
     name: "twilio",
     capabilities: TWILIO_CAPABILITIES,
     support: { status: "supported", notes: [] },
-    providerOptions: TWILIO_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    // A private copy: Object.freeze cannot stop RegExp.prototype.compile on exported patterns.
+    providerOptions: freezeProviderOptionsSpec(TWILIO_SPEC_SOURCE),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     validate(message) {
       return validateTwilioMessage(message);
@@ -197,9 +232,21 @@ export function twilio(options: TwilioOptions): SmsAdapter {
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretTwilioResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${messagesUrl}/${encodeURIComponent(providerId)}.json`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretTwilioLookup(providerId, response.status, response.text, response.headers);
     },
   };
 }
@@ -306,6 +353,36 @@ export function interpretTwilioResponse(status: number, text: string, headers: H
   return unknownForStatus("twilio", status, requestId);
 }
 
+/** Maps a Twilio Message fetch response to a lookup outcome. A 404 is `not_found`. */
+export function interpretTwilioLookup(providerId: string, status: number, text: string, headers: Headers): MessageLookupOutcome {
+  const requestId = headers.get("twilio-request-id");
+  const body = parseJson(text);
+  if (status >= 200 && status < 300) {
+    const providerStatus = isRecord(body) ? readString(body, "status") : undefined;
+    if (!isRecord(body) || readString(body, "sid") === undefined || providerStatus === undefined) {
+      return malformedLookup("twilio", status, requestId);
+    }
+    const errorCode = readCode(body, "error_code");
+    return foundMessage({
+      provider: "twilio",
+      providerId,
+      delivery: twilioDelivery(providerStatus, errorCode),
+      providerStatus,
+      errorCode,
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  return lookupFailureForStatus({
+    provider: "twilio",
+    status,
+    requestId,
+    code: isRecord(body) ? readCode(body, "code") : undefined,
+    message: isRecord(body) ? readString(body, "message") : undefined,
+  });
+}
+
 /**
  * Rejection category for a Twilio 4xx. Codes come from Twilio's error
  * dictionary; unlisted 4xx codes are `request` (not fallback-eligible).
@@ -340,8 +417,8 @@ export function twilioRejectionCategory(status: number, code: string | undefined
   }
 }
 
-/** Delivery value for a Twilio Message `status`. */
-export function twilioDelivery(status: string | undefined): Delivery {
+/** Delivery value for a Twilio Message `status`, mapping carrier-filter code 30007 to `filtered`. */
+export function twilioDelivery(status: string | undefined, errorCode?: string): Delivery {
   switch (status) {
     case "queued":
     case "accepted":
@@ -354,7 +431,7 @@ export function twilioDelivery(status: string | undefined): Delivery {
       return "delivered";
     case "undelivered":
     case "failed":
-      return "undelivered";
+      return errorCode === "30007" ? "filtered" : "undelivered";
     default:
       return "unknown";
   }

@@ -1,17 +1,20 @@
-import type {
-  AdapterMessage,
-  SenderType,
-  SmsAdapter,
-  SmsCapabilities,
-  SmsFrom,
-  SmsSender,
-  ValidationIssue,
+import {
+  VALIDATION_FIELDS,
+  VALIDATION_ISSUE_CODES,
+  type AdapterMessage,
+  type SenderType,
+  type SmsAdapter,
+  type SmsCapabilities,
+  type SmsFrom,
+  type SmsSender,
+  type ValidationIssue,
 } from "./adapters.js";
 import { isE164 } from "./e164.js";
 import {
   InvalidMessageError,
   InvalidRecipientError,
   InvalidSenderError,
+  sanitizeDiagnosticToken,
   UnsupportedFieldError,
   type SmsError,
 } from "./errors.js";
@@ -47,21 +50,24 @@ export function resolveSender(from: SmsFrom | undefined): SenderResolution {
     return { kind: "invalid", message: "Sender must be an E.164 string or a sender object." };
   }
   if ("senderId" in from) {
-    return SENDER_ID_PATTERN.test(from.senderId)
-      ? { kind: "ok", sender: { kind: "alphanumeric", value: from.senderId } }
+    const senderId = from.senderId;
+    return typeof senderId === "string" && SENDER_ID_PATTERN.test(senderId)
+      ? { kind: "ok", sender: { kind: "alphanumeric", value: senderId } }
       : {
           kind: "invalid",
           message: "Alphanumeric sender IDs are 1-11 letters, digits, or spaces and contain at least one letter.",
         };
   }
   if ("shortCode" in from) {
-    return SHORT_CODE_PATTERN.test(from.shortCode)
-      ? { kind: "ok", sender: { kind: "short_code", value: from.shortCode } }
+    const shortCode = from.shortCode;
+    return typeof shortCode === "string" && SHORT_CODE_PATTERN.test(shortCode)
+      ? { kind: "ok", sender: { kind: "short_code", value: shortCode } }
       : { kind: "invalid", message: "Short codes are 3-8 digits." };
   }
   if ("messagingService" in from) {
-    return from.messagingService.trim().length > 0
-      ? { kind: "ok", sender: { kind: "messaging_service", value: from.messagingService } }
+    const messagingService = from.messagingService;
+    return typeof messagingService === "string" && messagingService.trim().length > 0
+      ? { kind: "ok", sender: { kind: "messaging_service", value: messagingService } }
       : { kind: "invalid", message: "Messaging service identifiers must be non-empty." };
   }
   return { kind: "invalid", message: "Unrecognized sender object." };
@@ -90,10 +96,38 @@ export function supportsSender(capabilities: SmsCapabilities, sender: SmsSender)
   return senderTypesFor(sender).some((type) => capabilities.senderTypes.includes(type));
 }
 
-/** Checks that do not depend on an adapter: recipient, body, field formats. */
-export function validateMessage(input: SmsSendInput): ValidationIssue[] {
+function isValidDate(value: unknown): value is Date {
+  if (!(value instanceof Date)) {
+    return false;
+  }
+  try {
+    return Number.isFinite(Date.prototype.getTime.call(value));
+  } catch {
+    return false;
+  }
+}
+
+/** Reported when the value passed as a message is not an object at all. */
+export const MESSAGE_NOT_OBJECT_ISSUE: ValidationIssue = {
+  code: "invalid_field",
+  field: "message",
+  message: "The message must be an object with to and body.",
+};
+
+/**
+ * Checks that do not depend on an adapter: recipient, body, field formats.
+ * Total over runtime input: a malformed value from JavaScript or JSON yields
+ * issues, never a thrown `TypeError`.
+ */
+export function validateMessage(
+  input: SmsSendInput,
+  configuredAdapters?: ReadonlySet<string>,
+): ValidationIssue[] {
+  if (!isRecord(input)) {
+    return [MESSAGE_NOT_OBJECT_ISSUE];
+  }
   const issues: ValidationIssue[] = [];
-  const mediaUrls = input.mediaUrls ?? [];
+  const mediaUrls = mediaUrlsOf(input);
 
   if (!isE164(input.to)) {
     issues.push({
@@ -107,10 +141,38 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   } else if (input.body.length === 0 && mediaUrls.length === 0) {
     issues.push({ code: "empty_body", field: "body", message: "Body is empty and there is no media to send." });
   }
-  if (mediaUrls.some((url) => !isHttpUrl(url))) {
+  if (input.mediaUrls !== undefined && !Array.isArray(input.mediaUrls)) {
+    issues.push({ code: "invalid_field", field: "mediaUrls", message: "mediaUrls must be an array of absolute http(s) URLs." });
+  } else if (mediaUrls.some((url) => !isHttpUrl(url))) {
     issues.push({ code: "invalid_field", field: "mediaUrls", message: "Every media URL must be an absolute http(s) URL." });
   }
-  if (input.sendAt !== undefined && !(input.sendAt instanceof Date && Number.isFinite(input.sendAt.getTime()))) {
+  if (input.from !== undefined && typeof input.from !== "string" && !isRecord(input.from)) {
+    issues.push({
+      code: "invalid_sender",
+      field: "from",
+      message: "Sender must be an E.164 string or a sender object.",
+    });
+  }
+  if (input.fromByAdapter !== undefined) {
+    if (!isRecord(input.fromByAdapter)) {
+      issues.push({ code: "invalid_field", field: "fromByAdapter", message: "fromByAdapter must be an object keyed by adapter name." });
+    } else {
+      for (const [adapterName, entry] of Object.entries(input.fromByAdapter)) {
+        if (configuredAdapters !== undefined && !configuredAdapters.has(adapterName)) {
+          continue;
+        }
+        if (entry !== undefined && typeof entry !== "string" && !isRecord(entry)) {
+          const safeAdapterName = sanitizeDiagnosticToken(adapterName, 64) ?? "unknown";
+          issues.push({
+            code: "invalid_field",
+            field: "fromByAdapter",
+            message: `fromByAdapter.${safeAdapterName} must be an E.164 string or a sender object.`,
+          });
+        }
+      }
+    }
+  }
+  if (input.sendAt !== undefined && !isValidDate(input.sendAt)) {
     issues.push({ code: "invalid_field", field: "sendAt", message: "sendAt must be a valid Date." });
   }
   if (
@@ -128,12 +190,14 @@ export function validateMessage(input: SmsSendInput): ValidationIssue[] {
   }
   if (
     input.idempotencyKey !== undefined &&
-    (input.idempotencyKey.length === 0 || input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH)
+    (typeof input.idempotencyKey !== "string" ||
+      input.idempotencyKey.length === 0 ||
+      input.idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH)
   ) {
     issues.push({
       code: "invalid_field",
       field: "idempotencyKey",
-      message: `idempotencyKey must be 1-${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
+      message: `idempotencyKey must be a string of 1-${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
     });
   }
   return issues;
@@ -150,12 +214,16 @@ export type AdapterCheck =
  */
 export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterCheck {
   const provider = adapter.name;
-  const resolution = resolveSender(input.from ?? adapter.defaultFrom);
+  const safeProvider = sanitizeDiagnosticToken(provider, 64) ?? "unknown";
+  const adapterSender = senderFor(input, provider);
+  const rawFrom =
+    adapterSender !== undefined ? adapterSender : input.from !== undefined ? input.from : adapter.defaultFrom;
+  const resolution = resolveSender(rawFrom);
 
   if (resolution.kind === "missing") {
     return {
       kind: "issues",
-      issues: [{ code: "missing_sender", field: "from", provider, message: `No sender: pass from or configure one on the ${provider} adapter.` }],
+      issues: [{ code: "missing_sender", field: "from", provider, message: `No sender: pass from or configure one on the ${safeProvider} adapter.` }],
     };
   }
   if (resolution.kind === "invalid") {
@@ -165,32 +233,32 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
   const issues: ValidationIssue[] = [];
   const capabilities = adapter.capabilities;
   const sender = resolution.sender;
-  const mediaUrls = input.mediaUrls ?? [];
+  const mediaUrls = mediaUrlsOf(input);
 
   if (!supportsSender(capabilities, sender)) {
-    issues.push(unsupported(provider, "from", `${provider} does not support ${sender.kind.replace("_", " ")} senders.`));
+    issues.push(unsupported(provider, "from", `${safeProvider} does not support ${sender.kind.replace("_", " ")} senders.`));
   }
   if (mediaUrls.length > 0 && !capabilities.mms) {
-    issues.push(unsupported(provider, "mediaUrls", `${provider} adapter does not support mediaUrls (MMS).`));
+    issues.push(unsupported(provider, "mediaUrls", `${safeProvider} adapter does not support mediaUrls (MMS).`));
   }
   if (input.sendAt !== undefined && !capabilities.scheduling) {
-    issues.push(unsupported(provider, "sendAt", `${provider} adapter does not support sendAt (scheduling).`));
+    issues.push(unsupported(provider, "sendAt", `${safeProvider} adapter does not support sendAt (scheduling).`));
   }
   if (input.validityPeriodSec !== undefined) {
     const range = capabilities.validityPeriod;
-    if (range === null) {
-      issues.push(unsupported(provider, "validityPeriodSec", `${provider} adapter does not support validityPeriodSec.`));
+    if (range === null || range === undefined) {
+      issues.push(unsupported(provider, "validityPeriodSec", `${safeProvider} adapter does not support validityPeriodSec.`));
     } else if (input.validityPeriodSec < range.minSec || input.validityPeriodSec > range.maxSec) {
       issues.push({
         code: "invalid_field",
         field: "validityPeriodSec",
         provider,
-        message: `${provider} accepts validityPeriodSec from ${range.minSec} to ${range.maxSec}.`,
+        message: `${safeProvider} accepts validityPeriodSec from ${range.minSec} to ${range.maxSec}.`,
       });
     }
   }
   if (input.webhookUrl !== undefined && !capabilities.webhookUrlOverride) {
-    issues.push(unsupported(provider, "webhookUrl", `${provider} adapter does not support a per-message webhookUrl.`));
+    issues.push(unsupported(provider, "webhookUrl", `${safeProvider} adapter does not support a per-message webhookUrl.`));
   }
 
   const options = parseProviderOptions(adapter, providerOptionsEntry(input, provider));
@@ -198,28 +266,109 @@ export function checkAdapter(adapter: SmsAdapter, input: SmsSendInput): AdapterC
     issues.push(...options.issues);
   }
 
+  const frozenSender = Object.freeze({ ...sender });
   const message: AdapterMessage = {
     to: input.to,
-    from: sender,
+    from: frozenSender,
     body: input.body,
-    mediaUrls,
-    ...(input.sendAt === undefined ? {} : { sendAt: input.sendAt }),
+    mediaUrls: Object.freeze([...mediaUrls]),
+    ...(input.sendAt === undefined ? {} : { sendAt: new Date(input.sendAt.getTime()) }),
     ...(input.validityPeriodSec === undefined ? {} : { validityPeriodSec: input.validityPeriodSec }),
     ...(input.webhookUrl === undefined ? {} : { webhookUrl: input.webhookUrl }),
     ...(options.kind === "ok" && options.fields.length > 0 ? { providerFields: options.fields } : {}),
   };
 
   if (issues.length === 0 && adapter.validate !== undefined) {
-    issues.push(...adapter.validate(message).map((issue) => ({ ...issue, provider })));
+    try {
+      const validateCopy: AdapterMessage = Object.freeze({
+        ...message,
+        from: Object.freeze({ ...message.from }),
+        ...(message.sendAt === undefined ? {} : { sendAt: new Date(message.sendAt.getTime()) }),
+        ...(message.providerFields === undefined
+          ? {}
+          : { providerFields: Object.freeze(message.providerFields.map((field) => Object.freeze({ ...field }))) }),
+      });
+      const rawIssues: unknown = adapter.validate(validateCopy);
+      if (!Array.isArray(rawIssues)) {
+        issues.push({
+          code: "invalid_field",
+          field: "body",
+          provider,
+          message: `Adapter "${safeProvider}" validate() returned a malformed issue list.`,
+        });
+      } else {
+        for (const item of rawIssues) {
+          if (isRecord(item)) {
+            const code = item["code"];
+            const field = item["field"];
+            const issueMessage = item["message"];
+            if (
+              typeof code === "string" &&
+              typeof field === "string" &&
+              typeof issueMessage === "string" &&
+              VALID_ISSUE_CODES.has(code) &&
+              VALID_ISSUE_FIELDS.has(field)
+            ) {
+              issues.push({
+                code: code as ValidationIssue["code"],
+                field: field as ValidationIssue["field"],
+                message: issueMessage,
+                provider,
+              });
+              continue;
+            }
+          }
+          issues.push({
+            code: "invalid_field",
+            field: "body",
+            provider,
+            message: `Adapter "${safeProvider}" validate() returned a malformed issue.`,
+          });
+        }
+      }
+    } catch {
+      issues.push({
+        code: "invalid_field",
+        field: "body",
+        provider,
+        message: `Adapter "${safeProvider}" validate() threw an unexpected error.`,
+      });
+    }
   }
   return issues.length === 0 ? { kind: "ok", message } : { kind: "issues", issues };
+}
+
+/** The caller's `fromByAdapter` entry for `adapterName`, if any. */
+export function senderFor(input: SmsSendInput, adapterName: string): SmsFrom | undefined {
+  const all: unknown = input.fromByAdapter;
+  return isRecord(all) && Object.hasOwn(all, adapterName) ? input.fromByAdapter?.[adapterName] : undefined;
+}
+
+/**
+ * `fromByAdapter` reduced to the configured adapters' entries, for the
+ * idempotency fingerprint. `undefined` when no entry applies, so messages
+ * without it keep the fingerprint earlier versions stored.
+ */
+export function canonicalFromByAdapter(
+  adapters: readonly SmsAdapter[],
+  input: SmsSendInput,
+): Readonly<Record<string, SmsFrom>> | undefined {
+  const entries = adapters.flatMap((adapter): Array<[string, SmsFrom]> => {
+    const from = senderFor(input, adapter.name);
+    return from == null ? [] : [[adapter.name, from]];
+  });
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
 /** The caller's `providerOptions` entry for `adapterName`, still unparsed. */
 function providerOptionsEntry(input: SmsSendInput, adapterName: string): unknown {
   const all: unknown = input.providerOptions;
-  return isRecord(all) ? all[adapterName] : undefined;
+  return isRecord(all) && Object.hasOwn(all, adapterName) ? all[adapterName] : undefined;
 }
+
+const VALID_ISSUE_CODES: ReadonlySet<string> = new Set(VALIDATION_ISSUE_CODES);
+
+const VALID_ISSUE_FIELDS: ReadonlySet<string> = new Set(VALIDATION_FIELDS);
 
 /** Converts a validation issue into the error `send()` throws for it. */
 export function issueToError(issue: ValidationIssue): SmsError {
@@ -236,13 +385,21 @@ export function issueToError(issue: ValidationIssue): SmsError {
       return new UnsupportedFieldError(issue.message, { field: issue.field, provider: issue.provider ?? "unknown" });
     default: {
       const _exhaustive: never = issue.code;
-      return _exhaustive;
+      void _exhaustive;
+      return new InvalidMessageError("Adapter validate() returned an unsupported issue code.", {
+        field: "body",
+      });
     }
   }
 }
 
 function unsupported(provider: string, field: ValidationIssue["field"], message: string): ValidationIssue {
   return { code: "unsupported_field", field, provider, message };
+}
+
+/** `input.mediaUrls`, or an empty list when absent or not an array (which {@link validateMessage} reports). */
+function mediaUrlsOf(input: SmsSendInput): readonly string[] {
+  return Array.isArray(input.mediaUrls) ? input.mediaUrls : [];
 }
 
 function isHttpUrl(value: string): boolean {

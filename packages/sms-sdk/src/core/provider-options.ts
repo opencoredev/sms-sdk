@@ -1,5 +1,6 @@
 import type { ProviderOptionField, ProviderOptionValue, ProviderWireField, SmsAdapter, ValidationIssue } from "./adapters.js";
-import { isRecord } from "./http.js";
+import { sanitizeDiagnosticToken } from "./errors.js";
+import { isPlainObject, isRecord } from "./http.js";
 
 /** Outcome of parsing one adapter's `providerOptions` entry. */
 export type ProviderOptionsParse =
@@ -22,7 +23,8 @@ export function validateProviderOptions(adapters: readonly SmsAdapter[], provide
     return [invalid(undefined, "providerOptions must be an object keyed by adapter name.")];
   }
   return adapters.flatMap((adapter) => {
-    const parsed = parseProviderOptions(adapter, providerOptions[adapter.name]);
+    const entry = Object.hasOwn(providerOptions, adapter.name) ? providerOptions[adapter.name] : undefined;
+    const parsed = parseProviderOptions(adapter, entry);
     return parsed.kind === "issues" ? [...parsed.issues] : [];
   });
 }
@@ -32,7 +34,9 @@ export function adaptersWithProviderOptions(adapters: readonly SmsAdapter[], pro
   if (!isRecord(providerOptions)) {
     return [];
   }
-  return adapters.filter((adapter) => providerOptions[adapter.name] !== undefined).map((adapter) => adapter.name);
+  return adapters
+    .filter((adapter) => Object.hasOwn(providerOptions, adapter.name) && providerOptions[adapter.name] !== undefined)
+    .map((adapter) => adapter.name);
 }
 
 /**
@@ -51,17 +55,18 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
     return NO_FIELDS;
   }
   const provider = adapter.name;
+  const safeProvider = sanitizeDiagnosticToken(provider, 64) ?? "unknown";
   const spec = adapter.providerOptions;
   if (spec === undefined) {
-    return issues(unsupported(provider, `The ${provider} adapter accepts no providerOptions.`));
+    return issues(unsupported(provider, `The ${safeProvider} adapter accepts no providerOptions.`));
   }
-  if (!isRecord(entry)) {
-    return issues(invalid(provider, `providerOptions.${provider} must be an object.`));
+  if (!isPlainObject(entry)) {
+    return issues(invalid(provider, `providerOptions.${safeProvider} must be an object.`));
   }
 
   const found: ValidationIssue[] = [];
   const fields: ProviderWireField[] = [];
-  const prefixes = (spec.nestedPrefixes ?? []).map((prefix) => prefix.toLowerCase());
+  const prefixes = (spec.nestedPrefixes ?? []).map((prefix) => prefix.toLowerCase()).filter((prefix) => prefix.length > 0);
   const typedWires = new Map<string, string>();
   for (const [option, field] of Object.entries(spec.options)) {
     for (const name of wireNames(field.wire.toLowerCase(), prefixes)) {
@@ -72,10 +77,13 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
 
   for (const key of Object.keys(entry)) {
     if (key !== "extra" && !Object.hasOwn(spec.options, key)) {
-      found.push(unsupported(provider, `${provider} has no provider option "${key}".`));
+      found.push(unsupported(provider, `${safeProvider} has no provider option "${key}".`));
     }
   }
   for (const [option, field] of Object.entries(spec.options)) {
+    if (!Object.hasOwn(entry, option)) {
+      continue;
+    }
     const value = entry[option];
     if (value === undefined) {
       continue;
@@ -84,28 +92,30 @@ export function parseProviderOptions(adapter: SmsAdapter, entry: unknown): Provi
     if (read.kind === "ok") {
       fields.push({ wire: field.wire, value: read.value });
     } else {
-      found.push(invalid(provider, `providerOptions.${provider}.${option} ${read.problem}.`));
+      found.push(invalid(provider, `providerOptions.${safeProvider}.${option} ${read.problem}.`));
     }
   }
 
-  const extra = entry["extra"];
+  const extra = Object.hasOwn(entry, "extra") ? entry["extra"] : undefined;
   if (extra !== undefined) {
-    if (!isRecord(extra)) {
-      found.push(invalid(provider, `providerOptions.${provider}.extra must be an object.`));
+    if (!isPlainObject(extra)) {
+      found.push(invalid(provider, `providerOptions.${safeProvider}.extra must be an object.`));
     } else {
       for (const [wire, value] of Object.entries(extra)) {
         const names = wireNames(wire.toLowerCase(), prefixes);
         const typed = names.map((name) => typedWires.get(name)).find((option) => option !== undefined);
         if (names.some((name) => name.length === 0)) {
-          found.push(invalid(provider, `providerOptions.${provider}.extra keys must be non-empty.`));
+          found.push(invalid(provider, `providerOptions.${safeProvider}.extra keys must be non-empty.`));
+        } else if (names.some((name) => name === "__proto__")) {
+          found.push(unsupported(provider, `providerOptions.${safeProvider}.extra cannot set "${wire}".`));
         } else if (names.some((name) => reserved.has(name))) {
           found.push(
-            unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}": the SDK sets it from the portable send fields.`),
+            unsupported(provider, `providerOptions.${safeProvider}.extra cannot set "${wire}": the SDK sets it from the portable send fields.`),
           );
         } else if (typed !== undefined) {
-          found.push(unsupported(provider, `providerOptions.${provider}.extra cannot set "${wire}"; use the typed option ${typed}.`));
+          found.push(unsupported(provider, `providerOptions.${safeProvider}.extra cannot set "${wire}"; use the typed option ${typed}.`));
         } else if (!isOptionValue(value)) {
-          found.push(invalid(provider, `providerOptions.${provider}.extra.${wire} must be a string, finite number, or boolean.`));
+          found.push(invalid(provider, `providerOptions.${safeProvider}.extra.${wire} must be a string, finite number, or boolean.`));
         } else {
           fields.push({ wire, value });
         }
@@ -131,14 +141,15 @@ export function canonicalProviderOptions(
   if (!isRecord(providerOptions)) {
     return undefined;
   }
-  const canonical: Record<string, Record<string, ProviderOptionValue>> = {};
+  const entries: Array<[string, Record<string, ProviderOptionValue>]> = [];
   for (const adapter of adapters) {
-    const parsed = parseProviderOptions(adapter, providerOptions[adapter.name]);
+    const entry = Object.hasOwn(providerOptions, adapter.name) ? providerOptions[adapter.name] : undefined;
+    const parsed = parseProviderOptions(adapter, entry);
     if (parsed.kind === "ok" && parsed.fields.length > 0) {
-      canonical[adapter.name] = Object.fromEntries(parsed.fields.map((field) => [field.wire, field.value]));
+      entries.push([adapter.name, Object.fromEntries(parsed.fields.map((field) => [field.wire, field.value]))]);
     }
   }
-  return Object.keys(canonical).length > 0 ? canonical : undefined;
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 /** True when a wire field with this exact name was parsed with value `true`. */
@@ -160,6 +171,9 @@ function wireNames(lower: string, prefixes: readonly string[]): string[] {
   return names;
 }
 
+const regexpSourceGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get;
+const regexpFlagsGetter = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get;
+
 type ValueRead = { readonly kind: "ok"; readonly value: ProviderOptionValue } | { readonly kind: "invalid"; readonly problem: string };
 
 function readValue(field: ProviderOptionField, value: unknown): ValueRead {
@@ -174,8 +188,19 @@ function readValue(field: ProviderOptionField, value: unknown): ValueRead {
       if (field.maxLength !== undefined && value.length > field.maxLength) {
         return bad(`must be at most ${field.maxLength} characters`);
       }
-      if (field.pattern !== undefined && !field.pattern.test(value)) {
-        return bad(`must match ${field.pattern.source}`);
+      if (field.pattern !== undefined) {
+        let source: string;
+        let pattern: RegExp;
+        try {
+          source = regexpSourceGetter?.call(field.pattern) as string;
+          const flags = regexpFlagsGetter?.call(field.pattern) as string;
+          pattern = new RegExp(source, flags);
+        } catch {
+          return bad("has an unusable pattern");
+        }
+        if (!pattern.test(value)) {
+          return bad(`must match ${source}`);
+        }
       }
       return { kind: "ok", value };
     case "integer":

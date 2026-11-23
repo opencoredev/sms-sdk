@@ -72,6 +72,30 @@ export const telnyxFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 200, body: { data: { record_type: "message" } } },
   serverError: { status: 500, body: { errors: [{ code: "10007", title: "Unexpected error" }] } },
+  lookup: {
+    providerId: MESSAGE_ID,
+    request: {
+      url: `https://api.telnyx.com/v2/messages/${MESSAGE_ID}`,
+      headers: { authorization: "Bearer KEY_test", accept: "application/json" },
+    },
+    found: {
+      response: {
+        status: 200,
+        body: {
+          data: {
+            id: MESSAGE_ID,
+            record_type: "message",
+            to: [{ phone_number: "+14155550123", status: "delivery_failed" }],
+            errors: [{ code: "40008", title: "Undeliverable" }],
+          },
+        },
+      },
+      delivery: "undelivered",
+      providerStatus: "delivery_failed",
+      errorCode: "40008",
+    },
+    notFound: { status: 404, body: { errors: [{ code: "10005", title: "Resource not found" }] } },
+  },
   webhooks: {
     parse: (request) => parseSmsWebhook({ provider: "telnyx", request, credentials: { publicKey: telnyxKeys.publicKey } }),
     cases: [

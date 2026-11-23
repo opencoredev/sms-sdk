@@ -29,6 +29,9 @@ export async function POST(request: Request): Promise<Response> {
       return new Response("Invalid signature", { status: 401 });
     }
     if (error instanceof WebhookPayloadError) {
+      if (error.reason === "body_too_large") {
+        return new Response("Payload too large", { status: 413 });
+      }
       return new Response("Unexpected payload", { status: 400 });
     }
     throw error;
@@ -47,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
 | `malformed_signature` | The signature, token, or timestamp cannot be decoded. |
 | `invalid_credentials` | The credential you passed is malformed, such as a Telnyx public key that is not 32 bytes of base64. |
 
-`WebhookPayloadError` means the request was authentic but lacks required fields.
+`WebhookPayloadError` means the request body exceeded the 1 MiB limit (`error.reason === "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), the request body stream failed or aborted while reading (`error.reason === "body_unreadable"`; respond with 400), or the request was authentic but lacks required fields (respond with 400).
 
 ## How each provider signs
 
@@ -155,11 +158,11 @@ The other providers do not sign the URL, so these options exist only for Twilio 
 
 ## The raw body
 
-Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body once with `request.text()`. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
+Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body stream once up to 1 MiB. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
 
 ## Skipping verification in tests
 
-`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
+`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. It throws `ConfigurationError` when `process.env.NODE_ENV` is `"production"`, so a test setting that leaks into a deployment fails loudly instead of accepting forged events. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
 
 ## Lower-level helpers
 

@@ -94,7 +94,7 @@ The 2xx means Plivo accepted and queued the message. Delivery to the phone is re
 | Refused | 401, a 429 with `api_id`, or another 4xx with an `error` text | `ProviderRejectedError` with category `auth`, `rate_limited`, or `request` |
 | Outcome unknown | 5xx, timeout, network error, or a 2xx without `message_uuid` | `HandoffUnknownError`. Never resent automatically. |
 | Handed to the carrier | Callback with `Status=sent` | `message.sent` event |
-| Delivered or failed | Callback with `Status=delivered`, `undelivered`, or `failed`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
+| Delivered or failed | Callback with `Status=delivered`, `undelivered`, `failed`, or `rejected`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
 
 ## Verify a callback with the raw API
 
@@ -569,11 +569,15 @@ Plivo signs neither the callback body nor a timestamp. Serve the endpoint over H
 | `queued` | `message.queued` |
 | `sent` | `message.sent` |
 | `delivered` | `message.delivered` |
-| `undelivered`, `failed` | `message.undelivered` |
+| `undelivered`, `failed`, `rejected` | `message.undelivered` |
 | `read`, others | `unrecognized` |
 | Inbound message | `message.received`, or a `recipient.*` event from STOP and HELP keywords (`source: "keyword"`) |
 
 Plivo documents no filter signal, so no Plivo event is `message.filtered`, and it sends no opt-out flag, so opt-outs come from keyword detection. `ErrorCode` `000` means success and is left out of `errorCode`. `dedupeKey` is `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received`.
+
+## Look up a message
+
+`sms.getMessage(messageUuid, { adapter: "plivo" })` retrieves the message (`GET /v1/Account/{auth_id}/Message/{message_uuid}/`) and maps `message_state`: `queued`, `sent`, and `delivered` as named, and `undelivered`, `failed`, and `rejected` to `undelivered`, with non-placeholder `error_code` as `errorCode`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 
@@ -592,7 +596,7 @@ Plivo documents no filter signal, so no Plivo event is `message.filtered`, and i
 | Any other 4xx | `request` | No |
 | 5xx, network error, timeout, 2xx without `message_uuid` | unknown | Never |
 
-Plivo documents an `api_id` on every response, so a 429 without one came from something else, such as a proxy, and proves nothing. SMS SDK never produces `sender`, `account`, `recipient`, or `compliance` for Plivo. To tell causes apart in logs, read Plivo's `error` text in `error.provider.message` and its `api_id` in `error.provider.requestId`. For adapter authors, the subpath also exports `buildPlivoRequest`, `interpretPlivoResponse`, `plivoRejectionCategory`, and `PLIVO_SUPPORT_NOTES`.
+Plivo documents an `api_id` on every response, so a 429 without one came from something else, such as a proxy, and proves nothing. SMS SDK never produces `sender`, `account`, `recipient`, or `compliance` for Plivo. To tell causes apart in logs, inspect `error.provider.httpStatus`, `error.provider.code`, and Plivo's `api_id` in `error.provider.requestId`. For adapter authors, the subpath also exports `buildPlivoRequest`, `interpretPlivoResponse`, `plivoRejectionCategory`, and `PLIVO_SUPPORT_NOTES`.
 
 ## Official documentation
 

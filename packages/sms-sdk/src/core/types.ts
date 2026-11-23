@@ -5,6 +5,7 @@ import type {
   SmsCapabilities,
   SmsEncoding,
   SmsFrom,
+  SmsMessageStatus,
   ValidationIssue,
 } from "./adapters.js";
 import type { E164 } from "./e164.js";
@@ -20,6 +21,13 @@ export type SmsSendInput = {
   readonly to: E164;
   /** Sender. Defaults to each adapter's configured `from`. */
   readonly from?: SmsFrom;
+  /**
+   * Sender per adapter name, such as `{ twilio: "+15005550006", telnyx: "+15005550007" }`.
+   * With fallback, each adapter sends from its own entry, then `from`, then its
+   * configured default. Entries for adapters the client does not have are
+   * ignored. Part of the idempotency fingerprint.
+   */
+  readonly fromByAdapter?: Readonly<Record<string, SmsFrom>>;
   /** Message text. May be empty only when `mediaUrls` is non-empty. */
   readonly body: string;
   /**
@@ -69,7 +77,7 @@ export type SmsSendResult = {
   readonly attemptedProviders: readonly string[];
   /** Every provider request made, in order. */
   readonly attempts: readonly SendAttempt[];
-  /** True when this result came from the idempotency store instead of a new send. */
+  /** True when this result came from the idempotency store or a coalesced in-flight send instead of a new send. */
   readonly replayed: boolean;
 };
 
@@ -98,9 +106,9 @@ export type BeforeSendContext = {
 
 /** Same-adapter retry policy for proven, rate-limited rejections. */
 export type RetryOptions = {
-  /** Requests per adapter, including the first. Default `2`. `1` disables retries. */
+  /** Requests per adapter, including the first: an integer from 1 to 10. Default `2`. `1` disables retries. */
   readonly maxAttempts?: number;
-  /** Base delay for exponential backoff with full jitter. Default `500` ms. */
+  /** Base delay for exponential backoff with full jitter. Finite, 0 or more. Default `500` ms. */
   readonly baseDelayMs?: number;
   /**
    * Longest wait between attempts. A `Retry-After` longer than this stops
@@ -126,9 +134,9 @@ export type SmsClientOptions = {
   /** Enables idempotency-key deduplication. Off unless a store is given. */
   readonly idempotency?: {
     readonly store: IdempotencyStore;
-    /** Retention of accepted/rejected records. Default `86400` (24 hours). */
+    /** Retention of accepted/rejected records, in seconds. Positive integer of at least 1. Default `86400` (24 hours). */
     readonly ttlSec?: number;
-    /** Age after which an unfinished reservation is treated as an unknown outcome. Default `300`. */
+    /** Age in seconds after which an unfinished reservation is an unknown outcome. Positive integer of at least 1. Default `300`. */
     readonly staleReservationSec?: number;
   };
   /** Policy check, such as a suppression list. A rejection never falls back. */
@@ -143,12 +151,25 @@ export type SmsSendOptions = {
   readonly signal?: AbortSignal;
 };
 
+/** Options for a single `getMessage()` call. */
+export type SmsGetMessageOptions = {
+  /**
+   * Name of the adapter to ask, such as `result.provider` from the send that
+   * returned the ID. Default: the primary adapter.
+   */
+  readonly adapter?: string;
+  /** Cancels the lookup. */
+  readonly signal?: AbortSignal;
+};
+
 /** Public metadata of a configured adapter. */
 export type SmsAdapterInfo = {
   readonly name: string;
   readonly capabilities: SmsCapabilities;
   readonly support: AdapterSupport;
   readonly defaultFrom: SmsFrom | undefined;
+  /** The adapter implements `getMessage`. */
+  readonly messageLookup: boolean;
 };
 
 /** The SMS client returned by {@link createSmsClient}. */
@@ -156,6 +177,7 @@ export interface SmsClient {
   /**
    * Sends one logical message. Resolves only when a provider accepted it.
    *
+   * @throws {ConfigurationError} when `options` or `options.signal` is invalid, or `idempotency.store.reserve()` fails or returns a malformed value.
    * @throws {InvalidRecipientError | InvalidSenderError | InvalidMessageError | UnsupportedFieldError} before any request.
    * @throws {PolicyRejectedError} when `beforeSend` rejects.
    * @throws {ProviderRejectedError | ProviderAuthError | ProviderRateLimitedError} when the provider proved it did not accept.
@@ -167,6 +189,21 @@ export interface SmsClient {
   send(input: SmsSendInput, options?: SmsSendOptions): Promise<SmsSendResult>;
   /** Local preflight: E.164, sender, body, capabilities, and segment estimate. Never sends. */
   validate(input: SmsSendInput): SmsValidationResult;
+  /**
+   * Looks up one message by the provider's message ID, such as
+   * `SmsSendResult.providerId` or a webhook event's `providerId`. Read-only:
+   * it never sends. Use it to check delivery when a status webhook is late or
+   * lost. The request uses the client's `timeoutMs`.
+   *
+   * It cannot reconcile a {@link HandoffUnknownError} by itself: an unknown
+   * outcome has no provider ID. Find those by recipient and time in the
+   * provider console, or wait for a status webhook.
+   *
+   * @returns The provider's record, or `undefined` when the provider has no message with that ID.
+   * @throws {ConfigurationError} when `providerId` is empty, or the adapter is not configured or has no `getMessage`.
+   * @throws {MessageLookupError} when the provider could not answer. Never a reason to resend.
+   */
+  getMessage(providerId: string, options?: SmsGetMessageOptions): Promise<SmsMessageStatus | undefined>;
   /** Configured adapters with their capabilities and support status. */
   capabilities(): readonly SmsAdapterInfo[];
 }

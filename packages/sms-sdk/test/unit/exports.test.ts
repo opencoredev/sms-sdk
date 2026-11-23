@@ -16,6 +16,7 @@ describe("public exports", () => {
     expect(typeof root.memoryIdempotencyStore).toBe("function");
     expect(typeof root.HandoffUnknownError).toBe("function");
     expect(typeof root.estimateSegments).toBe("function");
+    expect(typeof root.MessageLookupError).toBe("function");
   });
 
   test("each subpath exports its entry point", () => {
@@ -27,6 +28,7 @@ describe("public exports", () => {
     expect(typeof bandwidth.bandwidth).toBe("function");
     expect(typeof sinch.sinch).toBe("function");
     expect(typeof webhooks.parseSmsWebhook).toBe("function");
+    expect(typeof webhooks.parseSmsWebhooks).toBe("function");
     expect(typeof testing.memory).toBe("function");
     expect(typeof testing.runSmsAdapterContract).toBe("function");
   });

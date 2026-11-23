@@ -1,10 +1,10 @@
 ---
 title: "Webhooks and events"
-description: "@opencoredev/sms-sdk/webhooks: parseSmsWebhook options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
+description: "@opencoredev/sms-sdk/webhooks: parseSmsWebhook and parseSmsWebhooks options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
 ---
 
 ```ts
-import { parseSmsWebhook, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
+import { parseSmsWebhook, parseSmsWebhooks, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
 ```
 
 ## `parseSmsWebhook(options)`
@@ -37,7 +37,7 @@ Options are discriminated by `provider`. Every variant accepts the common option
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | required | Which scheme to verify and parse. |
 | `request` | `Request` | required | The incoming web request. Its body must not have been read. |
 | `credentials` | per provider, below | required | Verification secret. |
-| `unsafeSkipVerification` | `boolean` | `false` | Skips signature checks. For tests only. The event is not authenticated. |
+| `unsafeSkipVerification` | `boolean` | `false` | Skips signature checks. For tests only. The event is not authenticated. Throws `ConfigurationError` when `process.env.NODE_ENV` is `"production"`. |
 | `detectKeywords` | `boolean` | `true` | Match STOP/HELP keywords in inbound text when the provider sends no signal. |
 | `now` | `() => number` | `Date.now` | Clock in epoch ms, for timestamp checks. |
 
@@ -61,7 +61,42 @@ Per-provider options:
 ### Throws
 
 - `WebhookSignatureError` (`code: "webhook_signature"`) when the request is not authentic. `reason` is `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, or `invalid_credentials`. Respond 401 or 403.
-- `WebhookPayloadError` (`code: "webhook_payload"`) when an authentic payload lacks required fields.
+- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), the request body stream fails or aborts while reading (`reason: "body_unreadable"`; respond 400), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of losing all but one.
+- `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, `request` is missing, malformed, or has a locked body, `provider` is unsupported, `publicUrl` is invalid or non-http(s), `now` is not a function, `credentials` are missing or malformed (including empty Basic or HMAC secrets, an unknown Sinch `kind`, or Basic credentials containing characters outside Latin-1), or `toleranceSec` is negative, `NaN`, non-finite, or not a number.
+
+## `parseSmsWebhooks(options)`
+
+Takes the same options as `parseSmsWebhook` and returns every event in the request, in payload order: `Promise<SmsEvent[]>`.
+
+- Bandwidth: one event per element of the callback array.
+- Sinch: one event per entry of `recipient_delivery_report`, or one event otherwise.
+- Twilio, Telnyx, Plivo, and Vonage send one event per request, so the array has one element.
+
+Each event has its own `dedupeKey`. Store each key in the same transaction as the work it guards, so a retried batch is handled once and a failed update is retried instead of skipped:
+
+```ts
+import { parseSmsWebhooks } from "@opencoredev/sms-sdk/webhooks";
+import { db } from "./db";
+
+export async function POST(request: Request): Promise<Response> {
+  const events = await parseSmsWebhooks({
+    provider: "bandwidth",
+    request,
+    credentials: { username: process.env.BANDWIDTH_CALLBACK_USERNAME ?? "", password: process.env.BANDWIDTH_CALLBACK_PASSWORD ?? "" },
+  });
+  for (const event of events) {
+    await db.transaction(async (tx) => {
+      if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
+      if (event.type === "message.delivered" || event.type === "message.undelivered") {
+        await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+      }
+    });
+  }
+  return new Response(null, { status: 200 });
+}
+```
+
+It throws the same errors as `parseSmsWebhook`, except that several events are not an error.
 
 ## `SmsEvent`
 
@@ -72,7 +107,7 @@ Every event has these fields.
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | Which provider sent it. |
 | `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
 | `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
-| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. |
+| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. When one callback carries several events, each event's `raw` keeps only that event: its Bandwidth array element, or the Sinch body with just its `recipient_delivery_report` entry. |
 
 ### `message.received`
 
@@ -108,6 +143,7 @@ A status update for an outbound message. `MessageStatusType` is the union of the
   from: string;
   to: string;
   body: string; // the original inbound text
+  mediaUrls: readonly string[]; // media sent with it, such as an MMS captioned STOP
   source: "provider" | "keyword";
   keyword: string;
 }
@@ -152,9 +188,9 @@ Texts to your number go to the URL set on the number or its group. A per-message
 | Event | Twilio | Telnyx | Plivo | Vonage | Bandwidth | Sinch |
 | --- | --- | --- | --- | --- | --- | --- |
 | `message.queued` | queued, accepted, scheduled, sending | queued, sending | queued | (none) | message-sending | Queued, Pending |
-| `message.sent` | sent | sent, delivery_unconfirmed | sent | submitted | (none) | Sent, Accepted |
+| `message.sent` | sent | sent, delivery_unconfirmed | sent | submitted | (none) | Sent, Accepted, Dispatched |
 | `message.delivered` | delivered | delivered | delivered | delivered | message-delivered | Delivered |
-| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed | rejected, undeliverable | message-failed | Failed, Undelivered, Expired; Rejected or Filtered without code 40003 |
+| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed, rejected | rejected, undeliverable | message-failed | Failed, Undelivered, Expired, Aborted; Rejected or Filtered without code 40003 |
 | `message.filtered` | a failure with error 30007 | a failure with error 40002, 40003, or 40322 | never | a failure with error 1210, 1470, 1472, or 1480 to 1483 | never | Rejected or Filtered with code 40003 |
 
 `message.filtered` means a carrier or the provider blocked the message as spam or for its content. It needs one of the error codes above; any other failure stays `message.undelivered`. Telnyx status events come from its `message.sent` and `message.finalized` webhooks.
@@ -173,7 +209,7 @@ Texts to your number go to the URL set on the number or its group. A per-message
 | Telnyx | `telnyx:{data.id}`, the webhook event ID |
 | Plivo | `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received` |
 | Vonage | `vonage:{message_uuid}:{status}` or `vonage:{message_uuid}:received` |
-| Bandwidth | `bandwidth:{message.id}:{type}` |
+| Bandwidth | `bandwidth:{message.id}:{to}:{type}` (status) / `bandwidth:{message.id}:{type}` (inbound) |
 | Sinch | `sinch:{batch_id}:{recipient}:{status}` for reports (`summary` in place of the recipient when there is none), `sinch:{id}:received` for inbound |
 
 ### Storing keys
@@ -233,11 +269,11 @@ Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out"
 
 ## Per-provider parsers
 
-`parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, `parseVonageWebhook`, `parseBandwidthWebhook`, and `parseSinchWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, `VonageWebhookOptions`, `BandwidthWebhookOptions`, and `SinchWebhookOptions`.
+`parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, `parseVonageWebhook`, `parseBandwidthWebhook`, and `parseSinchWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, `VonageWebhookOptions`, `BandwidthWebhookOptions`, and `SinchWebhookOptions`. `parseBandwidthWebhooks` and `parseSinchWebhooks` are the batch forms for the two providers that batch.
 
 ## Verify helpers
 
-These check a signature without parsing, for example in middleware.
+These check a signature without parsing, for example in middleware. They throw `ConfigurationError` when the secret/key is empty, `toleranceSec` is invalid, or (for Twilio and Plivo) `url` is invalid or non-http(s).
 
 ### `verifyTwilioSignature({ authToken, url, params, signature })`
 
@@ -257,6 +293,10 @@ Returns `Promise<boolean>`. `url` may include a query string, which is removed b
 
 Returns `Promise<WebhookVerification>`. `authorization` is the `Authorization` header value, or `null`. `VONAGE_DEFAULT_TOLERANCE_SEC` is `300`.
 
+### `verifySinchSignature({ webhookSecret, rawBody, signature, nonce, timestamp, toleranceSec?, now? })`
+
+Returns `Promise<WebhookVerification>`. `signature`, `nonce`, and `timestamp` are the `x-sinch-webhook-signature`, `x-sinch-webhook-signature-nonce`, and `x-sinch-webhook-signature-timestamp` header values, or `null`. `SINCH_DEFAULT_TOLERANCE_SEC` is `300`.
+
 ```ts
 import { verifyTelnyxSignature } from "@opencoredev/sms-sdk/webhooks";
 
@@ -273,4 +313,4 @@ export async function isAuthentic(request: Request): Promise<boolean> {
 
 ## Types
 
-Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, the six per-provider option types, `BandwidthWebhookCredentials`, `SinchWebhookCredentials`, and `WebhookFailureReason`.
+Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, `SinchWebhookVerification`, the six per-provider option types, `BandwidthWebhookCredentials`, `SinchWebhookCredentials`, and `WebhookFailureReason`.

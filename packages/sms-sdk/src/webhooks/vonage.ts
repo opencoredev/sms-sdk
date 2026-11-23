@@ -1,8 +1,16 @@
 import { fromBase64, hmac, sha256Hex, timingSafeEqual, toBase64Url } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, type WebhookCommonOptions } from "./shared.js";
+import {
+  parseDate,
+  readHeaderString,
+  readWebhookRequest,
+  requireTolerance,
+  skipVerification,
+  snapshotWebhookOptions,
+  type WebhookCommonOptions,
+} from "./shared.js";
 import type { WebhookVerification } from "./telnyx.js";
 
 /**
@@ -39,7 +47,40 @@ export async function verifyVonageSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
-  const token = input.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  let signatureSecret: unknown;
+  let authorization: unknown;
+  let rawBody: unknown;
+  let toleranceSec: unknown;
+  let now: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Vonage webhook signatureSecret must be a non-empty string.");
+    }
+    signatureSecret = input.signatureSecret;
+    authorization = input.authorization;
+    rawBody = input.rawBody;
+    toleranceSec = input.toleranceSec;
+    now = input.now;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Vonage signature verification requires valid options.");
+  }
+  if (typeof signatureSecret !== "string" || signatureSecret.length === 0) {
+    throw new ConfigurationError("Vonage webhook signatureSecret must be a non-empty string.");
+  }
+  const tolerance = requireTolerance(toleranceSec as number | undefined, VONAGE_DEFAULT_TOLERANCE_SEC);
+  if (now !== undefined && (typeof now !== "number" || !Number.isFinite(now))) {
+    throw new ConfigurationError("Vonage signature verification now must be a finite number.");
+  }
+  if (typeof rawBody !== "string") {
+    throw new ConfigurationError("Vonage signature verification rawBody must be a string.");
+  }
+  if (authorization !== null && typeof authorization !== "string") {
+    return { valid: false, reason: "missing_signature" };
+  }
+  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (token === undefined || token.length === 0) {
     return { valid: false, reason: "missing_signature" };
   }
@@ -53,7 +94,7 @@ export async function verifyVonageSignature(input: {
   if (!isRecord(header) || header["alg"] !== "HS256") {
     return { valid: false, reason: "malformed_signature" };
   }
-  const expected = toBase64Url(await hmac("SHA-256", input.signatureSecret, `${headerPart}.${payloadPart}`));
+  const expected = toBase64Url(await hmac("SHA-256", signatureSecret, `${headerPart}.${payloadPart}`));
   if (!timingSafeEqual(expected, signaturePart)) {
     return { valid: false, reason: "invalid_signature" };
   }
@@ -63,13 +104,13 @@ export async function verifyVonageSignature(input: {
   if (!isRecord(claims) || typeof iat !== "number") {
     return { valid: false, reason: "malformed_signature" };
   }
-  const nowSec = Math.floor((input.now ?? Date.now()) / 1000);
-  if (Math.abs(nowSec - iat) > (input.toleranceSec ?? VONAGE_DEFAULT_TOLERANCE_SEC)) {
+  const nowSec = Math.floor((now ?? Date.now()) / 1000);
+  if (!(Math.abs(nowSec - iat) <= tolerance)) {
     return { valid: false, reason: "stale_timestamp" };
   }
 
   const payloadHash = readString(claims, "payload_hash")?.toLowerCase();
-  if (payloadHash !== undefined && !timingSafeEqual(await sha256Hex(input.rawBody), payloadHash)) {
+  if (payloadHash !== undefined && !timingSafeEqual(await sha256Hex(rawBody), payloadHash)) {
     return { valid: false, reason: "body_hash_mismatch" };
   }
   return { valid: true };
@@ -81,13 +122,27 @@ export async function verifyVonageSignature(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parseVonageWebhook(options: VonageWebhookOptions): Promise<SmsEvent> {
-  const rawBody = await options.request.text();
+export async function parseVonageWebhook(rawOptions: VonageWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<VonageWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "toleranceSec", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["signatureSecret"],
+  );
+  const skip = skipVerification(options);
+  const req = await readWebhookRequest(options.request, "vonage");
+  const { rawBody } = req;
 
-  if (options.unsafeSkipVerification !== true) {
+  if (!skip) {
+    if (
+      !isRecord(options.credentials) ||
+      typeof options.credentials.signatureSecret !== "string" ||
+      options.credentials.signatureSecret.length === 0
+    ) {
+      throw new ConfigurationError("Vonage webhook credentials require a non-empty signatureSecret.");
+    }
     const verification = await verifyVonageSignature({
       signatureSecret: options.credentials.signatureSecret,
-      authorization: options.request.headers.get("authorization"),
+      authorization: readHeaderString(req.headers, "authorization", "vonage"),
       rawBody,
       ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
       now: (options.now ?? Date.now)(),

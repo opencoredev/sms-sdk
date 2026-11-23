@@ -2,6 +2,7 @@ import type {
   AdapterMessage,
   AdapterSendOutcome,
   Delivery,
+  MessageLookupOutcome,
   RejectionCategory,
   SmsAdapter,
   SmsCapabilities,
@@ -51,6 +52,26 @@ export type AdapterContractFixtures = {
   readonly malformedSuccess: MockResponse;
   /** A 5xx response. */
   readonly serverError: MockResponse;
+  /** Message lookup checks, when the adapter implements `getMessage`. */
+  readonly lookup?: {
+    /** The provider message ID to look up. */
+    readonly providerId: string;
+    /** The exact GET request the adapter must make for `providerId`. */
+    readonly request: {
+      readonly url: string;
+      /** Headers that must be present (names compared case-insensitively). */
+      readonly headers: Readonly<Record<string, string>>;
+    };
+    /** A documented response for an existing message, and what it must normalize to. */
+    readonly found: {
+      readonly response: MockResponse;
+      readonly delivery: Delivery;
+      readonly providerStatus: string;
+      readonly errorCode?: string;
+    };
+    /** A documented response for a message the provider does not have. */
+    readonly notFound: MockResponse;
+  };
   /** Webhook checks, when the adapter's provider has a parser. */
   readonly webhooks?: {
     readonly parse: (request: Request) => Promise<SmsEvent>;
@@ -179,6 +200,66 @@ export function smsAdapterContractCases(factory: AdapterFactory, fixtures: Adapt
       assertEqual(mock.calls.length, 0, "requests made for unsupported fields");
     }),
   ];
+
+  const lookup = fixtures.lookup;
+  if (lookup !== undefined) {
+    const lookupWith = (reply: MockReply, signal = new AbortController().signal): Promise<MessageLookupOutcome> => {
+      const adapter = factory(mockFetch(reply).fetch);
+      assert(adapter.getMessage !== undefined, "lookup fixtures are set, so the adapter must implement getMessage");
+      return adapter.getMessage(lookup.providerId, { signal });
+    };
+    cases.push(
+      named("lookup: builds the documented GET request", async () => {
+        const mock = mockFetch(lookup.found.response);
+        const adapter = factory(mock.fetch);
+        assert(adapter.getMessage !== undefined, "adapter must implement getMessage");
+        const controller = new AbortController();
+        await adapter.getMessage(lookup.providerId, { signal: controller.signal });
+        const [call] = mock.calls;
+        assert(call !== undefined && mock.calls.length === 1, `expected exactly 1 request, got ${mock.calls.length}`);
+        assertEqual(call.method, "GET", "method");
+        assertEqual(call.url, lookup.request.url, "url");
+        assertEqual(call.body, "", "body");
+        assert(call.signal === controller.signal, "fetch must receive context.signal");
+        for (const [name, value] of Object.entries(lookup.request.headers)) {
+          assertEqual(call.headers[name.toLowerCase()], value, `header ${name}`);
+        }
+      }),
+      named("lookup: normalizes a found message", async () => {
+        const outcome = await lookupWith(lookup.found.response);
+        assert(outcome.kind === "found", `expected found, got ${outcome.kind}`);
+        assertEqual(outcome.status.provider, adapterName, "status.provider");
+        assertEqual(outcome.status.providerId, lookup.providerId, "status.providerId");
+        assertEqual(outcome.status.delivery, lookup.found.delivery, "status.delivery");
+        assertEqual(outcome.status.providerStatus, lookup.found.providerStatus, "status.providerStatus");
+        assertEqual(outcome.status.errorCode, lookup.found.errorCode, "status.errorCode");
+      }),
+      named("lookup: maps a missing message to not_found", async () => {
+        const outcome = await lookupWith(lookup.notFound);
+        assertEqual(outcome.kind, "not_found", "kind");
+      }),
+      named("lookup: treats a network error as failed", async () => {
+        const outcome = await lookupWith({ throws: new TypeError("fetch failed") });
+        assert(outcome.kind === "failed", `expected failed, got ${outcome.kind}`);
+        assertEqual(outcome.reason, "network", "reason");
+      }),
+      named("lookup: treats a non-JSON 2xx as failed", async () => {
+        const outcome = await lookupWith({ status: 200, body: "<html>ok</html>", headers: { "content-type": "text/html" } });
+        assert(outcome.kind === "failed", `expected failed, got ${outcome.kind}`);
+        assertEqual(outcome.reason, "malformed_response", "reason");
+      }),
+      named("lookup: treats a 5xx as failed", async () => {
+        const outcome = await lookupWith(fixtures.serverError);
+        assert(outcome.kind === "failed", `expected failed, got ${outcome.kind}`);
+        assertEqual(outcome.reason, "server_error", "reason");
+      }),
+      named("lookup: treats a 401 as an auth failure", async () => {
+        const outcome = await lookupWith({ status: 401, body: {} });
+        assert(outcome.kind === "failed", `expected failed, got ${outcome.kind}`);
+        assertEqual(outcome.reason, "auth", "reason");
+      }),
+    );
+  }
 
   const webhooks = fixtures.webhooks;
   if (webhooks !== undefined) {

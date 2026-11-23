@@ -557,6 +557,10 @@ SMS SDK reads `message.received`, `message.sent`, and `message.finalized` events
 
 Telnyx sends no opt-out flag, so opt-outs come from keyword detection. `dedupeKey` is `telnyx:{data.id}`, the webhook event ID. `providerId` is the message ID, `data.payload.id`, which matches `result.providerId`.
 
+## Look up a message
+
+`sms.getMessage(id, { adapter: "telnyx" })` retrieves the message (`GET /v2/messages/{id}`) and maps the first recipient's `status`, with the first error's `code` as `errorCode` for a failed message. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
+
 ## Limitations
 
 - No `validityPeriodSec`. For an expiry, use Twilio, Plivo, Vonage, or Sinch.

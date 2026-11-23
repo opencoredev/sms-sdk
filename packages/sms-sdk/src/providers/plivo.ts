@@ -8,6 +8,8 @@
 import type {
   AdapterMessage,
   AdapterSendOutcome,
+  Delivery,
+  MessageLookupOutcome,
   ProviderOptionValue,
   ProviderOptionsOf,
   ProviderOptionsSpec,
@@ -20,13 +22,22 @@ import { ConfigurationError } from "../core/errors.js";
 import {
   basicAuthorization,
   exchange,
+  foundMessage,
+  freezeCapabilities,
+  freezeProviderOptionsSpec,
   isRecord,
+  lookupFailureForStatus,
+  malformedLookup,
   parseJson,
   parseRetryAfter,
   providerInfo,
+  readCode,
   readString,
+  resolveBaseUrl,
+  resolveFetcher,
   unknownForStatus,
   type FetchLike,
+  freezeSender,
 } from "../core/http.js";
 
 /** Options for {@link plivo}. */
@@ -44,7 +55,7 @@ export type PlivoOptions = {
 };
 
 /** Static capabilities of the Plivo adapter. */
-export const PLIVO_CAPABILITIES: SmsCapabilities = {
+export const PLIVO_CAPABILITIES: SmsCapabilities = freezeCapabilities({
   sendText: true,
   mms: true,
   scheduling: false,
@@ -54,13 +65,13 @@ export const PLIVO_CAPABILITIES: SmsCapabilities = {
   deliveryReceipts: true,
   senderTypes: ["long_code", "toll_free", "short_code", "alphanumeric", "messaging_service"],
   nativeIdempotency: false,
-};
+});
 
 /** Notes explaining why Plivo is marked `partial`. */
-export const PLIVO_SUPPORT_NOTES: readonly string[] = [
+export const PLIVO_SUPPORT_NOTES: readonly string[] = Object.freeze([
   "Plivo does not document its API error body, so 4xx rejections other than 401 and 429 are classified as `request` (no fallback).",
   "Plivo documents no timestamp in callback signatures, so webhook replay protection relies on your deduplication.",
-];
+]);
 
 /**
  * Plivo Message API parameters accepted in `providerOptions.plivo`, from the
@@ -70,7 +81,7 @@ export const PLIVO_SUPPORT_NOTES: readonly string[] = [
  *
  * @see https://www.plivo.com/docs/messaging/api/message/send-a-message
  */
-export const PLIVO_PROVIDER_OPTIONS = {
+export const PLIVO_PROVIDER_OPTIONS = freezeProviderOptionsSpec({
   options: {
     /** `log`: how Plivo logs the message. `"content_only"` and `"number_only"` log one of the two. Default `"true"`. */
     log: { type: "enum", wire: "log", values: ["true", "false", "content_only", "number_only"] },
@@ -78,7 +89,7 @@ export const PLIVO_PROVIDER_OPTIONS = {
     trackable: { type: "boolean", wire: "trackable" },
   },
   reserved: ["src", "powerpack_uuid", "dst", "text", "type", "media_urls", "url", "method", "message_expiry"],
-} as const satisfies ProviderOptionsSpec;
+} as const satisfies ProviderOptionsSpec);
 
 /** Plivo-specific send options: `providerOptions.plivo`. */
 export type PlivoSendOptions = ProviderOptionsOf<typeof PLIVO_PROVIDER_OPTIONS>;
@@ -108,28 +119,46 @@ export type PlivoMessageRequest = {
  * Creates a Plivo adapter.
  *
  * Sends JSON to `POST /v1/Account/{authId}/Message/` with HTTP Basic auth. A
- * `{ messagingService }` sender is sent as `powerpack_uuid`.
+ * `{ messagingService }` sender is sent as `powerpack_uuid`. `getMessage`
+ * fetches `GET /v1/Account/{authId}/Message/{message_uuid}/`.
  *
  * @throws {ConfigurationError} when credentials are empty.
  */
 export function plivo(options: PlivoOptions): SmsAdapter {
-  if (typeof options.authId !== "string" || options.authId.length === 0) {
+  if (!isRecord(options)) {
+    throw new ConfigurationError("Plivo options must be an object.");
+  }
+  let authId: unknown;
+  let authToken: unknown;
+  let rawBaseUrl: unknown;
+  let rawFetch: unknown;
+  let rawFrom: SmsFrom | undefined;
+  try {
+    authId = options.authId;
+    authToken = options.authToken;
+    rawBaseUrl = options.baseUrl;
+    rawFetch = options.fetch;
+    rawFrom = freezeSender(options.from);
+  } catch {
+    throw new ConfigurationError("Plivo options could not be read.");
+  }
+  if (typeof authId !== "string" || authId.length === 0) {
     throw new ConfigurationError("Plivo authId is required.");
   }
-  if (typeof options.authToken !== "string" || options.authToken.length === 0) {
+  if (typeof authToken !== "string" || authToken.length === 0) {
     throw new ConfigurationError("Plivo authToken is required.");
   }
-  const baseUrl = (options.baseUrl ?? "https://api.plivo.com").replace(/\/+$/, "");
-  const url = `${baseUrl}/v1/Account/${encodeURIComponent(options.authId)}/Message/`;
-  const fetcher: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
-  const authorization = basicAuthorization(options.authId, options.authToken);
+  const baseUrl = resolveBaseUrl(rawBaseUrl as string | undefined, "https://api.plivo.com", "Plivo");
+  const url = `${baseUrl}/v1/Account/${encodeURIComponent(authId)}/Message/`;
+  const fetcher: FetchLike = resolveFetcher(rawFetch as FetchLike | undefined, "Plivo");
+  const authorization = basicAuthorization(authId, authToken);
 
   return {
     name: "plivo",
     capabilities: PLIVO_CAPABILITIES,
     support: { status: "partial", notes: PLIVO_SUPPORT_NOTES },
     providerOptions: PLIVO_PROVIDER_OPTIONS,
-    ...(options.from === undefined ? {} : { defaultFrom: options.from }),
+    ...(rawFrom === undefined ? {} : { defaultFrom: rawFrom }),
 
     async send(message, context) {
       const response = await exchange(fetcher, url, {
@@ -143,9 +172,21 @@ export function plivo(options: PlivoOptions): SmsAdapter {
         signal: context.signal,
       });
       if (response.kind === "failed") {
-        return { kind: "unknown", reason: "network", cause: response.cause };
+        return { kind: "unknown", reason: response.reason, cause: response.cause };
       }
       return interpretPlivoResponse(response.status, response.text, response.headers);
+    },
+
+    async getMessage(providerId, context) {
+      const response = await exchange(fetcher, `${url}${encodeURIComponent(providerId)}/`, {
+        method: "GET",
+        headers: { Authorization: authorization, Accept: "application/json" },
+        signal: context.signal,
+      });
+      if (response.kind === "failed") {
+        return { kind: "failed", reason: response.reason, cause: response.cause };
+      }
+      return interpretPlivoLookup(providerId, response.status, response.text);
     },
   };
 }
@@ -216,6 +257,53 @@ export function interpretPlivoResponse(status: number, text: string, headers: He
   }
 
   return unknownForStatus("plivo", status, requestId);
+}
+
+/** Maps a Plivo Message retrieve response to a lookup outcome. A 404 is `not_found`. */
+export function interpretPlivoLookup(providerId: string, status: number, text: string): MessageLookupOutcome {
+  const body = parseJson(text);
+  const requestId = isRecord(body) ? readString(body, "api_id") : undefined;
+  if (status >= 200 && status < 300) {
+    const providerStatus = isRecord(body) ? readString(body, "message_state") : undefined;
+    if (!isRecord(body) || providerStatus === undefined) {
+      return malformedLookup("plivo", status, requestId);
+    }
+    const rawErrorCode = readCode(body, "error_code");
+    return foundMessage({
+      provider: "plivo",
+      providerId,
+      delivery: plivoDelivery(providerStatus),
+      providerStatus,
+      errorCode: rawErrorCode === "000" ? undefined : rawErrorCode,
+    });
+  }
+  if (status === 404) {
+    return { kind: "not_found" };
+  }
+  return lookupFailureForStatus({
+    provider: "plivo",
+    status,
+    requestId,
+    message: isRecord(body) ? readString(body, "error") : undefined,
+  });
+}
+
+/** Delivery value for a Plivo `message_state`. */
+export function plivoDelivery(state: string | undefined): Delivery {
+  switch (state) {
+    case "queued":
+      return "queued";
+    case "sent":
+      return "sent";
+    case "delivered":
+      return "delivered";
+    case "undelivered":
+    case "failed":
+    case "rejected":
+      return "undelivered";
+    default:
+      return "unknown";
+  }
 }
 
 /**
