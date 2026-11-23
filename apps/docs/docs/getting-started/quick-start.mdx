@@ -151,3 +151,6 @@ Bun reads `.env` on its own, so `bun server.ts` starts either one with your Twil
 - [How sending works](/getting-started/how-sending-works): the three outcomes and what the client does by default.
 - [Fallback and retries](/sending/fallback-and-retries): add a second provider safely.
 - [How to send SMS through an API in TypeScript](/blog/send-sms-api-typescript) (blog): the raw HTTP request for six providers, and a protected send route.
+- [Message length and cost](/sending/length-and-cost): how many characters fit in one segment, and why one emoji can double the count.
+- [Handle STOP and HELP replies](/receiving/opt-outs): keep opted-out numbers off your send list across providers.
+- [Switch SMS providers](/migration/switch-providers): move from Twilio to Telnyx or another provider: swap the adapter, set up the new sender and webhooks, and carry over opt-outs.
