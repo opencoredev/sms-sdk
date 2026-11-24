@@ -21,6 +21,10 @@ const tables = {
       return false;
     },
   }),
+  numbers: table({
+    /** Marks a number to check (for example its line type) before texting it again. */
+    async flagForCheck(_phoneNumber: string, _reason: string): Promise<void> {},
+  }),
   inbox: table({
     async save(_message: { from: string; to: string; body: string; providerId: string }): Promise<void> {},
   }),

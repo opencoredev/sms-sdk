@@ -2,74 +2,89 @@
 title: "SMS delivery reports for developers: statuses and error codes"
 type: blog
 date: 2026-11-24
-description: "SMS delivery reports from Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch: what each status means, which error codes to act on, and a TypeScript webhook."
+description: "What SMS delivery statuses and error codes mean, which failures to act on, and a TypeScript webhook that stores delivery reports from Twilio, Telnyx, and others."
 ---
 
-An SMS API that answers 200 or 201 has accepted your message, not delivered it. The delivery report comes later, as a webhook from your provider, and a code that never listens for it logs every failed text as a success.
+When an SMS API such as Twilio's answers 201, the provider has accepted your message. Whether a phone got it comes later, in a delivery report your provider sends to a webhook, and only if you gave it a URL to send to.
 
-This post covers the developer side of SMS delivery reports: where they come from, what the status values mean on each provider, which error codes deserve a reaction, and how to store them without counting a message twice or moving it backward. The examples use SMS SDK, the open-source TypeScript library this site documents. It calls your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. It isn't a carrier or an SMS provider.
+This post covers the developer side of SMS delivery reports: where they come from, what the status values mean on each provider, which error codes deserve a reaction, and how to store them so a repeated or late report doesn't corrupt a message's status. The examples use SMS SDK 0.1.1, the open-source TypeScript library this site documents. It calls your own Twilio, Telnyx, Plivo, Vonage, Bandwidth, or Sinch account. It isn't a carrier or an SMS provider.
 
 ## The short answer
 
-A delivery report (often called a DLR) is the carrier telling your provider what happened to a message, and the provider passing that on to a URL you configure. In code it looks like this:
+A delivery report (often called a DLR) is the outcome a carrier reports for a message, passed on by your provider to a URL you configure. In code it looks like this:
 
 1. `send()` resolves with the provider's message ID and `handoff: "accepted"`. Nothing has reached a phone yet.
-2. The provider calls your status webhook as the message moves: queued, sent, then delivered or failed.
-3. A failure carries an error code, such as Twilio's 30003 for a phone that is switched off or 30034 for an unregistered sender.
+2. If you configured a status URL, the provider calls it as the message changes state: sent, then delivered or failed.
+3. A failure carries an error code, such as Twilio's 30003 for a handset that can't be reached or 30034 for an unregistered US sender.
 
 Save the message ID when you send, point the status webhook at your server, verify each callback, and update the message row from it. A report can be late, repeated, out of order, or missing, and your code has to handle all four.
 
 ## Where a delivery report comes from
 
-Your provider hands the message to a carrier, and the carrier routes it to the handset. When the handset network confirms receipt, the carrier sends a receipt back up the chain, and the provider turns it into a status callback. Twilio's documentation puts the two steps plainly: if sending succeeds the status becomes `sent`, otherwise `failed`, and if delivery succeeds it becomes `delivered`, otherwise `undelivered` ([outbound message status in status callbacks](https://www.twilio.com/docs/messaging/guides/outbound-message-status-in-status-callbacks), checked 2026-11-24).
+Your provider hands the message to a carrier, and the carrier routes it toward the handset. The carrier then reports an outcome back up the chain, including confirmation from the handset where the network provides one, and the provider turns that into a status callback. Twilio's documentation describes the two steps: if sending succeeds the status becomes `sent`, otherwise `failed`, and if delivery succeeds it becomes `delivered`, otherwise `undelivered` ([outbound message status in status callbacks](https://www.twilio.com/docs/messaging/guides/outbound-message-status-in-status-callbacks), checked 2026-11-24).
 
 Two things follow from that chain:
 
-- **Not every carrier sends a receipt.** Some routes stop at `sent`. Telnyx reports `delivery_unconfirmed` when no receipt came back. A message that stays at `sent` is usually delivered, but nothing proved it.
-- **The report is asynchronous.** It can arrive seconds or minutes after the send, and providers retry a callback your server didn't acknowledge. Treat it as an event stream, not a reply.
+- **Not every route returns a receipt.** Twilio's `sent` means an upstream carrier accepted the message, and Telnyx reports `delivery_unconfirmed` when it got no indication of receipt. In both cases delivery is unknown, not failed and not confirmed.
+- **The report is asynchronous.** It can arrive seconds or minutes after the send, and providers can deliver the same callback more than once. Treat reports as an event stream, not a reply.
 
-You choose the URL. On Twilio, Telnyx, Plivo, and Sinch you can pass it per message (SMS SDK's `webhookUrl` option) or set it once on the number, profile, or service. Vonage sends status webhooks only with JWT auth, and Bandwidth takes the callback URL from your messaging application. Sinch also needs `deliveryReport` turned on. [Where to point webhooks](/reference/webhook-events#where-to-point-webhooks) has the setting for each provider.
+Where the status URL goes depends on the provider. With SMS SDK:
+
+- **Twilio, Telnyx, Plivo:** pass `webhookUrl` per message, or for Twilio and Telnyx set it once on the Messaging Service or messaging profile.
+- **Vonage:** pass `webhookUrl` or set the application's Status URL. SMS SDK supports Vonage status webhooks with JWT auth (`applicationId` and `privateKey`).
+- **Bandwidth:** set the callback URL on your messaging application. A per-message `webhookUrl` is rejected.
+- **Sinch:** pass `webhookUrl` and ask for reports with `providerOptions: { sinch: { deliveryReport: "per_recipient" } }`.
+
+[Where to point webhooks](/reference/webhook-events#where-to-point-webhooks) has the details.
 
 ## Delivery status values on each provider
 
-Every provider names its statuses differently. SMS SDK's webhook parser maps them to five event types, so one handler covers all six providers:
+Every provider names its statuses differently. SMS SDK 0.1.1 maps them to five event types, so the same handler code works for each provider:
 
 | Event | Twilio | Telnyx | Plivo |
 | --- | --- | --- | --- |
 | `message.queued` | queued, accepted, scheduled, sending | queued, sending | queued |
 | `message.sent` | sent | sent, delivery_unconfirmed | sent |
 | `message.delivered` | delivered | delivered | delivered |
-| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed, rejected |
+| `message.undelivered` | undelivered, failed | sending_failed, delivery_failed, expired | undelivered, failed |
 
 | Event | Vonage | Bandwidth | Sinch |
 | --- | --- | --- | --- |
 | `message.queued` | none | message-sending | Queued, Pending |
-| `message.sent` | submitted | none | Sent, Accepted, Dispatched |
+| `message.sent` | submitted | none | Sent, Accepted |
 | `message.delivered` | delivered | message-delivered | Delivered |
-| `message.undelivered` | rejected, undeliverable | message-failed | Failed, Undelivered, Expired, Aborted |
+| `message.undelivered` | rejected, undeliverable | message-failed | Failed, Undelivered, Expired, and Rejected or Filtered without code 40003 |
 
-A fifth type, `message.filtered`, marks a failure the provider attributes to spam or content filtering: Twilio error 30007, Telnyx 40002, 40003, or 40322, Vonage 1210, 1470, 1472, or 1480 to 1483, and Sinch rejections with code 40003. Plivo and Bandwidth failures always stay `message.undelivered`. Every event keeps the provider's own value in `providerStatus` and its code in `errorCode`, so you never lose the detail. The full table, with the edge cases, is in [Status mapping](/reference/webhook-events#status-mapping).
+A fifth type, `message.filtered`, marks failures with the codes SMS SDK treats as spam or content filtering: Twilio 30007, Telnyx 40002, 40003, or 40322, Vonage 1210, 1470, 1472, or 1480 to 1483, and Sinch Rejected or Filtered with code 40003. Providers document other filtering codes too; those arrive as `message.undelivered`. A status 0.1.1 doesn't know, such as Plivo `rejected` or Sinch `Dispatched`, arrives as an `unrecognized` event instead of breaking your handler.
+
+Mapped status events keep the provider's own value in `providerStatus`. `errorCode`, `from`, and `to` are set when the payload has them, and Telnyx's first error code is the one copied into `errorCode`. The full payload is always in `raw`. Two batching limits apply in 0.1.1: a Bandwidth callback carrying more than one event is rejected, and only the first entry of a Sinch `recipient_delivery_report` array is read, so ask Sinch for `per_recipient` reports. [Status mapping](/reference/webhook-events#status-mapping) is the reference.
 
 ## Which delivery error codes to act on
 
-Most failures need a decision about the recipient's number, the sender, or the content. On Twilio, the common carrier errors are:
+Most failures need a decision about the recipient's number, the sender, or the content. On Twilio, the common delivery errors are:
 
 | Code | Twilio's name | What it usually means | What to do |
 | --- | --- | --- | --- |
 | [30003](https://www.twilio.com/docs/api/errors/30003) | Unreachable destination handset | The phone is off, out of coverage, or can't take SMS right now | Resend later on purpose if the message still matters |
-| [30005](https://www.twilio.com/docs/api/errors/30005) | Unknown destination handset | The number may no longer exist | Stop sending and ask the user to confirm their number |
-| [30006](https://www.twilio.com/docs/api/errors/30006) | Landline or unreachable carrier | A landline, or a line type that can't receive your SMS | Flag the number; it won't start working |
-| [30007](https://www.twilio.com/docs/api/errors/30007) | Message filtered | A carrier blocked the message as spam or for its content | Review the content and your sender registration |
+| [30005](https://www.twilio.com/docs/api/errors/30005) | Unknown destination handset | The number may no longer exist, though Twilio also lists temporary handset and carrier problems | Flag the number and ask the user to confirm it if it keeps failing |
+| [30006](https://www.twilio.com/docs/api/errors/30006) | Landline or unreachable carrier | A landline, or a carrier your sender (such as a short code) can't reach | Check the line type, for example with Twilio Lookup, before sending again |
+| [30007](https://www.twilio.com/docs/api/errors/30007) | Message filtered | Twilio or a carrier blocked the message as spam or for its content | Review the content and your sender registration |
 | [30008](https://www.twilio.com/docs/api/errors/30008) | Unknown error | The carrier gave no detail | Watch for a pattern before acting |
-| [30034](https://www.twilio.com/docs/api/errors/30034) | Message from an unregistered number | The US 10DLC number isn't attached to an approved campaign | Register it; every send from it fails until then |
+| [30034](https://www.twilio.com/docs/api/errors/30034) | Message from an unregistered number | A US 10DLC number sending to US numbers without an approved campaign | Register it; those sends keep failing until then |
 
-Names and causes are from Twilio's error pages, checked 2026-11-24. Telnyx's unregistered-sender code is 40010, and its filtering codes are the ones listed above. [10DLC registration for developers](/blog/10dlc-registration-for-developers) covers 30034 and 40010 in depth.
+Names and causes are from Twilio's error pages, checked 2026-11-24. Telnyx's unregistered-sender code is 40010. [10DLC registration for developers](/blog/10dlc-registration-for-developers) covers 30034 and 40010 in depth.
 
-None of these is a reason to resend through another provider automatically. The message was already handed off, so SMS SDK never falls back after acceptance: a second provider would fail on the same dead number, or text the person twice if the first message arrives late. [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts) explains which failures may switch providers.
+None of these is a reason to resend through another provider automatically. The message was already handed off, so SMS SDK never falls back after acceptance: a second provider might fail on the same number, or text the person twice if the first message arrives late. [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts) explains which failures may switch providers.
 
 ## Store delivery reports from a webhook
 
-Two rules keep the stored status honest. Handle each callback once, because providers repeat them. And never let a late event move a message backward, because `sent` can arrive after `delivered`. This module ranks the statuses and decides what to record:
+Three rules keep the stored status honest:
+
+- **Handle each callback once.** Record its `dedupeKey` with a unique insert in the same transaction as the update.
+- **Never move a message backward.** `sent` can arrive after `delivered`, so a lower status never replaces a higher one.
+- **Decide conflicts between final states on purpose.** Providers rarely send two, but when they do, arrival order is not evidence. Keep the first final state unless the provider timestamps the new one as later. Twilio callbacks carry no timestamp, so on Twilio the first final state stays.
+
+This module holds those decisions:
 
 ```ts delivery-reports.ts
 import type { MessageStatusEvent, MessageStatusType } from "@opencoredev/sms-sdk/webhooks";
@@ -82,32 +97,36 @@ const rank: Record<MessageStatusType, number> = {
   "message.filtered": 2,
 };
 
-/** Keeps the furthest status, so a late "sent" never overwrites "delivered". */
-export function nextStatus(current: MessageStatusType | undefined, incoming: MessageStatusType): MessageStatusType {
-  if (current === undefined) return incoming;
-  return rank[incoming] >= rank[current] ? incoming : current;
+export type StoredStatus = { readonly type: MessageStatusType; readonly occurredAt: Date | undefined };
+
+/** True when an incoming report should replace the stored status. */
+export function shouldApply(current: StoredStatus | undefined, incoming: StoredStatus): boolean {
+  if (current === undefined) return true;
+  if (rank[incoming.type] !== rank[current.type]) return rank[incoming.type] > rank[current.type];
+  // Same rank: only a report the provider timestamps as newer replaces the stored one.
+  return incoming.occurredAt !== undefined && current.occurredAt !== undefined && incoming.occurredAt > current.occurredAt;
 }
 
-// Twilio carrier errors that say something about the recipient's number.
-const BAD_NUMBER_CODES: ReadonlySet<string> = new Set(["30005", "30006"]);
+// Twilio delivery errors that mean someone should look at the number before texting it again.
+const CHECK_NUMBER_CODES: ReadonlySet<string> = new Set(["30005", "30006"]);
 
-/** True when a failure means this number shouldn't get texts again until the user fixes it. */
-export function isBadNumber(event: MessageStatusEvent): boolean {
+/** True when a failed report points at the recipient's number rather than your content or sender. */
+export function needsNumberCheck(event: MessageStatusEvent): boolean {
   return (
     event.provider === "twilio" &&
     event.type === "message.undelivered" &&
     event.errorCode !== undefined &&
-    BAD_NUMBER_CODES.has(event.errorCode)
+    CHECK_NUMBER_CODES.has(event.errorCode)
   );
 }
 ```
 
-The route verifies the callback, skips repeats, and applies the event. This one takes Twilio. For Telnyx, pass `provider: "telnyx"` and its `publicKey`; the rest stays the same:
+The route verifies the callback, skips repeats, and hands the event to your database layer:
 
 ```ts
 import { parseSmsWebhook, WebhookPayloadError, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
 import { db } from "./db";
-import { isBadNumber } from "./delivery-reports";
+import { needsNumberCheck } from "./delivery-reports";
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -118,13 +137,15 @@ export async function POST(request: Request): Promise<Response> {
       publicUrl: "https://example.com/api/webhooks/sms/status",
     });
     await db.transaction(async (tx) => {
-      // The insert and the update commit together, so a failed update is retried, not skipped.
+      // A unique insert: false means this exact report was handled before.
       if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
       if (!("providerStatus" in event)) return;
-      // updateStatus should apply nextStatus() to the stored value and upsert by providerId:
-      // a callback can arrive before you saved the send result.
+      // updateStatus locks the row keyed by provider and providerId (or creates it if the callback
+      // beat your send code), applies shouldApply(), and writes the status and error code only when it wins.
       await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
-      if (isBadNumber(event) && event.to !== undefined) await tx.suppressions.add(event.to);
+      if (needsNumberCheck(event) && event.to !== undefined) {
+        await tx.numbers.flagForCheck(event.to, `twilio ${event.errorCode}`);
+      }
     });
     return new Response(null, { status: 200 });
   } catch (error) {
@@ -135,55 +156,37 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Answer every repeat with a 200, since an error makes the provider retry again. If the database write throws, the route answers 500 and the transaction rolls back, so the next retry gets a clean attempt. Twilio doesn't retry a 500 by default; add connection overrides such as `#rc=3&rp=5xx` to the status callback URL in Twilio and keep `publicUrl` without the fragment. [Receive webhooks](/receiving/webhooks) has the same handler for inbound texts and the Hono and Bun versions, and [Webhook security](/receiving/webhook-security) explains each provider's signature.
+For Telnyx, call `parseSmsWebhook({ provider: "telnyx", request, credentials: { publicKey } })` without `publicUrl`, which only Twilio and Plivo take. The rest of the route stays the same.
 
-Before the webhook can find a message, save the send result with its provider ID:
+Answer every repeat with a 200, since an error invites another retry. If the database write throws, the route answers 500 and the transaction rolls back. Twilio retries connection failures by default but not a 500, so add connection overrides such as `#rc=3&rp=5xx` to the status callback URL in Twilio and keep `publicUrl` without the fragment.
 
-```ts
-import { db } from "./db";
-import { sms } from "./sms";
-
-const result = await sms.send({ to: "+14155550123", body: "Your order shipped." });
-// result.delivery is the status in the provider's response, usually "queued". Not handset delivery.
-await db.messages.saveSent({
-  id: result.id,
-  provider: result.provider,
-  providerId: result.providerId,
-  to: "+14155550123",
-  status: result.delivery,
-});
-```
+When you save the send result, write the provider ID and send details without overwriting a status a callback may already have stored. `result.delivery` is the status from the provider's response, a separate snapshot from the webhook statuses above. [Receive webhooks](/receiving/webhooks) shows the send-and-store step and the Hono and Bun versions of the route, and [Webhook security](/receiving/webhook-security) explains each provider's signature.
 
 ## When no delivery report arrives
 
-A message with no final report after a few hours is usually one of three things: the carrier sent no receipt (the message stays at `sent`), the callback URL is wrong or unreachable, or your route rejected the request. Check them in that order:
+A message with no final report after a few hours is usually one of three things: the route never returned a receipt (the message stays at `sent`), the callback URL is wrong or unreachable, or your route rejected the request. Check them in that order:
 
 - Look at the message in your provider's console or logs. If it says delivered and your database doesn't, the problem is the callback, not the carrier.
-- Confirm the status URL your provider has on file. A per-message `webhookUrl` overrides the number's setting, and Bandwidth rejects one, so its URL lives on the messaging application.
+- Confirm the status URL your provider has on file, and that the send passed `webhookUrl` if that's how you set it.
 - Look for 401s in your server logs. A wrong auth token, a proxy that changes the URL Twilio signed, or a Telnyx key from another account all fail verification. [Webhook security](/receiving/webhook-security) covers the proxy case.
 
-SMS SDK doesn't poll providers for status. If you need an answer for one message, look it up by its provider ID in the provider's API, for example Twilio's [Message resource](https://www.twilio.com/docs/messaging/api/message-resource). Don't resend just because a report is missing: the first message may have arrived.
+SMS SDK 0.1.1 doesn't poll providers for status. If you need an answer for one message, look it up by its provider ID in the provider's API, for example Twilio's [Message resource](https://www.twilio.com/docs/messaging/api/message-resource). Don't resend just because a report is missing: the first message may have arrived.
 
 ## Test delivery reports without sending texts
 
-The signed request builders in `@opencoredev/sms-sdk/testing` produce webhook requests that pass the real signature check, so you can test the code above with the exact callbacks a carrier failure would produce:
+The signed request builders in `@opencoredev/sms-sdk/testing` produce Twilio callbacks that pass the real signature check. These tests feed them through `parseSmsWebhook` and the two helpers above:
 
 ```ts delivery-reports.test.ts
 import { expect, test } from "bun:test";
 import { signedTwilioRequest } from "@opencoredev/sms-sdk/testing";
 import { parseSmsWebhook } from "@opencoredev/sms-sdk/webhooks";
-import { isBadNumber, nextStatus } from "./delivery-reports";
+import { needsNumberCheck, shouldApply } from "./delivery-reports";
 
 const url = "https://example.com/api/webhooks/sms/status";
 const authToken = "test-auth-token";
 
-async function twilioStatus(status: string, errorCode?: string) {
-  const params: Record<string, string> = {
-    MessageSid: `SM${crypto.randomUUID().replaceAll("-", "")}`,
-    MessageStatus: status,
-    From: "+15550100002",
-    To: "+14155550123",
-  };
+async function twilioStatus(messageSid: string, status: string, errorCode?: string) {
+  const params: Record<string, string> = { MessageSid: messageSid, MessageStatus: status, From: "+15550100002", To: "+14155550123" };
   if (errorCode !== undefined) params["ErrorCode"] = errorCode;
   const request = await signedTwilioRequest({ authToken, url, params });
   const event = await parseSmsWebhook({ provider: "twilio", request, credentials: { authToken }, publicUrl: url });
@@ -191,56 +194,70 @@ async function twilioStatus(status: string, errorCode?: string) {
   return event;
 }
 
-test("a late sent report doesn't undo delivered", async () => {
-  const delivered = await twilioStatus("delivered");
-  const sent = await twilioStatus("sent");
-  expect(nextStatus(nextStatus(undefined, delivered.type), sent.type)).toBe("message.delivered");
+const newSid = () => `SM${crypto.randomUUID().replaceAll("-", "")}`;
+
+test("a late sent report doesn't undo delivered for the same message", async () => {
+  const sid = newSid();
+  const delivered = await twilioStatus(sid, "delivered");
+  const sent = await twilioStatus(sid, "sent");
+  expect(sent.providerId).toBe(delivered.providerId);
+  const stored = { type: delivered.type, occurredAt: delivered.occurredAt };
+  expect(shouldApply(stored, { type: sent.type, occurredAt: sent.occurredAt })).toBe(false);
 });
 
-test("30007 is filtered, 30006 marks the number", async () => {
-  expect((await twilioStatus("undelivered", "30007")).type).toBe("message.filtered");
-  expect(isBadNumber(await twilioStatus("undelivered", "30006"))).toBe(true);
-  expect(isBadNumber(await twilioStatus("undelivered", "30003"))).toBe(false);
+test("a second final state without timestamps doesn't replace the first", async () => {
+  const sid = newSid();
+  const delivered = await twilioStatus(sid, "delivered");
+  const failed = await twilioStatus(sid, "undelivered", "30003");
+  const stored = { type: delivered.type, occurredAt: delivered.occurredAt };
+  expect(shouldApply(stored, { type: failed.type, occurredAt: failed.occurredAt })).toBe(false);
+});
+
+test("30007 is filtered, 30006 asks for a number check", async () => {
+  expect((await twilioStatus(newSid(), "undelivered", "30007")).type).toBe("message.filtered");
+  expect(needsNumberCheck(await twilioStatus(newSid(), "undelivered", "30006"))).toBe(true);
+  expect(needsNumberCheck(await twilioStatus(newSid(), "undelivered", "30003"))).toBe(false);
 });
 ```
 
 ```txt
 delivery-reports.test.ts:
-(pass) a late sent report doesn't undo delivered
-(pass) 30007 is filtered, 30006 marks the number
+(pass) a late sent report doesn't undo delivered for the same message
+(pass) a second final state without timestamps doesn't replace the first
+(pass) 30007 is filtered, 30006 asks for a number check
 
- 2 pass
+ 3 pass
  0 fail
 ```
 
-[Test without a provider](/testing/local-testing) covers the Telnyx, Plivo, and Vonage builders and the `memory()` adapter.
+They don't exercise your database. Test `updateStatus` against your real database with two parallel calls for the same message, so the row lock is covered. [Test without a provider](/testing/local-testing) covers the Telnyx, Plivo, and Vonage builders and the `memory()` adapter.
 
 ## FAQ
 
 ### What is an SMS delivery report?
 
-It is the status update a carrier sends back after trying to deliver a text, passed on by your SMS provider. For an app, it arrives as a webhook to the status URL you configured, with the message ID, a status such as `delivered` or `undelivered`, and an error code when it failed.
+It is the outcome a carrier reports for a text, passed on by your SMS provider. For an app, it arrives as a webhook to the status URL you configured, with the message ID, a status such as `delivered` or `undelivered`, and an error code when it failed.
 
 ### Does a 200 or 201 from the SMS API mean the text was delivered?
 
-No. It means the provider accepted the message. SMS SDK reports this as `handoff: "accepted"`, and `delivery` holds the status from that response, usually `queued`. Delivery comes later on the status webhook.
+No. A successful create response means the provider accepted the message. SMS SDK reports this as `handoff: "accepted"`, and `delivery` holds the status from that response, usually `queued`. Later changes arrive on the status webhook if you configured one.
 
 ### Why does my message stay at "sent"?
 
-The carrier didn't return a receipt, or hasn't yet. Some routes never do, and Telnyx marks these `delivery_unconfirmed`. A message at `sent` usually arrived, but treat it as unconfirmed.
+The carrier didn't report a final outcome, or hasn't yet. Some routes never do, and Telnyx marks these `delivery_unconfirmed`. Treat the delivery as unknown.
 
 ### What is the difference between "failed" and "undelivered" on Twilio?
 
-`failed` means Twilio couldn't send the message to the carrier at all. `undelivered` means the carrier reported that delivery failed. SMS SDK maps both to `message.undelivered` and keeps Twilio's value in `providerStatus`.
+`failed` means the message wasn't sent to the carrier. `undelivered` means delivery failed after it was sent. SMS SDK maps both to `message.undelivered`, except a failure with error 30007, which becomes `message.filtered`. Twilio's own value stays in `providerStatus`.
 
 ### Should I resend a message that came back undelivered?
 
-Only on purpose. A 30005 or 30006 will fail again, and a 30007 needs a content or registration fix first. For a 30003, the phone was off or unreachable, so a later resend can work if the message still matters. Never resend automatically through a second provider.
+Only on purpose. A 30007 needs a content or registration fix first, and a 30005 or 30006 is worth checking the number for before you try again. For a 30003, the phone was off or unreachable, so a later resend can work if the message still matters. Never resend automatically through a second provider.
 
 ## Related
 
 - [Receive webhooks](/receiving/webhooks): one handler for status reports and inbound texts in Next.js, Hono, or Bun.
-- [Webhooks and events](/reference/webhook-events): every `SmsEvent` field, dedupe keys, and the full status mapping.
+- [Webhooks and events](/reference/webhook-events): every `SmsEvent` field, dedupe keys, and the status mapping.
 - [10DLC registration for developers](/blog/10dlc-registration-for-developers): why a send is accepted and then fails with 30034 or 40010.
 - [Telnyx SMS API with TypeScript](/providers/telnyx): messaging profiles, `message.finalized` webhooks, and Ed25519 verification.
 - [Errors](/reference/errors): the errors `send()` throws when a provider refuses a message up front.
