@@ -197,6 +197,8 @@ Texts to your number go to the URL set on the number or its group. A per-message
 
 `delivered` means the carrier reported delivery to the handset, and not every carrier does. Some routes stop at `sent`, and Telnyx reports `delivery_unconfirmed` when there is no receipt. Treat `message.sent` with nothing after it as probably delivered. SMS SDK does not poll for status, so if a webhook never arrives, look the message up with the provider.
 
+[SMS delivery reports for developers](/blog/sms-delivery-reports) covers what each status and the common carrier error codes mean in practice.
+
 ## Duplicates and ordering
 
 ### Dedupe keys
