@@ -217,7 +217,7 @@ Test credentials have limits. They don't support `MessagingServiceSid`, they nev
 | 400, error 21608 | Trial account sending to an unverified number | Verify the number, or upgrade the account. |
 | 400, error 21606 | `From` isn't a number on this account, or can't send SMS | Use a number you own, or send through the Messaging Service. |
 | 400, error 21211 | `To` isn't a valid number | Send E.164, such as `+14155550123`. |
-| 400, error 21610 | The recipient replied STOP | Don't send until they reply START. |
+| 400, error 21610 | The recipient replied STOP | Don't send until they reply START. See [STOP, HELP, and opt-outs](/receiving/opt-outs). |
 | `201`, then `undelivered` with 30034 | US 10DLC number without an approved A2P campaign | Register the brand and campaign, and put the number in the campaign's Messaging Service. |
 | `201`, then `undelivered` with 30032 | Unverified toll-free number | Complete toll-free verification. |
 | `201`, then `undelivered` with 30007 | Twilio or the carrier filtered the content | Read Twilio's filtering guidance; don't retry the same text. |

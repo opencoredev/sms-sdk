@@ -10,7 +10,7 @@ const tables = {
     async create(_row: { id: string; provider: string; providerId: string; to: string; status: string }): Promise<void> {},
     /** Upserts by providerId: fills in the send details, keeping any status a webhook already wrote. */
     async saveSent(_row: { id: string; provider: string; providerId: string; to: string; status: string }): Promise<void> {},
-    async updateStatus(_providerId: string, _status: string, _errorCode?: string): Promise<void> {},
+    async updateStatus(_providerId: string, _status: string, _errorCode?: string, _occurredAt?: Date): Promise<void> {},
     async markNeedsReview(_idempotencyKey: string, _reason: string): Promise<void> {},
   }),
   suppressions: table({
@@ -20,6 +20,10 @@ const tables = {
     async has(_phoneNumber: string): Promise<boolean> {
       return false;
     },
+  }),
+  numbers: table({
+    /** Marks a number to check (for example its line type) before texting it again. */
+    async flagForCheck(_phoneNumber: string, _reason: string): Promise<void> {},
   }),
   inbox: table({
     async save(_message: { from: string; to: string; body: string; providerId: string }): Promise<void> {},
