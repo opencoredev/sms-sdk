@@ -57,7 +57,7 @@ Every provider names its statuses differently. SMS SDK 0.1.1 maps them to five e
 
 A fifth type, `message.filtered`, marks failures with the codes SMS SDK treats as spam or content filtering: Twilio 30007, Telnyx 40002, 40003, or 40322, Vonage 1210, 1470, 1472, or 1480 to 1483, and Sinch Rejected or Filtered with code 40003. Providers document other filtering codes too; those arrive as `message.undelivered`. A status 0.1.1 doesn't know, such as Plivo `rejected` or Sinch `Dispatched`, arrives as an `unrecognized` event instead of breaking your handler.
 
-Mapped status events keep the provider's own value in `providerStatus`. `errorCode`, `from`, and `to` are set when the payload has them, and Telnyx's first error code is the one copied into `errorCode`. The full payload is always in `raw`. Two batching limits apply in 0.1.1: a Bandwidth callback carrying more than one event is rejected, and only the first entry of a Sinch `recipient_delivery_report` array is read, so ask Sinch for `per_recipient` reports. [Status mapping](/reference/webhook-events#status-mapping) is the reference.
+Mapped status events keep the provider's own value in `providerStatus`. `errorCode`, `from`, and `to` are set when the payload has them, and Telnyx's first error code is the one copied into `errorCode`. The full payload is always in `raw`. Two batching limits apply in 0.1.1: a Bandwidth callback carrying more than one event is rejected, and only the first entry of a Sinch `recipient_delivery_report` array is read, so ask Sinch for `per_recipient` reports. [Status mapping](/reference/webhook-events#status-mapping) documents the next release, which adds Plivo `rejected`, Sinch `Dispatched` and `Aborted`, and batched callbacks; the tables here are 0.1.1.
 
 ## Which delivery error codes to act on
 
@@ -141,8 +141,9 @@ export async function POST(request: Request): Promise<Response> {
       if (!(await tx.webhookEvents.insertIfNew(event.dedupeKey))) return;
       if (!("providerStatus" in event)) return;
       // updateStatus locks the row keyed by provider and providerId (or creates it if the callback
-      // beat your send code), applies shouldApply(), and writes the status and error code only when it wins.
-      await tx.messages.updateStatus(event.providerId, event.type, event.errorCode);
+      // beat your send code), applies shouldApply() with the stored status and timestamp, and writes the
+      // status, error code, and occurredAt only when it wins.
+      await tx.messages.updateStatus(event.providerId, event.type, event.errorCode, event.occurredAt);
       if (needsNumberCheck(event) && event.to !== undefined) {
         await tx.numbers.flagForCheck(event.to, `twilio ${event.errorCode}`);
       }
@@ -160,7 +161,7 @@ For Telnyx, call `parseSmsWebhook({ provider: "telnyx", request, credentials: { 
 
 Answer every repeat with a 200, since an error invites another retry. If the database write throws, the route answers 500 and the transaction rolls back. Twilio retries connection failures by default but not a 500, so add connection overrides such as `#rc=3&rp=5xx` to the status callback URL in Twilio and keep `publicUrl` without the fragment.
 
-When you save the send result, write the provider ID and send details without overwriting a status a callback may already have stored. `result.delivery` is the status from the provider's response, a separate snapshot from the webhook statuses above. [Receive webhooks](/receiving/webhooks) shows the send-and-store step and the Hono and Bun versions of the route, and [Webhook security](/receiving/webhook-security) explains each provider's signature.
+When you save the send result, write the provider ID and send details without overwriting a status a callback may already have stored. `result.delivery` is the status from the provider's response, a separate snapshot from the webhook statuses above. [Receive webhooks](/receiving/webhooks) shows a basic send-and-store step (make its insert an upsert that keeps a stored status) and the Hono and Bun versions of the route, and [Webhook security](/receiving/webhook-security) explains each provider's signature.
 
 ## When no delivery report arrives
 
