@@ -195,7 +195,7 @@ registration-alerts.test.ts:
 - Send from the group (the Messaging Service) rather than a bare number where your provider supports it, so new numbers don't skip the campaign.
 - Point status webhooks at your app and alert on 30034 and 40010.
 - Run `npx @opencoredev/sms-sdk doctor --adapter <provider>`. It checks your configuration without sending, and it reports 10DLC registration as "not verified" because the dry run doesn't call your provider. Check campaign status and number assignment in your provider's console or API.
-- Keep consent records and handle STOP and HELP. Carriers review these during campaign vetting. [SMS opt-out handling](/blog/sms-opt-out-handling) covers the code.
+- Keep consent records and handle STOP and HELP. Carriers review these during campaign vetting. [SMS opt-out handling](/blog/sms-opt-out-handling) covers the code, and [STOP, HELP, and opt-outs](/receiving/opt-outs) lists the events SMS SDK gives you.
 
 ## FAQ
 
@@ -218,7 +218,9 @@ No. The failure arrives after the handoff, and SMS SDK never resends a handed-of
 ## Related
 
 - [Registration and consent](/providers/registration-and-consent): sender types and each provider's registration docs.
+- [SMS delivery reports for developers](/blog/sms-delivery-reports): every status value and the other Twilio delivery error codes, such as 30003 and 30007.
 - [Twilio SMS API with TypeScript](/providers/twilio): the Twilio guide, including Messaging Services and status callbacks.
 - [Telnyx SMS API with TypeScript](/providers/telnyx): the Telnyx guide, including messaging profiles and verified webhooks.
 - [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): which failures may switch providers, and which must not.
 - [SMS opt-out handling](/blog/sms-opt-out-handling): STOP, START, and HELP replies, which campaign review expects you to handle.
+- [Switch SMS providers](/migration/switch-providers): what changes in your code when you move providers, and the sender setup and registration you redo in the new account.

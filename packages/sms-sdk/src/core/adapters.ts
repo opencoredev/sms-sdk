@@ -199,13 +199,15 @@ export type RejectionCategory =
   | "request";
 
 /**
- * Redacted provider details, safe to log. `message` has phone numbers masked
- * and is truncated; message bodies and credentials are never included.
+ * Structural provider diagnostics, safe to log: HTTP status, provider error
+ * code, and request ID. Free-form response text, message bodies, credentials,
+ * and full phone numbers are never included.
  */
 export type ProviderErrorInfo = {
   readonly provider: string;
   readonly httpStatus?: number;
   readonly code?: string;
+  /** Omitted by built-in adapters and client sanitization so echoed text never leaks into logs. */
   readonly message?: string;
   readonly requestId?: string;
 };
@@ -247,6 +249,46 @@ export type AdapterSendOutcome =
       readonly cause?: unknown;
     };
 
+/** Per-request context the client passes to {@link SmsAdapter.getMessage}. */
+export type LookupContext = {
+  /** Aborts on caller cancellation or per-request timeout. Pass it to `fetch`. */
+  readonly signal: AbortSignal;
+};
+
+/** A provider's current record of one outbound message, from {@link SmsAdapter.getMessage}. */
+export type SmsMessageStatus = {
+  /** Name of the adapter that looked the message up. */
+  readonly provider: string;
+  /** The provider's message ID that was looked up. */
+  readonly providerId: string;
+  /** Delivery progress, normalized. `unknown` when the provider status is not mapped or not reported yet. */
+  readonly delivery: Delivery;
+  /** The provider's own status value, such as `"undelivered"`. */
+  readonly providerStatus?: string;
+  /** The provider's error code, set only when `delivery` is `undelivered` or `filtered`. */
+  readonly errorCode?: string;
+};
+
+/**
+ * Why a message lookup failed. `auth`, `rate_limited`, and `request` come from
+ * a provider 4xx; the rest mean no usable answer was read.
+ */
+export type LookupFailureReason = UnknownReason | "auth" | "rate_limited" | "request";
+
+/**
+ * Result of one {@link SmsAdapter.getMessage} request. Adapters should not
+ * throw; a thrown error is treated as `failed` with reason `adapter_exception`.
+ */
+export type MessageLookupOutcome =
+  | { readonly kind: "found"; readonly status: SmsMessageStatus }
+  | { readonly kind: "not_found" }
+  | {
+      readonly kind: "failed";
+      readonly reason: LookupFailureReason;
+      readonly details?: ProviderErrorInfo;
+      readonly cause?: unknown;
+    };
+
 /** Problem found by local validation. */
 export type ValidationIssue = {
   readonly code: ValidationIssueCode;
@@ -256,26 +298,36 @@ export type ValidationIssue = {
   readonly provider?: string;
 };
 
+/** Authoritative runtime list of {@link ValidationIssueCode} values. */
+export const VALIDATION_ISSUE_CODES = [
+  "invalid_recipient",
+  "invalid_sender",
+  "missing_sender",
+  "empty_body",
+  "unsupported_field",
+  "invalid_field",
+] as const;
+
 /** Stable identifiers for {@link ValidationIssue}. */
-export type ValidationIssueCode =
-  | "invalid_recipient"
-  | "invalid_sender"
-  | "missing_sender"
-  | "empty_body"
-  | "unsupported_field"
-  | "invalid_field";
+export type ValidationIssueCode = (typeof VALIDATION_ISSUE_CODES)[number];
+
+/** Authoritative runtime list of {@link ValidationField} values. */
+export const VALIDATION_FIELDS = [
+  "message",
+  "to",
+  "from",
+  "fromByAdapter",
+  "body",
+  "mediaUrls",
+  "sendAt",
+  "validityPeriodSec",
+  "webhookUrl",
+  "idempotencyKey",
+  "providerOptions",
+] as const;
 
 /** Input fields a {@link ValidationIssue} can point at. */
-export type ValidationField =
-  | "to"
-  | "from"
-  | "body"
-  | "mediaUrls"
-  | "sendAt"
-  | "validityPeriodSec"
-  | "webhookUrl"
-  | "idempotencyKey"
-  | "providerOptions";
+export type ValidationField = (typeof VALIDATION_FIELDS)[number];
 
 /**
  * The adapter contract. Implement it to add a provider; run
@@ -302,4 +354,10 @@ export interface SmsAdapter {
   validate?(message: AdapterMessage): readonly ValidationIssue[];
   /** Sends one request. Must not throw; see {@link AdapterSendOutcome}. */
   send(message: AdapterMessage, context: SendContext): Promise<AdapterSendOutcome>;
+  /**
+   * Looks up one message by the provider's message ID (`SmsSendResult.providerId`
+   * or a webhook's `providerId`). Read-only. Optional: adapters whose provider
+   * has no lookup endpoint omit it. Must not throw; see {@link MessageLookupOutcome}.
+   */
+  getMessage?(providerId: string, context: LookupContext): Promise<MessageLookupOutcome>;
 }

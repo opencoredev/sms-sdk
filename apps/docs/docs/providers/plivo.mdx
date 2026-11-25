@@ -14,7 +14,7 @@ This guide takes a TypeScript server from a Plivo Auth ID and Auth Token to a ve
 **Partial.** The adapter works and passes the shared contract tests, but Plivo documents less than the other providers, so SMS SDK knows less about why a send failed:
 
 - **Unknown and unmapped failures never fall back.** Plivo does not document its API error body. SMS SDK recognizes a 401 (`auth`) and a 429 that carries Plivo's `api_id` (`rate_limited`), and only those move on to a fallback provider. Every other 4xx is a `request` rejection that stops the send, even when the real cause is a sender or account problem another provider could avoid. A 5xx, timeout, or network error is an unknown outcome and is never resent or passed to another provider.
-- **No scheduling.** `sendAt` throws `UnsupportedFieldError` before any request. Use Telnyx, or Twilio with a Messaging Service.
+- **No scheduling.** `sendAt` throws `UnsupportedFieldError` before any request. Use [Telnyx](/providers/telnyx), or [Twilio](/providers/twilio) with a Messaging Service.
 - **Callbacks are signed weakly.** Plivo's V2 signature covers the URL and a nonce, but neither the body nor a timestamp. A captured callback can be replayed, or its body changed, and still pass verification. Plivo's V3 scheme, which signs parameters, is documented for Voice only, so SMS SDK verifies V2.
 
 The same notes are in `adapter.support.notes` at runtime. The guide below works within these limits: it checks opt-outs before sending, treats unknown outcomes as "reconcile, don't resend", and blocks replayed callbacks.
@@ -94,7 +94,7 @@ The 2xx means Plivo accepted and queued the message. Delivery to the phone is re
 | Refused | 401, a 429 with `api_id`, or another 4xx with an `error` text | `ProviderRejectedError` with category `auth`, `rate_limited`, or `request` |
 | Outcome unknown | 5xx, timeout, network error, or a 2xx without `message_uuid` | `HandoffUnknownError`. Never resent automatically. |
 | Handed to the carrier | Callback with `Status=sent` | `message.sent` event |
-| Delivered or failed | Callback with `Status=delivered`, `undelivered`, or `failed`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
+| Delivered or failed | Callback with `Status=delivered`, `undelivered`, `failed`, or `rejected`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
 
 ## Verify a callback with the raw API
 
@@ -569,11 +569,15 @@ Plivo signs neither the callback body nor a timestamp. Serve the endpoint over H
 | `queued` | `message.queued` |
 | `sent` | `message.sent` |
 | `delivered` | `message.delivered` |
-| `undelivered`, `failed` | `message.undelivered` |
+| `undelivered`, `failed`, `rejected` | `message.undelivered` |
 | `read`, others | `unrecognized` |
 | Inbound message | `message.received`, or a `recipient.*` event from STOP and HELP keywords (`source: "keyword"`) |
 
 Plivo documents no filter signal, so no Plivo event is `message.filtered`, and it sends no opt-out flag, so opt-outs come from keyword detection. `ErrorCode` `000` means success and is left out of `errorCode`. `dedupeKey` is `plivo:{MessageUUID}:{Status}` or `plivo:{MessageUUID}:received`.
+
+## Look up a message
+
+`sms.getMessage(messageUuid, { adapter: "plivo" })` retrieves the message (`GET /v1/Account/{auth_id}/Message/{message_uuid}/`) and maps `message_state`: `queued`, `sent`, and `delivered` as named, and `undelivered`, `failed`, and `rejected` to `undelivered`, with non-placeholder `error_code` as `errorCode`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 
@@ -592,7 +596,7 @@ Plivo documents no filter signal, so no Plivo event is `message.filtered`, and i
 | Any other 4xx | `request` | No |
 | 5xx, network error, timeout, 2xx without `message_uuid` | unknown | Never |
 
-Plivo documents an `api_id` on every response, so a 429 without one came from something else, such as a proxy, and proves nothing. SMS SDK never produces `sender`, `account`, `recipient`, or `compliance` for Plivo. To tell causes apart in logs, read Plivo's `error` text in `error.provider.message` and its `api_id` in `error.provider.requestId`. For adapter authors, the subpath also exports `buildPlivoRequest`, `interpretPlivoResponse`, `plivoRejectionCategory`, and `PLIVO_SUPPORT_NOTES`.
+Plivo documents an `api_id` on every response, so a 429 without one came from something else, such as a proxy, and proves nothing. SMS SDK never produces `sender`, `account`, `recipient`, or `compliance` for Plivo. To tell causes apart in logs, inspect `error.provider.httpStatus`, `error.provider.code`, and Plivo's `api_id` in `error.provider.requestId`. For adapter authors, the subpath also exports `buildPlivoRequest`, `interpretPlivoResponse`, `plivoRejectionCategory`, and `PLIVO_SUPPORT_NOTES`.
 
 ## Official documentation
 
@@ -614,3 +618,4 @@ Checked on 2026-10-08. The full evidence list is in [PROVIDERS.md](https://githu
 
 - [How to send SMS through an API in TypeScript](/blog/send-sms-api-typescript): the raw send request for six providers side by side, then the same send with SMS SDK.
 - [SMS fallback without double-texting](/blog/sms-fallback-without-duplicate-texts): when a second provider should take a text, and why a timeout means stop.
+- [Switch SMS providers without rewriting your code](/migration/switch-providers): move between Plivo, Twilio, Telnyx, and the rest by changing the adapter.

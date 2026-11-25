@@ -1,8 +1,16 @@
 import { fromBase64, utf8 } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError, type WebhookFailureReason } from "../core/errors.js";
 import { isRecord, readCode, readString } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
-import { parseDate, type WebhookCommonOptions } from "./shared.js";
+import {
+  parseDate,
+  readHeaderString,
+  readWebhookRequest,
+  requireTolerance,
+  skipVerification,
+  snapshotWebhookOptions,
+  type WebhookCommonOptions,
+} from "./shared.js";
 
 /** Default replay window for `telnyx-timestamp`, matching Telnyx's guidance of 5 minutes. */
 export const TELNYX_DEFAULT_TOLERANCE_SEC = 300;
@@ -33,21 +41,53 @@ export async function verifyTelnyxSignature(input: {
   readonly toleranceSec?: number;
   readonly now?: number;
 }): Promise<WebhookVerification> {
-  if (input.signature === null || input.timestamp === null || input.signature.length === 0) {
+  let publicKey: unknown;
+  let rawBody: unknown;
+  let signature: unknown;
+  let timestamp: unknown;
+  let toleranceSec: unknown;
+  let now: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Telnyx webhook publicKey must be a non-empty string.");
+    }
+    publicKey = input.publicKey;
+    rawBody = input.rawBody;
+    signature = input.signature;
+    timestamp = input.timestamp;
+    toleranceSec = input.toleranceSec;
+    now = input.now;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Telnyx signature verification requires valid options.");
+  }
+  if (typeof publicKey !== "string" || publicKey.length === 0) {
+    throw new ConfigurationError("Telnyx webhook publicKey must be a non-empty string.");
+  }
+  const tolerance = requireTolerance(toleranceSec as number | undefined, TELNYX_DEFAULT_TOLERANCE_SEC);
+  if (now !== undefined && (typeof now !== "number" || !Number.isFinite(now))) {
+    throw new ConfigurationError("Telnyx signature verification now must be a finite number.");
+  }
+  if (typeof rawBody !== "string") {
+    throw new ConfigurationError("Telnyx signature verification rawBody must be a string.");
+  }
+  if (typeof signature !== "string" || typeof timestamp !== "string" || signature.length === 0) {
     return { valid: false, reason: "missing_signature" };
   }
-  if (!/^\d+$/.test(input.timestamp)) {
+  if (!/^\d+$/.test(timestamp)) {
     return { valid: false, reason: "malformed_signature" };
   }
-  const nowSec = Math.floor((input.now ?? Date.now()) / 1000);
-  if (Math.abs(nowSec - Number(input.timestamp)) > (input.toleranceSec ?? TELNYX_DEFAULT_TOLERANCE_SEC)) {
+  const nowSec = Math.floor((now ?? Date.now()) / 1000);
+  if (!(Math.abs(nowSec - Number(timestamp)) <= tolerance)) {
     return { valid: false, reason: "stale_timestamp" };
   }
-  const keyBytes = fromBase64(input.publicKey);
+  const keyBytes = fromBase64(publicKey);
   if (keyBytes === undefined || keyBytes.length !== 32) {
     return { valid: false, reason: "invalid_credentials" };
   }
-  const signatureBytes = fromBase64(input.signature);
+  const signatureBytes = fromBase64(signature);
   if (signatureBytes === undefined || signatureBytes.length !== 64) {
     return { valid: false, reason: "malformed_signature" };
   }
@@ -58,7 +98,7 @@ export async function verifyTelnyxSignature(input: {
   } catch {
     return { valid: false, reason: "invalid_credentials" };
   }
-  const valid = await crypto.subtle.verify("Ed25519", key, signatureBytes, utf8(`${input.timestamp}|${input.rawBody}`));
+  const valid = await crypto.subtle.verify("Ed25519", key, signatureBytes, utf8(`${timestamp}|${rawBody}`));
   return valid ? { valid: true } : { valid: false, reason: "invalid_signature" };
 }
 
@@ -69,15 +109,25 @@ export async function verifyTelnyxSignature(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parseTelnyxWebhook(options: TelnyxWebhookOptions): Promise<SmsEvent> {
-  const rawBody = await options.request.text();
+export async function parseTelnyxWebhook(rawOptions: TelnyxWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<TelnyxWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "toleranceSec", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["publicKey"],
+  );
+  const skip = skipVerification(options);
+  const req = await readWebhookRequest(options.request, "telnyx");
+  const { rawBody } = req;
 
-  if (options.unsafeSkipVerification !== true) {
+  if (!skip) {
+    if (!isRecord(options.credentials) || typeof options.credentials.publicKey !== "string" || options.credentials.publicKey.length === 0) {
+      throw new ConfigurationError("Telnyx webhook credentials require a non-empty publicKey.");
+    }
     const verification = await verifyTelnyxSignature({
       publicKey: options.credentials.publicKey,
       rawBody,
-      signature: options.request.headers.get("telnyx-signature-ed25519"),
-      timestamp: options.request.headers.get("telnyx-timestamp"),
+      signature: readHeaderString(req.headers, "telnyx-signature-ed25519", "telnyx"),
+      timestamp: readHeaderString(req.headers, "telnyx-timestamp", "telnyx"),
       ...(options.toleranceSec === undefined ? {} : { toleranceSec: options.toleranceSec }),
       now: (options.now ?? Date.now)(),
     });

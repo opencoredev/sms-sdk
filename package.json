@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@email-sdk/config": "workspace:*",
+    "@sms-sdk/config": "workspace:*",
     "@changesets/cli": "^2.31.1",
     "@changesets/changelog-github": "^0.5.1"
   },
@@ -23,9 +23,7 @@
   "overrides": {
     "@astrojs/prism@>=4.0.0 <4.1.2": "4.1.2",
     "@opentelemetry/propagator-jaeger@>=2.0.0 <2.9.0": "2.9.0",
-    "@opentelemetry/instrumentation-http@>=0.204.0 <0.222.0": "0.222.0",
-    "@opentelemetry/resources@>=1.10.0 <2.12.1": "2.12.1",
-    "basic-ftp@>=5.0.0 <6.2.6": "6.2.6",
+    "basic-ftp@>=5.0.0 <6.2.1": "6.2.1",
     "follow-redirects@>=1.0.0 <1.16.2": "1.16.2",
     "glob@>=9.0.0 <14.0.6": "14.0.6",
     "mermaid@>=12.0.0 <12.2.0": "12.2.0",

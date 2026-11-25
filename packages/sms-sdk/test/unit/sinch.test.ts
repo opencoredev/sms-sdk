@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ConfigurationError } from "../../src/core/errors.js";
 import { buildSinchRequest, interpretSinchResponse, sinch, sinchDelivery } from "../../src/providers/sinch.js";
 
 const message = { to: "+15551234567", from: { kind: "phone_number", value: "+15557654321" }, body: "hello", mediaUrls: [] } as const;
@@ -16,11 +17,30 @@ describe("Sinch adapter", () => {
     expect(request?.headers).toMatchObject({ Authorization: "Bearer token", "Content-Type": "application/json" });
   });
 
+  test.each([
+    [{}],
+    [{ servicePlanId: "plan" }],
+    [{ apiToken: "token" }],
+    [{ servicePlanId: "", apiToken: "token" }],
+    [{ servicePlanId: "plan", apiToken: "" }],
+    [{ servicePlanId: 5, apiToken: "token" }],
+  ])("throws ConfigurationError for options %j", (options) => {
+    // @ts-expect-error -- untyped JavaScript callers can pass anything.
+    expect(() => sinch(options)).toThrow(ConfigurationError);
+  });
+
   test("does not claim a bare rate limit is safe to retry", () => {
     expect(interpretSinchResponse(429, "", new Headers())).toMatchObject({ kind: "unknown", reason: "unexpected_status" });
   });
 
-  test.each([["delivered", "delivered"], ["failed", "undelivered"], ["pending", "queued"], ["rejected", "filtered"]] as const)("maps %s delivery", (status, expected) => {
-    expect(sinchDelivery(status)).toBe(expected);
+  test.each([
+    ["delivered", undefined, "delivered"],
+    ["failed", undefined, "undelivered"],
+    ["pending", undefined, "queued"],
+    ["rejected", "40003", "filtered"],
+    ["rejected", "40004", "undelivered"],
+    ["rejected", undefined, "undelivered"],
+  ] as const)("maps %s (code %s) delivery", (status, code, expected) => {
+    expect(sinchDelivery(status, code)).toBe(expected);
   });
 });

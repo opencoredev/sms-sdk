@@ -152,6 +152,8 @@ This protects you only when the client has an [idempotency store](/sending/idemp
 
 Providers retry webhooks that fail or time out, and send events in parallel. The same event can arrive twice, and events can arrive in any order.
 
+Bandwidth and Sinch can also put several events in one request. Use [`parseSmsWebhooks()`](/reference/webhook-events#parsesmswebhooksoptions) for them: it returns every event, each with its own `dedupeKey`. `parseSmsWebhook()` throws `WebhookPayloadError` for a multi-event request rather than drop events.
+
 - Deduplicate on `dedupeKey`, which stays the same each time the provider delivers an event. Insert it atomically (for example `INSERT ... ON CONFLICT DO NOTHING`), and answer repeats with a 2xx so the provider stops retrying.
 - Never assume order. A late `message.sent` must not overwrite `message.delivered`: keep the furthest status, so delivered beats queued and sent.
 

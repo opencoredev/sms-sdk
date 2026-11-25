@@ -9,6 +9,8 @@ search:
 
 This guide takes a TypeScript server from Twilio credentials to a verified status callback, and makes the risky parts safe: who can trigger a send, what happens when Twilio times out, and how to test all of it without a phone. You send one SMS with the raw Message resource, verify a signed callback by hand, then build the same thing with the SMS SDK `twilio()` adapter and test it offline. It doesn't replace Twilio's [Messaging API reference](https://www.twilio.com/docs/messaging/api); it links to it where details matter. The second half of the page is the adapter reference. To compare providers first, see [Choose a provider](/providers/overview).
 
+**Short answer for Next.js.** Send from a route handler that runs only on the server, behind your own sign-in check so it can't be used as an open relay: one form-encoded `POST` to Twilio's Message resource, or `send()` with the SMS SDK `twilio()` adapter. A `201` means Twilio accepted the message, not that it was delivered, so take delivery from status callbacks. Before reading a callback, check `X-Twilio-Signature`: a Base64 HMAC-SHA1 of the exact public URL plus the sorted POST parameters, keyed with your Auth Token. To test without sending real texts, run the app logic against `memory()` adapters and feed it signed webhook fixtures from `@opencoredev/sms-sdk/testing`, or use Twilio's test credentials and magic numbers if your account has them. Each step is below: [protect the send route](#2-protect-the-send-route), [verify the signature](#verify-x-twilio-signature-behind-a-proxy), [test offline](#4-test-it-offline).
+
 ## Support status
 
 **Supported.** Requests, responses, error codes, statuses, and webhook signing follow Twilio's official documentation, and the adapter passes the shared contract tests. Limits to know:
@@ -215,7 +217,7 @@ Test credentials have limits. They don't support `MessagingServiceSid`, they nev
 | 400, error 21608 | Trial account sending to an unverified number | Verify the number, or upgrade the account. |
 | 400, error 21606 | `From` isn't a number on this account, or can't send SMS | Use a number you own, or send through the Messaging Service. |
 | 400, error 21211 | `To` isn't a valid number | Send E.164, such as `+14155550123`. |
-| 400, error 21610 | The recipient replied STOP | Don't send until they reply START. |
+| 400, error 21610 | The recipient replied STOP | Don't send until they reply START. See [STOP, HELP, and opt-outs](/receiving/opt-outs). |
 | `201`, then `undelivered` with 30034 | US 10DLC number without an approved A2P campaign | Register the brand and campaign, and put the number in the campaign's Messaging Service. |
 | `201`, then `undelivered` with 30032 | Unverified toll-free number | Complete toll-free verification. |
 | `201`, then `undelivered` with 30007 | Twilio or the carrier filtered the content | Read Twilio's filtering guidance; don't retry the same text. |
@@ -671,6 +673,10 @@ The handler in [Build it with SMS SDK](#1-create-the-client-and-handlers) is the
 | Inbound with `OptOutType` `STOP`, `START`, `HELP` | `recipient.opted_out`, `recipient.opted_in`, `recipient.help` (`source: "provider"`) |
 
 `OptOutType` appears when Advanced Opt-Out is on for the Messaging Service. `dedupeKey` is `twilio:{MessageSid}:{status}` for status updates and `twilio:{MessageSid}:received` for inbound messages.
+
+## Look up a message
+
+`sms.getMessage(sid, { adapter: "twilio" })` fetches the Message resource (`GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`) and maps its `status` the same way as a status webhook (mapping error `30007` to `filtered`), with `error_code` as `errorCode` for a failed message. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations
 

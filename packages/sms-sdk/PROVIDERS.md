@@ -229,10 +229,26 @@ Sending uses `POST https://sms.api.sinch.com/xms/v1/{servicePlanId}/batches` wit
 
 Callback authentication ([callbacks](https://developers.sinch.com/docs/sms/api-reference/sms/tag/Webhooks/)): Sinch provisions Basic credentials or OAuth 2.0 on the callback URL, and configures HMAC through your account manager. The parser requires `credentials`, either `{ kind: "basic", username, password }` (documented) or `{ kind: "hmac", webhookSecret }`. The SMS docs do not publish the HMAC format. The adapter uses the scheme Sinch documents for the Conversation API: base64 HMAC-SHA256 of `body.nonce.timestamp`, read from `x-sinch-webhook-signature`, `x-sinch-webhook-signature-nonce`, and `x-sinch-webhook-signature-timestamp`, with a 300-second timestamp tolerance. Confirm this format with Sinch before relying on HMAC. OAuth 2.0 callbacks are not supported.
 
+## Message lookup
+
+`getMessage` calls one read-only endpoint per provider and maps its status with the same table the adapter uses for send results or webhooks:
+
+| Adapter | Request | Not found |
+| --- | --- | --- |
+| Twilio | `GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json`, `status`, `error_code` | 404 |
+| Telnyx | `GET /v2/messages/{id}`, `data.to[0].status`, `data.errors[0].code` | 404 |
+| Plivo | `GET /v1/Account/{auth_id}/Message/{message_uuid}/`, `message_state`, `error_code` | 404 |
+| Vonage | Reports API `GET /v2/reports/records?account_id&product=MESSAGES&direction=outbound&id`, Basic auth only, `records[].status`, `error_code` | no matching record |
+| Bandwidth | `GET /api/v2/users/{accountId}/messages?messageId={id}`, `messages[].messageStatus`, `errorCode` | no matching message |
+| Sinch | `GET /xms/v1/{servicePlanId}/batches/{batchId}/delivery_report?type=summary`, `statuses[0].status`, `code` | 404 |
+
+Response shapes are taken from each provider's API reference and covered by contract fixtures. The Messages API has no lookup endpoint, so Vonage uses the Reports API, whose Messages status values are not fully documented.
+
 ## Not verified
 
 - No adapter has been run against a live account in this repository. `test/integration/live.test.ts` sends one message per configured provider when `LIVE_SMS_TESTS=true` and the recipient is in `LIVE_SMS_ALLOWLIST`.
 - Twilio's SDK webhook examples (signatures `Np1nax6u...` and `hqeF3G9H...`) do not state their Auth Token, so only the manual example is used as a vector.
 - Plivo and Vonage signature schemes are implemented from documentation and SDK source; neither provider publishes a fixed test vector.
 - The Sinch SMS HMAC callback format is not published in the SMS API docs; see the Sinch section.
+- No `getMessage` endpoint has been called against a live account; see Message lookup.
 - Bandwidth and Sinch error classification uses HTTP status and a few codes; their full error code lists were not mapped, so most rejections are `request` and do not fall back.

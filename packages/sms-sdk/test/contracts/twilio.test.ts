@@ -55,6 +55,20 @@ export const twilioFixtures: AdapterContractFixtures = {
   },
   malformedSuccess: { status: 201, body: { status: "queued" } },
   serverError: { status: 503, body: { message: "Service Unavailable", status: 503 } },
+  lookup: {
+    providerId: TWILIO_MESSAGE_SID,
+    request: {
+      url: `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages/${TWILIO_MESSAGE_SID}.json`,
+      headers: { authorization: AUTH, accept: "application/json" },
+    },
+    found: {
+      response: { status: 200, body: { sid: TWILIO_MESSAGE_SID, status: "undelivered", error_code: 30003, to: "+14155550123" } },
+      delivery: "undelivered",
+      providerStatus: "undelivered",
+      errorCode: "30003",
+    },
+    notFound: { status: 404, body: { code: 20404, message: "The requested resource was not found", status: 404 } },
+  },
   webhooks: {
     parse: (request) => parseSmsWebhook({ provider: "twilio", request, credentials: { authToken: "test-token" } }),
     cases: [
@@ -235,7 +249,7 @@ describe("twilio response mapping", () => {
     expect(error).toBeInstanceOf(errorClass);
   });
 
-  test("keeps the request ID and redacted provider message", async () => {
+  test("keeps structural diagnostics without free-form response text", async () => {
     const mock = mockFetch({
       status: 400,
       body: { code: 21211, message: "The 'To' number +14155550123 is not a valid phone number.", status: 400 },
@@ -244,7 +258,7 @@ describe("twilio response mapping", () => {
     const sms = createSmsClient({ adapters: [twilio({ accountSid: TWILIO_SID, authToken: "t", from: "+15005550006", fetch: mock.fetch })] });
     const error = await rejection(sms.send({ to: "+14155550123", body: "hi" }));
     expect(error).toMatchObject({
-      provider: { provider: "twilio", httpStatus: 400, code: "21211", requestId: "RQ123", message: "The 'To' number +1********23 is not a valid phone number." },
+      provider: { provider: "twilio", httpStatus: 400, code: "21211", requestId: "RQ123" },
     });
   });
 });

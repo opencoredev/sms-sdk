@@ -1,11 +1,16 @@
 import { hmac, timingSafeEqual, toBase64 } from "../core/crypto.js";
-import { WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { ConfigurationError, WebhookPayloadError, WebhookSignatureError } from "../core/errors.js";
+import { isRecord } from "../core/http.js";
 import { inboundEvent, type MessageStatusType, type SmsEvent, type SmsEventBase } from "./events.js";
 import {
   paramsToRecord,
   readFormParams,
+  readHeaderString,
+  readWebhookRequest,
   requireField,
   resolveSignedUrl,
+  skipVerification,
+  snapshotWebhookOptions,
   type SignedUrlOptions,
   type WebhookCommonOptions,
 } from "./shared.js";
@@ -26,7 +31,29 @@ export async function computePlivoSignatureV2(input: {
   readonly url: string;
   readonly nonce: string;
 }): Promise<string> {
-  return toBase64(await hmac("SHA-256", input.authToken, plivoBaseUrl(input.url) + input.nonce));
+  let authToken: unknown;
+  let url: unknown;
+  let nonce: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+    }
+    authToken = input.authToken;
+    url = input.url;
+    nonce = input.nonce;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Plivo signature verification requires valid options.");
+  }
+  if (typeof authToken !== "string" || authToken.length === 0) {
+    throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+  }
+  if (typeof nonce !== "string") {
+    throw new ConfigurationError("Plivo signature verification requires a string nonce.");
+  }
+  return toBase64(await hmac("SHA-256", authToken, plivoBaseUrl(url) + nonce));
 }
 
 /** Checks a Plivo V2 signature from `X-Plivo-Signature-V2` or `X-Plivo-Signature-Ma-V2`. */
@@ -36,8 +63,36 @@ export async function verifyPlivoSignatureV2(input: {
   readonly nonce: string;
   readonly signature: string;
 }): Promise<boolean> {
-  const expected = await computePlivoSignatureV2(input);
-  return timingSafeEqual(expected, input.signature);
+  let authToken: unknown;
+  let url: unknown;
+  let nonce: unknown;
+  let signature: unknown;
+  try {
+    if (!isRecord(input)) {
+      throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+    }
+    authToken = input.authToken;
+    url = input.url;
+    nonce = input.nonce;
+    signature = input.signature;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    throw new ConfigurationError("Plivo signature verification requires valid options.");
+  }
+  if (typeof authToken !== "string" || authToken.length === 0) {
+    throw new ConfigurationError("Plivo signature verification requires a non-empty authToken.");
+  }
+  if (typeof signature !== "string") {
+    throw new ConfigurationError("Plivo signature verification requires a string signature.");
+  }
+  const expected = await computePlivoSignatureV2({
+    authToken,
+    url: url as string,
+    nonce: nonce as string,
+  });
+  return timingSafeEqual(expected, signature);
 }
 
 /**
@@ -52,22 +107,33 @@ export async function verifyPlivoSignatureV2(input: {
  * @throws {WebhookSignatureError} when verification fails.
  * @throws {WebhookPayloadError} when required fields are missing.
  */
-export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<SmsEvent> {
+export async function parsePlivoWebhook(rawOptions: PlivoWebhookOptions): Promise<SmsEvent> {
+  const options = snapshotWebhookOptions<PlivoWebhookOptions>(
+    rawOptions,
+    ["request", "credentials", "publicUrl", "trustProxy", "unsafeSkipVerification", "detectKeywords", "now"],
+    ["authToken"],
+  );
+  const skip = skipVerification(options);
   const { request } = options;
-  const rawBody = await request.text();
+  const req = await readWebhookRequest(request, "plivo");
+  const { rawBody } = req;
+  const url = resolveSignedUrl(req, options, "plivo");
 
-  if (options.unsafeSkipVerification !== true) {
-    const nonce = request.headers.get("x-plivo-signature-v2-nonce");
-    const signatures = [request.headers.get("x-plivo-signature-v2"), request.headers.get("x-plivo-signature-ma-v2")].filter(
-      (value): value is string => value !== null && value.length > 0,
-    );
+  if (!skip) {
+    if (!isRecord(options.credentials) || typeof options.credentials.authToken !== "string" || options.credentials.authToken.length === 0) {
+      throw new ConfigurationError("Plivo webhook credentials require a non-empty authToken.");
+    }
+    const nonce = readHeaderString(req.headers, "x-plivo-signature-v2-nonce", "plivo");
+    const signatures = [
+      readHeaderString(req.headers, "x-plivo-signature-v2", "plivo"),
+      readHeaderString(req.headers, "x-plivo-signature-ma-v2", "plivo"),
+    ].filter((value): value is string => value !== null && value.length > 0);
     if (nonce === null || nonce.length === 0 || signatures.length === 0) {
       throw new WebhookSignatureError("Missing X-Plivo-Signature-V2 or its nonce.", {
         reason: "missing_signature",
         provider: "plivo",
       });
     }
-    const url = resolveSignedUrl(request, options);
     let valid = false;
     for (const signature of signatures) {
       valid ||= await verifyPlivoSignatureV2({ authToken: options.credentials.authToken, url, nonce, signature });
@@ -80,7 +146,7 @@ export async function parsePlivoWebhook(options: PlivoWebhookOptions): Promise<S
     }
   }
 
-  return interpretPlivoParams(paramsToRecord(readFormParams(request, rawBody)), options.detectKeywords ?? true);
+  return interpretPlivoParams(paramsToRecord(readFormParams(req, rawBody)), options.detectKeywords ?? true);
 }
 
 /** Normalizes verified Plivo callback fields. */
@@ -132,6 +198,7 @@ function plivoStatusType(status: string): MessageStatusType | undefined {
       return "message.delivered";
     case "undelivered":
     case "failed":
+    case "rejected":
       return "message.undelivered";
     default:
       return undefined;
@@ -149,7 +216,33 @@ function plivoMediaUrls(fields: Record<string, string>): string[] {
   return urls;
 }
 
-function plivoBaseUrl(url: string): string {
-  const parsed = new URL(url);
+function plivoBaseUrl(url: unknown): string {
+  if (
+    typeof url !== "string" ||
+    url.length === 0 ||
+    /[\p{Cc}\p{Cf}\p{Z}\s]/u.test(url) ||
+    !/^https?:\/\/[^\\/?#]/i.test(url)
+  ) {
+    throw new ConfigurationError("Plivo signature verification requires a valid URL.");
+  }
+  if (url.includes("#")) {
+    throw new ConfigurationError("Plivo signature verification URL must not include a fragment.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ConfigurationError("Plivo signature verification requires a valid URL.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ConfigurationError("Plivo signature verification requires an http or https URL.");
+  }
+  if (
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    /^https?:[\\/]*[^\\/?#]*@/i.test(url)
+  ) {
+    throw new ConfigurationError("Plivo signature verification URL must not include credentials.");
+  }
   return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
 }

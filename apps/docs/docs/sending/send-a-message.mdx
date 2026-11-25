@@ -35,7 +35,7 @@ await db.messages.create({
 | `providerId` | The provider's message ID. Store it so status [webhooks](/receiving/webhooks) can find the message. |
 | `delivery` | Status from the send response, usually `"queued"`. Delivery to the phone arrives later by webhook. |
 
-The result also has segment counts, every attempt made, and whether it was replayed. All fields are in the [send() reference](/reference/send#returns-smssendresult).
+The result also has [segment counts](/sending/length-and-cost), every attempt made, and whether it was replayed. All fields are in the [send() reference](/reference/send#returns-smssendresult).
 
 ## Handle errors
 
@@ -82,7 +82,7 @@ export async function notifyShipped(orderId: string, to: `+${string}`): Promise<
 After a timeout, network error, 5xx, or malformed success response, the provider may have created the message, so the SDK stops and throws `HandoffUnknownError`. Check the provider's console or API, or wait for a status webhook, before you send again. With an idempotency store, a later send with the same key throws it again instead of sending.
 :::
 
-[Errors](/reference/errors) lists every error class, code, and what to do about it. To block sends yourself, for example to people who opted out, see [Block and log sends](/advanced/policy-and-hooks).
+[Errors](/reference/errors) lists every error class, code, and what to do about it. To block sends yourself, for example to people who opted out, see [Block and log sends](/advanced/policy-and-hooks) and [STOP, HELP, and opt-outs](/receiving/opt-outs).
 
 ## Choose a sender
 
@@ -160,7 +160,7 @@ Here Twilio replaces the curly quotes with plain ones. Typed options, the `extra
 
 ## Cancel a send
 
-Pass an `AbortSignal` to stop waiting. If no request had started, `send()` throws `SendAbortedError` and it is safe to send later. If the request was in flight, it throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
+Pass an `AbortSignal` to stop waiting. If no request had started (and no other coalesced caller is keeping the same-key send active), `send()` throws `SendAbortedError` and it is safe to send later. If the request was in flight or another caller keeps the coalesced send active, it throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.
 
 ```ts
 import { sms } from "./sms";

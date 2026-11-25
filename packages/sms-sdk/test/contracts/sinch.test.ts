@@ -14,6 +14,19 @@ const cases = smsAdapterContractCases(
     rateLimited: { response: { status: 429, body: { code: "429", text: "rate limited" }, headers: { "retry-after": "2" } }, retryAfterMs: 2000 },
     malformedSuccess: { status: 202, body: {} },
     serverError: { status: 503, body: { code: "503", text: "unavailable" } },
+    lookup: {
+      providerId: "batch-1",
+      request: {
+        url: "https://sms.api.sinch.com/xms/v1/plan/batches/batch-1/delivery_report?type=summary",
+        headers: { Authorization: "Bearer token", Accept: "application/json" },
+      },
+      found: {
+        response: { status: 200, body: { type: "delivery_report_sms", batch_id: "batch-1", total_message_count: 1, statuses: [{ code: 0, status: "Delivered", count: 1 }] } },
+        delivery: "delivered",
+        providerStatus: "Delivered",
+      },
+      notFound: { status: 404, body: { code: "not_found", text: "Batch not found" } },
+    },
   },
 );
 

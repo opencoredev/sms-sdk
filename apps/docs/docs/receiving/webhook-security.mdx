@@ -1,9 +1,13 @@
 ---
-title: "Webhook security"
-description: "How SMS SDK verifies Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch webhooks, how to check a Twilio or Telnyx signature by hand in Node.js, and how to fix verification behind a proxy."
+title: "Verify SMS webhook signatures in Node.js: Twilio, Telnyx, Plivo, and Vonage"
+description: "Verify Twilio, Telnyx, Plivo, Vonage, Bandwidth, and Sinch SMS webhooks in Node.js: each provider's signature scheme, a dependency-free X-Twilio-Signature check, and the fix for proxy URL mismatches."
+sidebar:
+  label: "Webhook security"
+search:
+  keywords: ["verify twilio webhook signature", "x-twilio-signature node.js", "telnyx webhook signature", "sms webhook verification", "sms delivery webhook security"]
 ---
 
-Your webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature or credentials before it reads any field, and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
+Your SMS webhook URL is public, so anyone can post a fake "delivered" or "STOP" to it. `parseSmsWebhook()` checks the provider's signature or credentials before it reads any field, and throws `WebhookSignatureError` if the request is not authentic. The most common failure is a URL mismatch behind a proxy, covered [below](#fix-url-mismatches-behind-a-proxy).
 
 ## Respond to failures
 
@@ -25,6 +29,9 @@ export async function POST(request: Request): Promise<Response> {
       return new Response("Invalid signature", { status: 401 });
     }
     if (error instanceof WebhookPayloadError) {
+      if (error.reason === "body_too_large") {
+        return new Response("Payload too large", { status: 413 });
+      }
       return new Response("Unexpected payload", { status: 400 });
     }
     throw error;
@@ -43,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
 | `malformed_signature` | The signature, token, or timestamp cannot be decoded. |
 | `invalid_credentials` | The credential you passed is malformed, such as a Telnyx public key that is not 32 bytes of base64. |
 
-`WebhookPayloadError` means the request was authentic but lacks required fields.
+`WebhookPayloadError` means the request body exceeded the 1 MiB limit (`error.reason === "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), the request body stream failed or aborted while reading (`error.reason === "body_unreadable"`; respond with 400), or the request was authentic but lacks required fields (respond with 400).
 
 ## How each provider signs
 
@@ -71,7 +78,7 @@ Twilio, Plivo, Bandwidth, and Sinch with Basic auth sign no timestamp, so someon
 
 To check a Twilio webhook in Node.js, compute a Base64 HMAC-SHA1 of the full URL Twilio called followed by every POST parameter's name and value, sorted by name, keyed with your Auth Token, and compare it to `X-Twilio-Signature` in constant time. To check a Telnyx webhook, verify the Ed25519 signature in `telnyx-signature-ed25519` over `` `${telnyx-timestamp}|${rawBody}` `` with your Telnyx public key, and reject timestamps older than a few minutes.
 
-`parseSmsWebhook()` does this for you. If you only need the check, for example in middleware for an app that doesn't use SMS SDK, this is the whole thing with no dependencies, in Node.js 20 or later and Bun:
+If you already use the `twilio` npm package, its `validateRequest(authToken, signature, url, params)` runs the same check for a form POST, and `twilio.webhook()` wraps it as Express middleware. `parseSmsWebhook()` does the check for every supported provider. If you only need the check, for example in middleware for an app that doesn't use SMS SDK, this is the whole thing with no dependencies, in Node.js 20 or later and Bun:
 
 ```ts
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -120,7 +127,7 @@ export async function isValidTelnyxSignature(
 }
 ```
 
-Pass the URL exactly as configured in Twilio, including any query string (see [below](#fix-url-mismatches-behind-a-proxy)), and the raw body for Telnyx before anything parses it. This handles Twilio's form-encoded webhooks. A JSON body from Twilio carries `bodySHA256` in the URL instead, and `parseSmsWebhook()` checks both. SMS SDK's own Twilio check also tries the URL with and without the default port, which the snippet does not.
+Pass the URL exactly as configured in Twilio, including any query string (see [below](#fix-url-mismatches-behind-a-proxy)), and the raw body for Telnyx before anything parses it. This handles Twilio's form-encoded webhooks. A JSON body from Twilio carries `bodySHA256` in the URL instead, and `parseSmsWebhook()` checks both. SMS SDK's own Twilio check also tries the URL with and without the default port, which the snippet does not. For the same checks wired into a Next.js route with offline tests, see the [Twilio](/providers/twilio#verify-x-twilio-signature-behind-a-proxy), [Telnyx](/providers/telnyx#verify-a-webhook-with-the-raw-api), and [Vonage](/providers/vonage#verify-a-webhook-with-the-raw-api) guides.
 
 ## Fix URL mismatches behind a proxy
 
@@ -151,11 +158,11 @@ The other providers do not sign the URL, so these options exist only for Twilio 
 
 ## The raw body
 
-Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body once with `request.text()`. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
+Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body stream once up to 1 MiB. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
 
 ## Skipping verification in tests
 
-`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
+`unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. It throws `ConfigurationError` when `process.env.NODE_ENV` is `"production"`, so a test setting that leaks into a deployment fails loudly instead of accepting forged events. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
 
 ## Lower-level helpers
 
