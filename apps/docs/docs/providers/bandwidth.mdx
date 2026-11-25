@@ -157,7 +157,7 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 | 429 without a Bandwidth error body, such as a proxy page | unknown | Never |
 | 5xx, network error, timeout, or 2xx without a message ID | unknown | Never |
 
-`error.provider.requestId` holds the `X-Request-Id` or `X-Correlation-Id` header. See [Fallback and retries](/sending/fallback-and-retries) for what each category does.
+`error.provider.requestId` holds the `X-Request-Id` or `X-Correlation-Id` header. See [Fallback and retries](/sending/fallback-and-retries) for what each category does. The [Errors reference](/reference/errors) explains which SDK errors `send()` can throw and how to handle them.
 
 ## Official documentation
 

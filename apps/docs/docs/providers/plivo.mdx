@@ -596,7 +596,7 @@ Plivo documents no filter signal, so no Plivo event is `message.filtered`, and i
 | Any other 4xx | `request` | No |
 | 5xx, network error, timeout, 2xx without `message_uuid` | unknown | Never |
 
-Plivo documents an `api_id` on every response, so a 429 without one came from something else, such as a proxy, and proves nothing. SMS SDK never produces `sender`, `account`, `recipient`, or `compliance` for Plivo. To tell causes apart in logs, inspect `error.provider.httpStatus`, `error.provider.code`, and Plivo's `api_id` in `error.provider.requestId`. For adapter authors, the subpath also exports `buildPlivoRequest`, `interpretPlivoResponse`, `plivoRejectionCategory`, and `PLIVO_SUPPORT_NOTES`.
+Plivo documents an `api_id` on every response, so a 429 without one came from something else, such as a proxy, and proves nothing. SMS SDK never produces `sender`, `account`, `recipient`, or `compliance` for Plivo. To tell causes apart in logs, inspect `error.provider.httpStatus`, `error.provider.code`, and Plivo's `api_id` in `error.provider.requestId`. The [Errors reference](/reference/errors) explains which SDK errors `send()` can throw and how to handle them. For adapter authors, the subpath also exports `buildPlivoRequest`, `interpretPlivoResponse`, `plivoRejectionCategory`, and `PLIVO_SUPPORT_NOTES`.
 
 ## Official documentation
 

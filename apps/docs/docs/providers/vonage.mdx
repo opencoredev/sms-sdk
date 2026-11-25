@@ -589,7 +589,7 @@ SMS SDK reads the error code from the fragment of the problem `type` URL (`…#1
 | 429 without a throttling code | unknown | Never |
 | 5xx, network error, timeout, or 2xx without `message_uuid` | unknown | Never |
 
-A 429 without a documented throttling code may come from a proxy, so it proves nothing and the outcome is unknown. `error.provider.requestId` holds the `X-Request-Id` header. See [Fallback and retries](/sending/fallback-and-retries) for what each category does.
+A 429 without a documented throttling code may come from a proxy, so it proves nothing and the outcome is unknown. `error.provider.requestId` holds the `X-Request-Id` header. See [Fallback and retries](/sending/fallback-and-retries) for what each category does. The [Errors reference](/reference/errors) explains which SDK errors `send()` can throw and how to handle them.
 
 ## Official documentation
 
