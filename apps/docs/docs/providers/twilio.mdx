@@ -699,7 +699,7 @@ The handler in [Build it with SMS SDK](#1-create-the-client-and-handlers) is the
 | 429 without error 20429 | unknown | Never |
 | 5xx, network error, timeout, 2xx without a valid SID | unknown | Never |
 
-Twilio documents that a 429 with error 20429 was not processed. A 429 without that code may come from a proxy, so SMS SDK treats it as unknown. `error.provider.code` holds Twilio's error code and `error.provider.requestId` the `Twilio-Request-Id` header. For adapter authors, the subpath also exports `buildTwilioForm`, `interpretTwilioResponse`, `twilioRejectionCategory`, and `twilioDelivery`.
+Twilio documents that a 429 with error 20429 was not processed. A 429 without that code may come from a proxy, so SMS SDK treats it as unknown. `error.provider.code` holds Twilio's error code and `error.provider.requestId` the `Twilio-Request-Id` header. The [Errors reference](/reference/errors) explains which SDK errors `send()` can throw and how to handle them. For adapter authors, the subpath also exports `buildTwilioForm`, `interpretTwilioResponse`, `twilioRejectionCategory`, and `twilioDelivery`.
 
 ## Official documentation
 
