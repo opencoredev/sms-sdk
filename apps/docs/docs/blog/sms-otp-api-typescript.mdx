@@ -1,11 +1,22 @@
 ---
-title: "SMS OTP API in TypeScript: send one-time codes without double-texting"
+title: "SMS OTP: how it works and how to send it in TypeScript"
 type: blog
 date: 2026-11-02
-description: "Send SMS verification codes through your own Twilio, Plivo, or Vonage account in TypeScript: generate the code, send it once even when a request times out, limit guesses, and test it offline."
+description: "Learn how SMS OTP works, then use TypeScript to send codes, check them, and handle retries safely through your own SMS provider."
 ---
 
-There are two ways to text someone a one-time code from your app. You can use a hosted verification API, which generates, sends, and checks the code for you. Or you can generate the code yourself and send it through the SMS API you already use for everything else. This post is about the second way: what the code has to get right, and a tested TypeScript module that does it.
+## How SMS OTP works
+
+An SMS OTP (one-time password) is a short code, usually 6 digits, that your server texts to a phone number. Returning the code shows the requester obtained the code sent to that number. It doesn't establish their identity. The flow has four parts:
+
+1. The person enters their phone number, and your server creates a challenge for it.
+2. Your server makes a code for that challenge and sends it through an SMS API.
+3. The person types the code back into your app.
+4. Your server checks it, counts wrong guesses, and accepts it only once and only before it expires.
+
+NIST restricts using the phone network to send authentication codes. [See the security FAQ](#is-sms-otp-secure) for why. They're still a common way to confirm a phone number, so if you use them, get the sending and checking right.
+
+There are two ways to text someone a one-time code from your app. You can use a hosted verification API, which runs steps 1, 2, and 4 for you. Or you can generate the code yourself and send it through the SMS API you already use for everything else. This post is about the second way: what the code has to get right, and a tested TypeScript module that does it.
 
 The examples use SMS SDK, the open-source library this site documents. It calls your own [Twilio](/providers/twilio), [Telnyx](/providers/telnyx), [Plivo](/providers/plivo), [Vonage](/providers/vonage), [Bandwidth](/providers/bandwidth), or [Sinch](/providers/sinch) account. It isn't a carrier or an SMS provider, and it doesn't generate or check codes. That part is yours, and it's about 100 lines.
 
@@ -220,7 +231,9 @@ export function otpStartRoute(otp: Otp) {
 }
 ```
 
-The check route calls `checkCode()` and signs the person in only on `"ok"`. Two things the module leaves to you:
+The check route calls `checkCode()` and signs the person in only on `"ok"`. Three things the module leaves to you:
+
+- **Failed attempts across resends.** Each code allows five guesses, and a resend starts a new code with five more. For sign-in, enforce a per-account failed-attempt limit that survives resends. If there's no account yet, rate-limit by phone number.
 
 - **Abuse.** An open "send me a code" endpoint is how SMS pumping works: bots request codes to expensive numbers. Rate-limit by IP and by number, and only send to the countries you serve.
 - **Opt-outs.** If the person once texted STOP to your number, the provider blocks the code. Telnyx refuses the send with error 40300. Twilio's error 21610 can come back on the send or later on the status callback. A refusal at send time is a compliance rejection, and SMS SDK never falls back after one. [SMS opt-out handling](/blog/sms-opt-out-handling) covers the suppression list that catches this before the send.
@@ -360,6 +373,12 @@ This module sends a new code and retires the old one. That keeps one live code p
 ### Can I send codes to someone who replied STOP?
 
 Not through a sender that has blocked them. Twilio and Telnyx block the message, and SMS SDK won't try another provider after a compliance refusal. Whether your app should reach them another way is a question for your compliance policy, not your code.
+
+### Is SMS OTP secure?
+
+As a second factor next to a password, it stops attacks that only have the password. It's weaker than a passkey, because a code can be phished, and SMS has its own risk: someone who takes over the number through a SIM swap or a port receives the codes. NIST's [SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html) restricts out-of-band verification over the phone network and says verifiers should consider risk indicators such as a SIM change or number porting before sending a code.
+
+The module above limits each code to five guesses, and a resend starts a new code with five more. NIST also says a new code must not reset the failed-attempt count. For sign-in, enforce a per-account failed-attempt limit that survives resends. If there's no account yet, rate-limit by phone number.
 
 ### Does SMS SDK have a verify API?
 
