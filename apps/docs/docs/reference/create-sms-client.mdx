@@ -92,6 +92,11 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 
 ### `sms.getMessage(providerId, options?)`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` yet. It ships in 0.2.0, along with the `MessageLookupError` it throws. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Asks one adapter for the provider's current record of a message, by the provider's message ID: `SmsSendResult.providerId`, or a webhook event's `providerId`. It never sends. Use it to check delivery when a status webhook is late or lost.
 
 ```ts
@@ -129,6 +134,11 @@ for (const adapter of sms.capabilities()) {
 ```
 
 Each entry is `{ name, capabilities: SmsCapabilities, support: AdapterSupport, defaultFrom: SmsFrom | undefined, messageLookup: boolean }`. `messageLookup` is true when the adapter implements `getMessage`. See [Adapter contract](/reference/adapter-contract) for the field types.
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `messageLookup` field ships in 0.2.0. Entries from the current npm version, 0.1.1, don't have it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ## Types
 

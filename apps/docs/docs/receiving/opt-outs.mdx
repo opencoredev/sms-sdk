@@ -80,6 +80,11 @@ Sending to a suppressed recipient throws `PolicyRejectedError` before any reques
 
 ### With the built-in helpers
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+These helpers ship in 0.2.0. The current npm version, 0.1.1, doesn't export `SuppressionList`, `suppressionPolicy()`, `applySuppressionEvent()`, `memorySuppressionList()`, or `parseSmsWebhooks()` yet. Until then, use the `beforeSend` check above. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 `@opencoredev/sms-sdk` exports a `SuppressionList` interface (`has`, `add`, `remove`, each sync or async) and three helpers around it:
 
 - `suppressionPolicy(list)` returns a `beforeSend` that rejects suppressed recipients with reason `"recipient suppressed"`.

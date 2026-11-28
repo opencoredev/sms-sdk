@@ -43,6 +43,11 @@ Twilio sends first. If Twilio refuses for a reason tied to that account, such as
 
 Each adapter sends from its own `from`. With fallback, leave `from` off the message unless every adapter can send from that exact sender. To pick the sender per message, set [`fromByAdapter`](/reference/send#frombyadapter) instead, such as `{ twilio: "+15005550006", telnyx: "+15005550007" }`; each adapter uses its own entry.
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`fromByAdapter` ships in 0.2.0. The current npm version, 0.1.1, doesn't have it yet, so on 0.1.1 leave `from` off and let each adapter send from its own configured `from`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ## Which rejections fall back
 
 A rejection falls back when the problem belongs to one provider account. It stops when any provider would refuse the same message.

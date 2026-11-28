@@ -559,6 +559,11 @@ Vonage sends no queued status. It sends numbers without `+`; SMS SDK restores it
 
 ## Look up a message
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` or the `reportsCredentials` option yet. Both ship in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 The Messages API has no message lookup, so `sms.getMessage(messageUuid, { adapter: "vonage" })` reads the Reports API (`GET /v2/reports/records`, product `MESSAGES`, direction `outbound`) on the adapter's API host. That API accepts only the account API key and secret:
 
 - With Basic auth, `getMessage` uses `apiKey` and `apiSecret`.

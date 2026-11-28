@@ -92,6 +92,11 @@ await sms.send({
 
 ## Webhooks
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. On 0.1.1, `parseSmsWebhook()` throws `WebhookPayloadError` for a callback with more than one event. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Bandwidth posts delivery and inbound events to the callback URL on your messaging application. Set callback credentials on that application, then pass the same values to the parser. The credentials are required.
 
 A Bandwidth callback body is an array and can hold more than one event, so read it with `parseSmsWebhooks`, which returns every event in order. `parseSmsWebhook` returns a single event and throws `WebhookPayloadError` for a multi-event callback rather than drop events.
@@ -136,6 +141,11 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 `dedupeKey` is `bandwidth:{messageId}:{to}:{type}` for status events when `to` is present (and `bandwidth:{messageId}:{type}` for inbound or summary events).
 
 ## Look up a message
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` yet. It ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 `sms.getMessage(providerId, { adapter: "bandwidth" })` reads the List Messages endpoint (`GET /api/v2/users/{accountId}/messages?messageId={id}`) and maps `messageStatus`: `ACCEPTED`, `QUEUED`, and `SENDING` are `queued`, `SENT` is `sent`, `DELIVERED` is `delivered`, and `FAILED` and `UNDELIVERED` are `undelivered`. It returns `undefined` when Bandwidth has no message with that ID. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 

@@ -577,6 +577,11 @@ Plivo documents no filter signal, so no Plivo event is `message.filtered`, and i
 
 ## Look up a message
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` yet. It ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 `sms.getMessage(messageUuid, { adapter: "plivo" })` retrieves the message (`GET /v1/Account/{auth_id}/Message/{message_uuid}/`) and maps `message_state`: `queued`, `sent`, and `delivered` as named, and `undelivered`, `failed`, and `rejected` to `undelivered`, with non-placeholder `error_code` as `errorCode`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations

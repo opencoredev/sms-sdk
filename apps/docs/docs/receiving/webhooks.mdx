@@ -152,6 +152,11 @@ This protects you only when the client has an [idempotency store](/sending/idemp
 
 Providers retry webhooks that fail or time out, and send events in parallel. The same event can arrive twice, and events can arrive in any order.
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. On 0.1.1, `parseSmsWebhook()` throws `WebhookPayloadError` for a Bandwidth callback with more than one event, and returns only the first entry of a Sinch `recipient_delivery_report`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Bandwidth and Sinch can also put several events in one request. Use [`parseSmsWebhooks()`](/reference/webhook-events#parsesmswebhooksoptions) for them: it returns every event, each with its own `dedupeKey`. `parseSmsWebhook()` throws `WebhookPayloadError` for a multi-event request rather than drop events.
 
 - Deduplicate on `dedupeKey`, which stays the same each time the provider delivers an event. Insert it atomically (for example `INSERT ... ON CONFLICT DO NOTHING`), and answer repeats with a 2xx so the provider stops retrying.

@@ -213,6 +213,11 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 
 ## Message lookup
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`MessageLookupError` ships in 0.2.0 with `sms.getMessage()`. The current npm version, 0.1.1, doesn't export it yet. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ### `MessageLookupError`
 
 - `code`: `message_lookup_failed`. `retrySafe`: false. Extra fields: `reason: LookupFailureReason`, `providerName: string`, `providerId: string`, and `provider` with the redacted response details when there was one.

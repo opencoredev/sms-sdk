@@ -90,6 +90,11 @@ Set `deliveryReport: "per_recipient"` to receive a status webhook for each messa
 
 ## Webhooks
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. On 0.1.1, `parseSmsWebhook()` returns only the first entry of `recipient_delivery_report`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Sinch authenticates callbacks in one of two ways, configured on your callback URL or service plan. Point Sinch at your handler with a per-message `webhookUrl` or the callback URL on the service plan, then pass the matching `credentials`:
 
 A delivery report can list several recipients in `recipient_delivery_report`, so read callbacks with `parseSmsWebhooks`, which returns one event per recipient. `parseSmsWebhook` returns a single event and throws `WebhookPayloadError` for a multi-recipient report rather than drop recipients.
@@ -139,6 +144,11 @@ OAuth 2.0 callbacks are not supported. Sinch can send a report more than once an
 | anything else | `unrecognized` |
 
 ## Look up a message
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` yet. It ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 `sms.getMessage(batchId, { adapter: "sinch" })` reads the batch's summary delivery report (`GET /xms/v1/{servicePlanId}/batches/{batchId}/delivery_report?type=summary`). Each send is a one-recipient batch, so the report's single status gives the delivery, mapped as in the table above. A batch with no report yet is found with `delivery: "unknown"`. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 

@@ -211,6 +211,11 @@ Set `providerOptions: ACME_PROVIDER_OPTIONS` on the adapter and build the reques
 
 ## 6. Look up messages (optional)
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Message lookup ships in 0.2.0. The current npm version, 0.1.1, has no `getMessage` on `SmsAdapter` and no `sms.getMessage()`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 If the provider has an endpoint that returns one message by ID, implement `getMessage(providerId, context)` so `sms.getMessage()` works with your adapter. Pass `context.signal` to `fetch`, never throw, and return `{ kind: "found", status }`, `{ kind: "not_found" }`, or `{ kind: "failed", reason }`; see [`MessageLookupOutcome`](/reference/adapter-contract#messagelookupoutcome). Add `lookup` fixtures to the contract tests to check it. Leave it out if the provider has no such endpoint.
 
 ## Contribute it

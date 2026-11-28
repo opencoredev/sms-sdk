@@ -3,6 +3,11 @@ title: "Webhooks and events"
 description: "@opencoredev/sms-sdk/webhooks: parseSmsWebhook and parseSmsWebhooks options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
 ---
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. Until then, import only `parseSmsWebhook`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ```ts
 import { parseSmsWebhook, parseSmsWebhooks, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
 ```
@@ -65,6 +70,11 @@ Per-provider options:
 - `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, `request` is missing, malformed, or has a locked body, `provider` is unsupported, `publicUrl` is invalid or non-http(s), `now` is not a function, `credentials` are missing or malformed (including empty Basic or HMAC secrets, an unknown Sinch `kind`, or Basic credentials containing characters outside Latin-1), or `toleranceSec` is negative, `NaN`, non-finite, or not a number.
 
 ## `parseSmsWebhooks(options)`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. On 0.1.1, `parseSmsWebhook()` throws `WebhookPayloadError` for a Bandwidth callback with more than one event, and returns only the first entry of a Sinch `recipient_delivery_report`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 Takes the same options as `parseSmsWebhook` and returns every event in the request, in payload order: `Promise<SmsEvent[]>`.
 

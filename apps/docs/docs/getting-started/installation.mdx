@@ -40,6 +40,11 @@ Each part is its own subpath, and importing one adapter never loads another. The
 | `@opencoredev/sms-sdk/testing` | The `memory()` adapter, `mockFetch()`, signed webhook builders, the adapter contract harness |
 | `@opencoredev/sms-sdk/encoding` | `estimateSegments`, `isGsm7`, GSM-7 tables, `SEGMENT_LIMITS` |
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`parseSmsWebhooks()` and the suppression-list helpers ship in 0.2.0. The current npm version, 0.1.1, doesn't export them yet. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ## Environment variables
 
 The SDK never reads environment variables itself; you pass values to the adapter. These are the names the examples and the [doctor CLI](/reference/doctor-cli) use:

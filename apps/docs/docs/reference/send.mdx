@@ -56,6 +56,11 @@ The SDK cannot see whether a number belongs to your account, is registered for 1
 
 ### `fromByAdapter`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`fromByAdapter` ships in 0.2.0. The current npm version, 0.1.1, doesn't have it yet. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 - Type: `Readonly<Record<string, SmsFrom>>`
 - Optional
 - A sender per adapter name. Each adapter sends from its own entry, then `from`, then its configured default. Entries for adapters the client does not have are ignored. Each entry is checked like `from`, for its adapter only. Part of the idempotency fingerprint when an entry applies.

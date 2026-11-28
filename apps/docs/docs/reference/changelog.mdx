@@ -7,6 +7,11 @@ This page summarizes [`CHANGELOG.md`](https://github.com/opencoredev/sms-sdk/blo
 
 ## Unreleased
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+These changes ship in 0.2.0. The current npm version is 0.1.1. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 - [`sms.getMessage(providerId, { adapter?, signal? })`](/reference/create-sms-client#smsgetmessageproviderid-options) looks a message up with the provider and returns its delivery, or `undefined` when the provider has no such message. Failures throw `MessageLookupError` (`retrySafe: false`). Every built-in adapter implements the new optional `SmsAdapter.getMessage`; Vonage reads the Reports API and needs `reportsCredentials` with JWT auth. `capabilities()` reports `messageLookup`.
 - [`parseSmsWebhooks()`](/reference/webhook-events#parsesmswebhooksoptions) returns every event in a request: each element of a Bandwidth callback and each Sinch `recipient_delivery_report` entry. `parseSmsWebhook()` now throws `WebhookPayloadError` for a multi-event payload instead of returning only the first Sinch report. Bandwidth status callbacks include the recipient in `dedupeKey` (`bandwidth:{messageId}:{to}:{type}`).
 - [`fromByAdapter`](/reference/send#frombyadapter) on `send()` input sets a sender per adapter, for fallback chains.
