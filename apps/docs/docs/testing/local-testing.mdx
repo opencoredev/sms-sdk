@@ -13,7 +13,7 @@ To test code that sends SMS without sending real texts, replace the provider at 
 | A provider adapter: the HTTP request it builds and how it reads the response | `fetch` | `mockFetch()`, which records each request and returns canned provider responses |
 | Your webhook route: signature checks, duplicates, opt-outs | The incoming request | `signedTwilioRequest()`, `signedTelnyxRequest()`, `signedPlivoRequest()`, or `signedVonageRequest()`, which sign test requests the way each provider does |
 
-All of them come from `@opencoredev/sms-sdk/testing`, make no network calls, and need no provider account. To try a real provider API without texting a real phone, Twilio has [test credentials and a Virtual Phone](#test-against-twilio-without-a-real-phone); use them for a final check, not in your test suite. Before the first live send, the [doctor CLI](#check-your-configuration-with-the-doctor) checks your configuration without sending anything. The runnable version of this page is [`examples/test-adapter`](https://github.com/opencoredev/sms-sdk/tree/main/packages/sms-sdk/examples/test-adapter).
+All of them come from `@opencoredev/sms-sdk/testing`, make no network calls, and need no provider account. To try a real provider API without texting a real phone, Twilio has [test credentials and a Virtual Phone](#test-against-twilio-without-a-real-phone); use them for a final check, not in your test suite. Before the first live send, the [doctor CLI](#check-your-configuration-with-the-doctor) checks your configuration without sending anything.
 
 ## Use the memory adapter
 
@@ -24,8 +24,8 @@ import { expect, test } from "bun:test";
 import { createSmsClient, type SmsClient } from "@opencoredev/sms-sdk";
 import { memory } from "@opencoredev/sms-sdk/testing";
 
-async function sendLoginCode(sms: SmsClient, to: `+${string}`, code: string): Promise<string> {
-  const result = await sms.send({ to, body: `Your login code is ${code}`, idempotencyKey: `login:${to}:${code}` });
+async function sendLoginCode(sms: SmsClient, challengeId: string, to: `+${string}`, code: string): Promise<string> {
+  const result = await sms.send({ to, body: `Your login code is ${code}`, idempotencyKey: `login:${challengeId}` });
   return result.providerId;
 }
 
@@ -33,14 +33,16 @@ test("sends the login code", async () => {
   const adapter = memory();
   const sms = createSmsClient({ adapters: [adapter] });
 
-  const providerId = await sendLoginCode(sms, "+14155550123", "482913");
+  const providerId = await sendLoginCode(sms, "chl_1", "+14155550123", "482913");
 
   expect(providerId).toBe("memory_1");
   expect(adapter.sent).toHaveLength(1);
   expect(adapter.sent[0]?.message.body).toBe("Your login code is 482913");
-  expect(adapter.sent[0]?.idempotencyKey).toBe("login:+14155550123:482913");
+  expect(adapter.sent[0]?.idempotencyKey).toBe("login:chl_1");
 });
 ```
+
+Save it as `login.test.ts` and run `bun test login.test.ts`. The idempotency key comes from the login challenge's ID, not the phone number, as in the [SMS OTP guide](/blog/sms-otp-api-typescript). A retry of the same send reuses the key, the next code gets a new challenge and a new key, and no phone number ends up in your idempotency store.
 
 Each entry in `adapter.sent` holds the `message` the adapter received (with its resolved sender), the `attempt` number, the `idempotencyKey`, and the returned `outcome`. Rejected and unknown sends are recorded too. Call `adapter.reset()` between tests to clear sends and queued outcomes.
 

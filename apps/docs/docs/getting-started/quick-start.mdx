@@ -6,7 +6,7 @@ description: "Send your first SMS through Twilio with SMS SDK in three steps, th
 By the end of this page, a server-side script sends one SMS through Twilio and prints the provider's message ID.
 
 - Using another provider? Swap in the adapter from its [provider page](/providers/overview).
-- No provider account yet? Use the [`memory()` adapter](/testing/local-testing), which records sends and never calls a network.
+- No provider account yet? [Try the API with `memory()`](#try-it-without-a-provider-account), a test adapter that sends nothing. A real text always needs an account with Twilio or another [supported provider](/providers/overview), because SMS SDK calls your provider's API. It is not a carrier.
 
 You need a Twilio Account SID, Auth Token, and a Twilio number that can text your phone. Registering that number for 10DLC or toll-free is up to you. See [Registration and consent](/providers/registration-and-consent).
 
@@ -15,6 +15,15 @@ You need a Twilio Account SID, Auth Token, and a Twilio number that can text you
 ```package-install
 npm install @opencoredev/sms-sdk
 ```
+
+The examples on this page are TypeScript, and SMS SDK is ESM only, so your project has to load its files as ES modules. Bun runs them as they are. On Node.js, add `tsx` to run TypeScript and set `"type": "module"` in `package.json`:
+
+```bash
+npm install --save-dev tsx
+npm pkg set type=module
+```
+
+Without it, tsx loads `.ts` files as CommonJS, and the top-level `await` in `send.ts` fails.
 
 ## 2. Create the client
 
@@ -71,13 +80,38 @@ try {
 }
 ```
 
-Run it with `npx tsx --env-file=.env send.ts` on Node.js, or `bun send.ts` on Bun, which loads `.env` itself. It prints a line like `Accepted by twilio: SM… (queued)`, and the text reaches your phone shortly after.
+Run it with `npx tsx --env-file=.env send.ts` on Node.js 20.6 or newer (the first version with `--env-file`), or `bun send.ts` on Bun, which loads `.env` itself. It prints a line like `Accepted by twilio: SM… (queued)`.
 
 If the send fails, read the error's `code` and `retrySafe`. `provider_auth` means Twilio rejected your credentials. `handoff_unknown` means SMS SDK cannot tell whether Twilio took the message, so check the Twilio console before you send again. [Errors](/reference/errors) lists every code.
 
 ## 4. Receive a delivery update
 
 `queued` means Twilio accepted the message, not that the phone got it. Twilio reports delivery later by calling a webhook URL on your server. Store `result.providerId` so you can match the update to the message, then follow [Webhooks](/receiving/webhooks) to verify and read it.
+
+## Try it without a provider account
+
+The `memory()` adapter from `@opencoredev/sms-sdk/testing` records each send and returns a fake message ID. It makes no network request, so no text is sent and nothing reaches a phone. This script needs the install from [step 1](#1-install), including tsx and `"type": "module"` on Node.js, but no credentials and no `.env`:
+
+```ts try-memory.ts
+import { createSmsClient } from "@opencoredev/sms-sdk";
+import { memory } from "@opencoredev/sms-sdk/testing";
+
+const adapter = memory();
+const sms = createSmsClient({ adapters: [adapter] });
+
+const result = await sms.send({ to: "+14155550123", body: "Hello from SMS SDK." });
+console.log(`Accepted by ${result.provider}: ${result.providerId} (${result.delivery})`);
+for (const sent of adapter.sent) console.log(`Recorded: ${sent.message.to} "${sent.message.body}"`);
+```
+
+Run it with `npx tsx try-memory.ts` or `bun try-memory.ts`. It prints:
+
+```text
+Accepted by memory: memory_1 (queued)
+Recorded: +14155550123 "Hello from SMS SDK."
+```
+
+To send for real, go back to steps 2 and 3: the client in `sms.ts` uses `twilio()` and your credentials. To use `memory()` in a test suite, see [Test without a provider](/testing/local-testing).
 
 ## Send from a Hono or Bun server
 
