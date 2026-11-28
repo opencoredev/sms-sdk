@@ -71,6 +71,11 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 
 ### `beforeSend`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Two parts of this section ship in 0.2.0: `onFailure` firing when `beforeSend` throws, and the `suppressionPolicy()` helper. The current npm version, 0.1.1, rethrows without calling `onFailure` and doesn't export `suppressionPolicy()`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 - Type: `(context: BeforeSendContext) => PolicyDecision | Promise<PolicyDecision>`
 - Optional
 - Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, the error propagates, nothing is sent, and `onFailure` receives a `policy_rejected` event. For a suppression list, `suppressionPolicy(list)` builds this function; see [STOP, HELP, and opt-outs](/receiving/opt-outs). See [Block and log sends](/advanced/policy-and-hooks).

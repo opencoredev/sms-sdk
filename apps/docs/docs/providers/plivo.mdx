@@ -96,6 +96,11 @@ The 2xx means Plivo accepted and queued the message. Delivery to the phone is re
 | Handed to the carrier | Callback with `Status=sent` | `message.sent` event |
 | Delivered or failed | Callback with `Status=delivered`, `undelivered`, `failed`, or `rejected`, plus `ErrorCode` | `message.delivered` or `message.undelivered` event |
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Mapping `rejected` to `message.undelivered` ships in 0.2.0. The current npm version, 0.1.1, reports a `rejected` callback as `unrecognized`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ## Verify a callback with the raw API
 
 Plivo posts callbacks as form fields (`MessageUUID`, `Status`, `ErrorCode`, `From`, `To`, and more) to the `url` on the message. Inbound messages go to the message URL of the Plivo application your number is linked to. Every request carries three headers:
@@ -563,6 +568,11 @@ Plivo signs neither the callback body nor a timestamp. Serve the endpoint over H
 - **`publicUrl`:** pass the exact URL Plivo calls, or verification fails behind a proxy. See [Webhook security](/receiving/webhook-security).
 - **Signing:** an HMAC-SHA256 over the callback URL without its query string, followed by `X-Plivo-Signature-V2-Nonce`.
 - **Replay window:** none. Recording nonces and deduplicating are your only replay protection.
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Mapping `rejected` to `message.undelivered` ships in 0.2.0. The current npm version, 0.1.1, reports a `rejected` callback as `unrecognized`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 | Plivo status | Event |
 | --- | --- |

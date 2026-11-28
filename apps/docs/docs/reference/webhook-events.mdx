@@ -14,6 +14,11 @@ import { parseSmsWebhook, parseSmsWebhooks, type SmsEvent } from "@opencoredev/s
 
 ## `parseSmsWebhook(options)`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Parts of this section ship in 0.2.0: the 1 MiB body limit, `WebhookPayloadError.reason`, the production check on `unsafeSkipVerification`, and the error for a payload with several events. On the current npm version, 0.1.1, cap the request size in your server or proxy, keep `unsafeSkipVerification` out of production, and expect only the first entry of a Sinch delivery report. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Reads the request body once, verifies the provider's signature, and returns a normalized `SmsEvent`. No field is interpreted before verification succeeds.
 
 ```ts
@@ -66,7 +71,7 @@ Per-provider options:
 ### Throws
 
 - `WebhookSignatureError` (`code: "webhook_signature"`) when the request is not authentic. `reason` is `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, or `invalid_credentials`. Respond 401 or 403.
-- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), the request body stream fails or aborts while reading (`reason: "body_unreadable"`; respond 400), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of losing all but one.
+- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), the request body stream fails or aborts while reading (`reason: "body_unreadable"`; respond 400), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of getting this error.
 - `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, `request` is missing, malformed, or has a locked body, `provider` is unsupported, `publicUrl` is invalid or non-http(s), `now` is not a function, `credentials` are missing or malformed (including empty Basic or HMAC secrets, an unknown Sinch `kind`, or Basic credentials containing characters outside Latin-1), or `toleranceSec` is negative, `NaN`, non-finite, or not a number.
 
 ## `parseSmsWebhooks(options)`
@@ -146,6 +151,11 @@ A status update for an outbound message. `MessageStatusType` is the union of the
 
 ### Opt-out and help events
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `mediaUrls` field ships in 0.2.0. Keyword events from the current npm version, 0.1.1, don't have it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ```ts ignore="type listing"
 {
   type: "recipient.opted_out" | "recipient.opted_in" | "recipient.help";
@@ -195,6 +205,11 @@ Texts to your number go to the URL set on the number or its group. A per-message
 
 ## Status mapping
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Three statuses map differently from 0.2.0: Plivo `rejected` becomes `message.undelivered`, Sinch `Dispatched` becomes `message.sent`, and Sinch `Aborted` becomes `message.undelivered`. The current npm version, 0.1.1, reports all three as `unrecognized`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 | Event | Twilio | Telnyx | Plivo | Vonage | Bandwidth | Sinch |
 | --- | --- | --- | --- | --- | --- | --- |
 | `message.queued` | queued, accepted, scheduled, sending | queued, sending | queued | (none) | message-sending | Queued, Pending |
@@ -212,6 +227,11 @@ Texts to your number go to the URL set on the number or its group. A per-message
 ## Duplicates and ordering
 
 ### Dedupe keys
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The recipient in Bandwidth status keys ships in 0.2.0. The current npm version, 0.1.1, uses `bandwidth:{messageId}:{type}` for every Bandwidth event. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 `dedupeKey` stays the same each time the provider delivers the same event, and starts with the provider name, so keys from two providers never collide.
 
@@ -281,6 +301,11 @@ Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out"
 
 ## Per-provider parsers
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`parseBandwidthWebhooks` and `parseSinchWebhooks` ship in 0.2.0. The current npm version, 0.1.1, doesn't export them. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 `parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, `parseVonageWebhook`, `parseBandwidthWebhook`, and `parseSinchWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, `VonageWebhookOptions`, `BandwidthWebhookOptions`, and `SinchWebhookOptions`. `parseBandwidthWebhooks` and `parseSinchWebhooks` are the batch forms for the two providers that batch.
 
 ## Verify helpers
@@ -324,5 +349,10 @@ export async function isAuthentic(request: Request): Promise<boolean> {
 ```
 
 ## Types
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `SinchWebhookVerification` export ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, `SinchWebhookVerification`, the six per-provider option types, `BandwidthWebhookCredentials`, `SinchWebhookCredentials`, and `WebhookFailureReason`.

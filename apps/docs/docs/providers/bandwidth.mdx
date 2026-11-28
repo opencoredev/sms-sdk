@@ -138,6 +138,11 @@ A request without a matching `Authorization` header throws `WebhookSignatureErro
 | `message-failed` | `message.undelivered` |
 | anything else | `unrecognized` |
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The recipient in Bandwidth status keys ships in 0.2.0. The current npm version, 0.1.1, uses `bandwidth:{messageId}:{type}` for every Bandwidth event. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 `dedupeKey` is `bandwidth:{messageId}:{to}:{type}` for status events when `to` is present (and `bandwidth:{messageId}:{type}` for inbound or summary events).
 
 ## Look up a message

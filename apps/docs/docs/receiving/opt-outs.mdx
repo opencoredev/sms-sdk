@@ -72,7 +72,7 @@ import { db } from "./db";
 export const sms = createSmsClient({
   adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" })],
   beforeSend: async ({ message }) =>
-    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "Recipient opted out." } : { kind: "allow" },
+    (await db.suppressions.has(message.to)) === false ? { kind: "allow" } : { kind: "reject", reason: "Recipient opted out." },
 });
 ```
 

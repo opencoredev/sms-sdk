@@ -55,7 +55,7 @@ Without a store, keys still help a little: two `send()` calls with the same key 
 
 ## What happens on a repeat key
 
-The SDK compares the new send with the stored one by a SHA-256 fingerprint of `to`, `from`, `fromByAdapter`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, and any `providerOptions` for adapters the client has.
+The SDK compares the new send with the stored one by a SHA-256 fingerprint of `to`, `from`, `fromByAdapter`, `body`, `mediaUrls`, `sendAt`, `validityPeriodSec`, `webhookUrl`, and any `providerOptions` for adapters the client has. `fromByAdapter` is part of it from 0.2.0. {/* unreleased: remove when sms-sdk#6 ships */}
 
 | Stored record | Same message | Different message |
 | --- | --- | --- |
@@ -72,9 +72,14 @@ The SDK compares the new send with the stored one by a SHA-256 fingerprint of `t
 
 When a send throws `HandoffUnknownError`, the store marks the key unknown, and every later send with that key throws again. To resolve it:
 
-1. Look the message up with the provider: its console, its message list API, or a status webhook for that recipient around that time. An unknown outcome has no provider ID, so [`sms.getMessage()`](/reference/create-sms-client#smsgetmessageproviderid-options) helps only once you have one, for example from a status webhook.
+1. Look the message up with the provider: its console, its message list API, or a status webhook for that recipient around that time. An unknown outcome has no provider ID, so [`sms.getMessage()`](/reference/create-sms-client#smsgetmessageproviderid-options) helps only once you have one, for example from a status webhook. An `undefined` lookup is not proof that the provider never created the message, because some providers, such as Vonage, add the record shortly after sending.
 2. If the provider has the message, stop. It went out.
 3. If it does not, delete the record and send again.
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`sms.getMessage()` ships in 0.2.0. The current npm version, 0.1.1, doesn't have it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ```ts
 import { memoryIdempotencyStore } from "@opencoredev/sms-sdk";

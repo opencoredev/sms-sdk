@@ -29,6 +29,11 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 - `input: SmsSendInput`, the message. Fields below.
 - `options?: { signal?: AbortSignal }`. Aborting before any request or during a rate-limit backoff throws `SendAbortedError`, as long as no other coalesced caller for the same key keeps the send going. Aborting while a request is in flight, or while another coalesced caller keeps the same-key send going, throws `HandoffUnknownError` with `reason: "aborted"`, because that send may still reach the provider. Retrying with the same `idempotencyKey` while the peer is still sending replays its outcome.
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Per-caller cancellation for same-key sends ships in 0.2.0. On the current npm version, 0.1.1, a second caller with the same `idempotencyKey` waits on the first caller's send, and only the first caller's signal can cancel it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ## `SmsSendInput`
 
 ### `to`

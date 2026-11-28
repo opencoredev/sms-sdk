@@ -76,7 +76,7 @@ export default defineConfig({
         "- `send()` resolves only when a provider accepted the message. It throws `ProviderRejectedError` when the provider refused it and `HandoffUnknownError` when the outcome is unknown; never resend after `HandoffUnknownError`.",
         "- Fallback to another provider is off until you set `fallback: \"on-known-rejection\"`.",
         // unreleased: remove when sms-sdk#6 ships, and restore this line's wording from before the commit that added this marker
-        "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` verifies the request before parsing it and returns one event shape for every provider. Version 0.2.0 adds a 1 MiB body limit and `parseSmsWebhooks()` for Bandwidth and Sinch, which can send several events per request. npm has 0.1.1 until release PR https://github.com/opencoredev/sms-sdk/pull/6 merges.",
+        "- `parseSmsWebhook()` from `@opencoredev/sms-sdk/webhooks` verifies the request before parsing it and returns one event shape for every provider. Version 0.2.0 adds a 1 MiB body limit and `parseSmsWebhooks()` for Bandwidth and Sinch, which can send several events per request. npm has 0.1.1 until 0.2.0 is published; the release PR is https://github.com/opencoredev/sms-sdk/pull/6.",
         // unreleased: remove when sms-sdk#6 ships, and restore this line's wording from before the commit that added this marker
         "- `sms.getMessage(providerId, { adapter })` looks up a sent message's delivery status with the provider. It ships in 0.2.0 and is not in npm's 0.1.1 yet.",
         "- `memory()` from `@opencoredev/sms-sdk/testing` sends nothing, for tests.",

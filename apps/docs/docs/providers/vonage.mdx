@@ -29,7 +29,7 @@ SMS SDK uses only the Messages API. Its `vonage()` adapter never calls `rest.nex
 
 - It uses only the Messages API (`POST /v1/messages`, channel `sms`). The older SMS API at `rest.nexmo.com/sms/json` is not supported, and its webhooks do not verify with this parser.
 - Vonage does not document which HTTP status each error code uses. SMS SDK classifies rejections from the documented 401, 402, and 422 statuses and from the error code in the response. Unknown codes become `request`, which never falls back.
-- The Messages API has no message lookup. `getMessage` reads the Reports API, which needs the API key and secret even with JWT auth, and whose per-record status values for Messages are not fully documented.
+- The Messages API has no message lookup. From 0.2.0, `getMessage` reads the Reports API, which needs the API key and secret even with JWT auth, and whose per-record status values for Messages are not fully documented. {/* unreleased: remove when sms-sdk#6 ships */}
 - Vonage describes the webhook `payload_hash` only as "a SHA-256 hash of the payload". SMS SDK checks it against the exact raw body. If Vonage ever hashes a re-serialized body instead, verification fails with `body_hash_mismatch`.
 - Vonage documents no freshness window for the webhook JWT. SMS SDK accepts tokens issued within 300 seconds.
 - No short codes and no MMS.

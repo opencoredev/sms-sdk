@@ -132,6 +132,11 @@ export async function POST(request: Request): Promise<Response> {
 
 OAuth 2.0 callbacks are not supported. Sinch can send a report more than once and out of order, so store `event.dedupeKey` and skip repeats. The key is `sinch:{batchId}:{recipient}:{status}` for delivery reports and `sinch:{messageId}:received` for inbound messages.
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Mapping `Dispatched` to `message.sent` and `Aborted` to `message.undelivered` ships in 0.2.0. The current npm version, 0.1.1, reports both as `unrecognized`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 | Sinch status | SMS SDK event |
 | --- | --- |
 | inbound `mo_text`, `mo_binary`, `inbound_sms` | `message.received`, or `recipient.opted_out` / `recipient.help` for STOP and HELP keywords |

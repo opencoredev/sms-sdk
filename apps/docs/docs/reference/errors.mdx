@@ -26,6 +26,11 @@ try {
 
 ## Summary
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Parts of this page ship in 0.2.0: `MessageLookupError`, `WebhookPayloadError.reason`, the `providerName` and `reason` fields in `toJSON()`, the `ConfigurationError` export from `@opencoredev/sms-sdk/webhooks`, and dropping free-form provider text from `provider`. On the current npm version, 0.1.1, `toJSON()` returns `{ name, code, message, retrySafe, attempts, provider? }`, and `provider` can include the provider's error message after redaction. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 | Class | `code` | `retrySafe` | What to do |
 | --- | --- | --- | --- |
 | `ConfigurationError` | `configuration` | true | Fix the options. Happens at startup. |

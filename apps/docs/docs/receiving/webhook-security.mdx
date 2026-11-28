@@ -11,6 +11,11 @@ Your SMS webhook URL is public, so anyone can post a fake "delivered" or "STOP" 
 
 ## Respond to failures
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The 1 MiB body limit and `WebhookPayloadError.reason` ship in 0.2.0. On the current npm version, 0.1.1, `WebhookPayloadError` has no `reason`, so leave out the 413 branch and cap the request body size in your server or proxy. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ```ts
 import { parseSmsWebhook, WebhookPayloadError, WebhookSignatureError } from "@opencoredev/sms-sdk/webhooks";
 
@@ -158,9 +163,19 @@ The other providers do not sign the URL, so these options exist only for Twilio 
 
 ## The raw body
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The 1 MiB read limit ships in 0.2.0. The current npm version, 0.1.1, reads the whole body, so cap the request size in your server or proxy. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Signatures cover the raw bytes, so `parseSmsWebhook()` reads the body stream once up to 1 MiB. Do not read or parse the body before calling it, and do not let a framework body parser consume it first. In Express and similar frameworks, convert the incoming request to a web `Request` with the raw body.
 
 ## Skipping verification in tests
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The production check ships in 0.2.0. On the current npm version, 0.1.1, `unsafeSkipVerification: true` skips verification in every environment, so keep it out of production config. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 `unsafeSkipVerification: true` parses without checking anything. Use it only in unit tests. It throws `ConfigurationError` when `process.env.NODE_ENV` is `"production"`, so a test setting that leaks into a deployment fails loudly instead of accepting forged events. The signed request builders in `@opencoredev/sms-sdk/testing` are better, because they exercise the real verification path. See [Test without a provider](/testing/local-testing).
 
