@@ -52,13 +52,13 @@ Use it for a suppression list, quiet hours, per-recipient rate limits, or a [seg
 
 ## Log sends with hooks
 
-The client above logs one `sms.attempt` line per provider request, then one `sms.accepted` or `sms.failed` line per send.
+The client above logs one `sms.attempt` line per provider request, then one `sms.accepted` or `sms.failed` line for each send that reaches one of those hooks. Some errors skip `onFailure`; they are listed below the table.
 
 | Hook | When | Payload beyond the shared fields |
 | --- | --- | --- |
 | `onAttempt` | After every provider request | `attempt`: a `SendAttempt` with provider, outcome, status, code, and duration |
 | `onAccepted` | Once, when a send is accepted | `provider`, `providerId`, `attempts` |
-| `onFailure` | Once, when a send ends in an error | `errorCode`, `retrySafe`, `attempts` |
+| `onFailure` | Once, when a send ends in an error, except the cases below | `errorCode`, `retrySafe`, `attempts` |
 
 Every payload has `id`, `to` masked as `+1********23`, `encoding`, `segments`, and `idempotencyKey` when set. Hooks never receive the message body, credentials, or full phone numbers.
 
@@ -73,7 +73,12 @@ On the current npm version, 0.1.1, an error thrown by `beforeSend` doesn't run `
 
 ## Log errors safely
 
-`SmsError.toJSON()` returns a redacted object with `name`, `code`, `message`, `retrySafe`, `attempts`, and `provider`. Phone numbers in provider messages are masked, those messages are cut to 200 characters, and `cause` is never included. If your logger serializes whole objects, log `error.toJSON()` instead of the raw error.
+`SmsError.toJSON()` returns a redacted object with `name`, `code`, `message`, `retrySafe`, `attempts`, `provider`, and on some errors `providerName` and `reason`. Phone numbers are masked, free-form provider response text is left out, and `cause` is never included. If your logger serializes whole objects, log `error.toJSON()` instead of the raw error. Field details are in [Errors](/reference/errors#smserror).
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+This sanitization ships in 0.2.0. On the current npm version, 0.1.1, `provider` keeps the provider's `code`, `requestId`, and its error message with phone numbers masked and cut to 200 characters, so log chosen fields such as `code`, `retrySafe`, and `provider.httpStatus` instead of the whole error. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ## Next steps
 

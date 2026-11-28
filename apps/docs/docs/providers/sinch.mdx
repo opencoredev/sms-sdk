@@ -57,7 +57,7 @@ Sinch sends from a long code, a toll-free number, a short code, or an alphanumer
 
 {/* unreleased: remove when sms-sdk#6 ships */}
 :::note[Coming in the next release, 0.2.0]
-Counting `expire_at` from `sendAt` ships in 0.2.0. On the current npm version, 0.1.1, it counts from the moment of the request, so a scheduled message can expire before it sends. On 0.1.1, set `validityPeriodSec` to cover the scheduling delay plus the window you want. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+Counting `expire_at` from `sendAt` ships in 0.2.0. On the current npm version, 0.1.1, it counts from the moment of the request, so a scheduled message can expire before it sends. On 0.1.1, set `validityPeriodSec` to the scheduling delay plus the window you want, as long as the total stays within 2,592,000 seconds. If it doesn't fit, make the SDK call closer to the send time. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
 :::
 
 | Feature | Support |
