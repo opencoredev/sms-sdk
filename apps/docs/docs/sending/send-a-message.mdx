@@ -162,7 +162,7 @@ Here Twilio replaces the curly quotes with plain ones. Typed options, the `extra
 
 {/* unreleased: remove when sms-sdk#6 ships */}
 :::note[Coming in the next release, 0.2.0]
-Per-caller cancellation for same-key sends ships in 0.2.0. On the current npm version, 0.1.1, a second caller with the same `idempotencyKey` waits on the first caller's send, and only the first caller's signal can cancel it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+Per-caller cancellation for same-key sends ships in 0.2.0. On the current npm version, 0.1.1, a call that joins an active send with the same `idempotencyKey` and the same message waits on that shared send, and its own signal can't cancel the wait after it joins. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
 :::
 
 Pass an `AbortSignal` to stop waiting. If no request had started (and no other coalesced caller is keeping the same-key send active), `send()` throws `SendAbortedError` and it is safe to send later. If the request was in flight or another caller keeps the coalesced send active, it throws `HandoffUnknownError` with `reason: "aborted"`, because the provider may already have the message.

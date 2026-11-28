@@ -5,6 +5,11 @@ description: "sms.validate(input), the segment and encoding helpers (estimateSeg
 
 ## `sms.validate(input)`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Parts of this section ship in 0.2.0: the `"message"` and `"fromByAdapter"` fields, and returning issues instead of throwing for malformed input such as `null` or a non-array `mediaUrls`. On the current npm version, 0.1.1, `validate()` can throw for that input, so pass it an object you have already checked. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Checks a message locally and estimates its segments. It is synchronous and free, and it never contacts a provider or claims that an account or sender is approved.
 
 ```ts
@@ -66,7 +71,7 @@ type ValidationIssue = {
 | `unsupported_field` | `UnsupportedFieldError` | The adapter cannot send this field or sender type, Twilio `sendAt` without a Messaging Service sender, or a `providerOptions` key the adapter does not accept or that names a parameter the SDK sets. |
 | `invalid_field` | `InvalidMessageError` | A malformed field, a value outside the adapter's range, or a `providerOptions` value of the wrong type. |
 
-`ValidationField` is `"message" | "to" | "from" | "fromByAdapter" | "body" | "mediaUrls" | "sendAt" | "validityPeriodSec" | "webhookUrl" | "idempotencyKey" | "providerOptions"`. `"message"` means the input as a whole, for example `null` from a JSON body. `"fromByAdapter"` is a field from 0.2.0. {/* unreleased: remove when sms-sdk#6 ships */}
+`ValidationField` is `"message" | "to" | "from" | "fromByAdapter" | "body" | "mediaUrls" | "sendAt" | "validityPeriodSec" | "webhookUrl" | "idempotencyKey" | "providerOptions"`. `"message"` means the input as a whole, for example `null` from a JSON body.
 
 `validate()` never throws on malformed input. A value that is not an object, a `mediaUrls` that is not an array, or a non-string `idempotencyKey` comes back as an `invalid_field` issue.
 

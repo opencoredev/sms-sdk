@@ -74,7 +74,7 @@ When a send throws `HandoffUnknownError`, the store marks the key unknown, and e
 
 1. Look the message up with the provider: its console, its message list API, or a status webhook for that recipient around that time. An unknown outcome has no provider ID, so [`sms.getMessage()`](/reference/create-sms-client#smsgetmessageproviderid-options) helps only once you have one, for example from a status webhook. An `undefined` lookup is not proof that the provider never created the message, because some providers, such as Vonage, add the record shortly after sending.
 2. If the provider has the message, stop. It went out.
-3. If it does not, delete the record and send again.
+3. If the provider confirms it never accepted the message, delete the record and send again. If you can't confirm either way, keep the record.
 
 {/* unreleased: remove when sms-sdk#6 ships */}
 :::note[Coming in the next release, 0.2.0]

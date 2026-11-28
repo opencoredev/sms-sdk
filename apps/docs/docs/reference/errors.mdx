@@ -55,6 +55,11 @@ Parts of this page ship in 0.2.0: `MessageLookupError`, `WebhookPayloadError.rea
 
 ## `SmsError`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The sanitization described in this section ships in 0.2.0. On the current npm version, 0.1.1, `provider` keeps the provider's `code`, `requestId`, and a redacted error message as received, so log chosen fields such as `code`, `retrySafe`, and `provider.httpStatus` instead of the whole error. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 The base class. Every error has these fields.
 
 | Field | Type | Meaning |
@@ -74,6 +79,11 @@ The base class. Every error has these fields.
 ## Configuration
 
 ### `ConfigurationError`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Most of the checks listed here ship in 0.2.0. The current npm version, 0.1.1, throws `ConfigurationError` in fewer cases and passes some malformed options through, such as `idempotency.ttlSec: 0`, which lets a repeated key send twice. On 0.1.1, use a positive `ttlSec`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 - `code`: `configuration`. `retrySafe`: true.
 - Thrown by `createSmsClient` for missing options, no adapters, malformed adapters, duplicate adapter names, an invalid `fallback`, `hooks`, or `beforeSend`, a `timeoutMs` that is not a positive number up to `2147483647`, an `idempotency.ttlSec` or `staleReservationSec` that is not a whole number of seconds of at least 1, a malformed `idempotency` or `retry` option, or `retry` values out of range (`maxAttempts` outside 1 to 10, or a delay outside 0 to `2147483647`).

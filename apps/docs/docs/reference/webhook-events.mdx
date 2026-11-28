@@ -16,7 +16,7 @@ import { parseSmsWebhook, parseSmsWebhooks, type SmsEvent } from "@opencoredev/s
 
 {/* unreleased: remove when sms-sdk#6 ships */}
 :::note[Coming in the next release, 0.2.0]
-Parts of this section ship in 0.2.0: the 1 MiB body limit, `WebhookPayloadError.reason`, the production check on `unsafeSkipVerification`, and the error for a payload with several events. On the current npm version, 0.1.1, cap the request size in your server or proxy, keep `unsafeSkipVerification` out of production, and expect only the first entry of a Sinch delivery report. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+Parts of this section ship in 0.2.0: the 1 MiB body limit, `WebhookPayloadError.reason`, the production check on `unsafeSkipVerification`, most of the `ConfigurationError` checks, and the error for a Sinch delivery report with several entries. On the current npm version, 0.1.1, cap the request size in your server or proxy, keep `unsafeSkipVerification` out of production, and expect only the first entry of a Sinch delivery report. A Bandwidth callback with several events already throws `WebhookPayloadError` on 0.1.1. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
 :::
 
 Reads the request body once, verifies the provider's signature, and returns a normalized `SmsEvent`. No field is interpreted before verification succeeds.
@@ -122,7 +122,12 @@ Every event has these fields.
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | Which provider sent it. |
 | `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
 | `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
-| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. When one callback carries several events, each event's `raw` keeps only that event: its Bandwidth array element, or the Sinch body with just its `recipient_delivery_report` entry. |
+| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. When one callback carries several events, each event's `raw` keeps only that event: a one-element array holding its Bandwidth event, or the Sinch body with just its `recipient_delivery_report` entry. |
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Splitting `raw` per event ships in 0.2.0. On the current npm version, 0.1.1, a Sinch event's `raw` is the whole callback body. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ### `message.received`
 

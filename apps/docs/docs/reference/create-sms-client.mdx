@@ -9,6 +9,11 @@ npm install @opencoredev/sms-sdk
 
 ## `createSmsClient(options)`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The option checks on this page are stricter from 0.2.0. The current npm version, 0.1.1, accepts some values that 0.2.0 rejects with `ConfigurationError`. For example, `idempotency.ttlSec: 0` expires records at once, so a repeated key can send twice. On 0.1.1, set `ttlSec` to a positive whole number of seconds and keep `retry.maxAttempts` between 1 and 10. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Creates an SMS client over one or more adapters. It makes no network request.
 
 ```ts
