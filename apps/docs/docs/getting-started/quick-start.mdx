@@ -90,7 +90,7 @@ If the send fails, read the error's `code` and `retrySafe`. `provider_auth` mean
 
 ## Try it without a provider account
 
-The `memory()` adapter from `@opencoredev/sms-sdk/testing` records each send and returns a fake message ID. It makes no network request, so no text is sent and nothing reaches a phone. This script needs no credentials and no `.env`:
+The `memory()` adapter from `@opencoredev/sms-sdk/testing` records each send and returns a fake message ID. It makes no network request, so no text is sent and nothing reaches a phone. This script needs the install from [step 1](#1-install), including tsx and `"type": "module"` on Node.js, but no credentials and no `.env`:
 
 ```ts try-memory.ts
 import { createSmsClient } from "@opencoredev/sms-sdk";
