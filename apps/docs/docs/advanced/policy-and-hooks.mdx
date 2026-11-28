@@ -64,7 +64,12 @@ Every payload has `id`, `to` masked as `+1********23`, `encoding`, `segments`, a
 
 The SDK ignores a hook that throws or rejects, and `send()` does not wait for hooks, so a broken logger cannot change a send's outcome.
 
-`onFailure` does not run for errors thrown before the send starts: local validation errors, idempotency replays and conflicts, and errors thrown by `beforeSend`. A `beforeSend` rejection does run it.
+`onFailure` does not run for errors thrown before the send starts: local validation errors and idempotency replays and conflicts. A `beforeSend` rejection runs it, and so does an error thrown by `beforeSend`, as a `policy_rejected` event.
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+On the current npm version, 0.1.1, an error thrown by `beforeSend` doesn't run `onFailure`. That ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ## Log errors safely
 
