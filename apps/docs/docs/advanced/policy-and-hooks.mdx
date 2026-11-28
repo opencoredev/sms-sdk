@@ -73,7 +73,7 @@ On the current npm version, 0.1.1, an error thrown by `beforeSend` doesn't run `
 
 ## Log errors safely
 
-`SmsError.toJSON()` returns a redacted object with `name`, `code`, `message`, `retrySafe`, `attempts`, `provider`, and on some errors `providerName` and `reason`. Phone numbers are masked, free-form provider response text is left out, and `cause` is never included. If your logger serializes whole objects, log `error.toJSON()` instead of the raw error. Field details are in [Errors](/reference/errors#smserror).
+`SmsError.toJSON()` returns a redacted object with `name`, `code`, `message`, `retrySafe`, and `attempts`, plus `provider`, `providerName`, and `reason` when present. Phone numbers are masked, free-form provider response text is left out, and `cause` is never included. If your logger serializes whole objects, log `error.toJSON()` instead of the raw error. Field details are in [Errors](/reference/errors#smserror).
 
 {/* unreleased: remove when sms-sdk#6 ships */}
 :::note[Coming in the next release, 0.2.0]
