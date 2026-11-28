@@ -9,6 +9,11 @@ npm install @opencoredev/sms-sdk
 
 ## `createSmsClient(options)`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The option checks on this page are stricter from 0.2.0. The current npm version, 0.1.1, accepts some values that 0.2.0 rejects with `ConfigurationError`. For example, `idempotency.ttlSec: 0` expires records at once, so a repeated key can send twice. On 0.1.1, set `ttlSec` to a positive whole number of seconds and keep `retry.maxAttempts` between 1 and 10. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Creates an SMS client over one or more adapters. It makes no network request.
 
 ```ts
@@ -71,6 +76,11 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 
 ### `beforeSend`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Two parts of this section ship in 0.2.0: `onFailure` firing when `beforeSend` throws, and the `suppressionPolicy()` helper. The current npm version, 0.1.1, rethrows without calling `onFailure` and doesn't export `suppressionPolicy()`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 - Type: `(context: BeforeSendContext) => PolicyDecision | Promise<PolicyDecision>`
 - Optional
 - Runs once per logical send, after local validation and the idempotency check, before any request. Return `{ kind: "allow" }` or `{ kind: "reject", reason }`. A rejection throws `PolicyRejectedError` and never falls back. If it throws, the error propagates, nothing is sent, and `onFailure` receives a `policy_rejected` event. For a suppression list, `suppressionPolicy(list)` builds this function; see [STOP, HELP, and opt-outs](/receiving/opt-outs). See [Block and log sends](/advanced/policy-and-hooks).
@@ -91,6 +101,11 @@ Throws `ConfigurationError` when `adapters` is empty, two adapters share a `name
 | `capabilities()` | `readonly SmsAdapterInfo[]` | below |
 
 ### `sms.getMessage(providerId, options?)`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` yet. It ships in 0.2.0, along with the `MessageLookupError` it throws. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 Asks one adapter for the provider's current record of a message, by the provider's message ID: `SmsSendResult.providerId`, or a webhook event's `providerId`. It never sends. Use it to check delivery when a status webhook is late or lost.
 
@@ -129,6 +144,11 @@ for (const adapter of sms.capabilities()) {
 ```
 
 Each entry is `{ name, capabilities: SmsCapabilities, support: AdapterSupport, defaultFrom: SmsFrom | undefined, messageLookup: boolean }`. `messageLookup` is true when the adapter implements `getMessage`. See [Adapter contract](/reference/adapter-contract) for the field types.
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `messageLookup` field ships in 0.2.0. Entries from the current npm version, 0.1.1, don't have it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ## Types
 

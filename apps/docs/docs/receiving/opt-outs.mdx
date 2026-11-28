@@ -72,13 +72,18 @@ import { db } from "./db";
 export const sms = createSmsClient({
   adapters: [telnyx({ apiKey: process.env.TELNYX_API_KEY ?? "", from: "+15550100002" })],
   beforeSend: async ({ message }) =>
-    (await db.suppressions.has(message.to)) ? { kind: "reject", reason: "Recipient opted out." } : { kind: "allow" },
+    (await db.suppressions.has(message.to)) === false ? { kind: "allow" } : { kind: "reject", reason: "Recipient opted out." },
 });
 ```
 
 Sending to a suppressed recipient throws `PolicyRejectedError` before any request, and fallback never runs.
 
 ### With the built-in helpers
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+These helpers ship in 0.2.0. The current npm version, 0.1.1, doesn't export `SuppressionList`, `suppressionPolicy()`, `applySuppressionEvent()`, `memorySuppressionList()`, or `parseSmsWebhooks()` yet. Until then, use the `beforeSend` check above. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 `@opencoredev/sms-sdk` exports a `SuppressionList` interface (`has`, `add`, `remove`, each sync or async) and three helpers around it:
 

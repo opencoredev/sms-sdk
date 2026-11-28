@@ -31,6 +31,11 @@ interface SmsAdapter {
 | `send` | Makes one provider request. Must pass `context.signal` to `fetch`. Must not throw. The client treats a thrown error as `unknown` with `reason: "adapter_exception"`. |
 | `getMessage` | Optional. Looks one message up by the provider's message ID, read-only, for [`sms.getMessage()`](/reference/create-sms-client#smsgetmessageproviderid-options). Must pass `context.signal` to `fetch` and must not throw. See [`MessageLookupOutcome`](#messagelookupoutcome). |
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The optional `getMessage` member ships in 0.2.0. `SmsAdapter` in the current npm version, 0.1.1, doesn't have it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ```ts
 import { createSmsClient, type SmsAdapter } from "@opencoredev/sms-sdk";
 
@@ -191,6 +196,11 @@ type AdapterSendOutcome =
 `UnknownReason` is `"network" | "timeout" | "aborted" | "malformed_response" | "server_error" | "unexpected_status" | "adapter_exception"`. The client replaces the reason with `timeout` or `aborted` when its own signal fired.
 
 ## `MessageLookupOutcome`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+These types ship in 0.2.0 with `getMessage`. The current npm version, 0.1.1, doesn't have them. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ```ts ignore="type listing"
 type LookupContext = { readonly signal: AbortSignal }; // aborts on caller cancellation or timeoutMs

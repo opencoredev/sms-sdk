@@ -3,11 +3,21 @@ title: "Webhooks and events"
 description: "@opencoredev/sms-sdk/webhooks: parseSmsWebhook and parseSmsWebhooks options per provider, the SmsEvent union, keyword helpers, and signature verify helpers."
 ---
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. Until then, import only `parseSmsWebhook`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ```ts
 import { parseSmsWebhook, parseSmsWebhooks, type SmsEvent } from "@opencoredev/sms-sdk/webhooks";
 ```
 
 ## `parseSmsWebhook(options)`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Parts of this section ship in 0.2.0: the 1 MiB body limit, `WebhookPayloadError.reason`, the production check on `unsafeSkipVerification`, most of the `ConfigurationError` checks, and the error for a Sinch delivery report with several entries. On the current npm version, 0.1.1, cap the request size in your server or proxy, keep `unsafeSkipVerification` out of production, and expect only the first entry of a Sinch delivery report. A Bandwidth callback with several events already throws `WebhookPayloadError` on 0.1.1. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 Reads the request body once, verifies the provider's signature, and returns a normalized `SmsEvent`. No field is interpreted before verification succeeds.
 
@@ -61,10 +71,15 @@ Per-provider options:
 ### Throws
 
 - `WebhookSignatureError` (`code: "webhook_signature"`) when the request is not authentic. `reason` is `missing_signature`, `invalid_signature`, `stale_timestamp`, `body_hash_mismatch`, `malformed_signature`, or `invalid_credentials`. Respond 401 or 403.
-- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), the request body stream fails or aborts while reading (`reason: "body_unreadable"`; respond 400), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of losing all but one.
+- `WebhookPayloadError` (`code: "webhook_payload"`) when the request body exceeds 1 MiB (`reason: "body_too_large"`, checked before verification; respond 413), the request body stream fails or aborts while reading (`reason: "body_unreadable"`; respond 400), or when an authentic payload lacks required fields or carries more than one event. Bandwidth callbacks and Sinch delivery reports can carry several; read those with [`parseSmsWebhooks`](#parsesmswebhooksoptions) instead of getting this error.
 - `ConfigurationError` (`code: "configuration"`) when `unsafeSkipVerification` is set in production, `request` is missing, malformed, or has a locked body, `provider` is unsupported, `publicUrl` is invalid or non-http(s), `now` is not a function, `credentials` are missing or malformed (including empty Basic or HMAC secrets, an unknown Sinch `kind`, or Basic credentials containing characters outside Latin-1), or `toleranceSec` is negative, `NaN`, non-finite, or not a number.
 
 ## `parseSmsWebhooks(options)`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't export `parseSmsWebhooks()` yet. It ships in 0.2.0. On 0.1.1, `parseSmsWebhook()` throws `WebhookPayloadError` for a Bandwidth callback with more than one event, and returns only the first entry of a Sinch `recipient_delivery_report`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 Takes the same options as `parseSmsWebhook` and returns every event in the request, in payload order: `Promise<SmsEvent[]>`.
 
@@ -107,7 +122,12 @@ Every event has these fields.
 | `provider` | `"twilio" \| "telnyx" \| "plivo" \| "vonage" \| "bandwidth" \| "sinch"` | Which provider sent it. |
 | `dedupeKey` | `string` | Stable across repeated deliveries of the same event. |
 | `occurredAt` | `Date \| undefined` | When the provider says it happened, if the payload includes it. |
-| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. When one callback carries several events, each event's `raw` keeps only that event: its Bandwidth array element, or the Sinch body with just its `recipient_delivery_report` entry. |
+| `raw` | `unknown` | The verified payload, as a string record of form fields or as parsed JSON. Unknown extra fields are kept here. When one callback carries several events, each event's `raw` keeps only that event: a one-element array holding its Bandwidth event, or the Sinch body with just its `recipient_delivery_report` entry. |
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Splitting `raw` per event ships in 0.2.0. On the current npm version, 0.1.1, a Sinch event's `raw` is the whole callback body. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ### `message.received`
 
@@ -135,6 +155,11 @@ SMS SDK never replies on its own and does not store conversations. Twilio also l
 A status update for an outbound message. `MessageStatusType` is the union of these five types. The mapping per provider is in [Status mapping](#status-mapping).
 
 ### Opt-out and help events
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `mediaUrls` field ships in 0.2.0. Keyword events from the current npm version, 0.1.1, don't have it. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ```ts ignore="type listing"
 {
@@ -185,6 +210,11 @@ Texts to your number go to the URL set on the number or its group. A per-message
 
 ## Status mapping
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Three statuses map differently from 0.2.0: Plivo `rejected` becomes `message.undelivered`, Sinch `Dispatched` becomes `message.sent`, and Sinch `Aborted` becomes `message.undelivered`. The current npm version, 0.1.1, reports all three as `unrecognized`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 | Event | Twilio | Telnyx | Plivo | Vonage | Bandwidth | Sinch |
 | --- | --- | --- | --- | --- | --- | --- |
 | `message.queued` | queued, accepted, scheduled, sending | queued, sending | queued | (none) | message-sending | Queued, Pending |
@@ -202,6 +232,11 @@ Texts to your number go to the URL set on the number or its group. A per-message
 ## Duplicates and ordering
 
 ### Dedupe keys
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The recipient in Bandwidth status keys ships in 0.2.0. The current npm version, 0.1.1, uses `bandwidth:{messageId}:{type}` for every Bandwidth event. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 `dedupeKey` stays the same each time the provider delivers the same event, and starts with the provider name, so keys from two providers never collide.
 
@@ -271,6 +306,11 @@ Returns `KeywordMatch | undefined`, where `KeywordMatch` is `{ kind: "opted_out"
 
 ## Per-provider parsers
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`parseBandwidthWebhooks` and `parseSinchWebhooks` ship in 0.2.0. The current npm version, 0.1.1, doesn't export them. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 `parseTwilioWebhook`, `parseTelnyxWebhook`, `parsePlivoWebhook`, `parseVonageWebhook`, `parseBandwidthWebhook`, and `parseSinchWebhook` take the same options as `parseSmsWebhook` without `provider`, with option types `TwilioWebhookOptions`, `TelnyxWebhookOptions`, `PlivoWebhookOptions`, `VonageWebhookOptions`, `BandwidthWebhookOptions`, and `SinchWebhookOptions`. `parseBandwidthWebhooks` and `parseSinchWebhooks` are the batch forms for the two providers that batch.
 
 ## Verify helpers
@@ -314,5 +354,10 @@ export async function isAuthentic(request: Request): Promise<boolean> {
 ```
 
 ## Types
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `SinchWebhookVerification` export ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 Exported from `@opencoredev/sms-sdk/webhooks`: `ParseSmsWebhookOptions`, `SmsEvent`, `SmsEventBase`, `MessageReceivedEvent`, `MessageStatusEvent`, `MessageStatusType`, `RecipientKeywordEvent`, `UnrecognizedEvent`, `WebhookProvider`, `KeywordMatch`, `WebhookCommonOptions`, `SignedUrlOptions`, `WebhookVerification`, `SinchWebhookVerification`, the six per-provider option types, `BandwidthWebhookCredentials`, `SinchWebhookCredentials`, and `WebhookFailureReason`.

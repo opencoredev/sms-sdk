@@ -29,6 +29,11 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 - `input: SmsSendInput`, the message. Fields below.
 - `options?: { signal?: AbortSignal }`. Aborting before any request or during a rate-limit backoff throws `SendAbortedError`, as long as no other coalesced caller for the same key keeps the send going. Aborting while a request is in flight, or while another coalesced caller keeps the same-key send going, throws `HandoffUnknownError` with `reason: "aborted"`, because that send may still reach the provider. Retrying with the same `idempotencyKey` while the peer is still sending replays its outcome.
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Per-caller cancellation for same-key sends ships in 0.2.0. On the current npm version, 0.1.1, a call that joins an active send with the same `idempotencyKey` and the same message waits on that shared send, and its own signal can't cancel the wait after it joins. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ## `SmsSendInput`
 
 ### `to`
@@ -55,6 +60,11 @@ Guide with error handling: [Send a message](/sending/send-a-message).
 The SDK cannot see whether a number belongs to your account, is registered for 10DLC or toll-free, or whether the country allows alphanumeric sender IDs (the United States and Canada do not). The provider rejects those with `category: "sender"`. A sender belongs to one provider account, so a second provider needs its own. See [Registration and consent](/providers/registration-and-consent).
 
 ### `fromByAdapter`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`fromByAdapter` ships in 0.2.0. The current npm version, 0.1.1, doesn't have it yet. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 - Type: `Readonly<Record<string, SmsFrom>>`
 - Optional

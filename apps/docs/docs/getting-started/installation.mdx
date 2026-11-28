@@ -20,7 +20,12 @@ npm install @opencoredev/sms-sdk
 
 ### ESM only
 
-Use `import`, from an ES module (`"type": "module"`, `.mjs`, or a TypeScript project that emits ESM). Every subpath export has `import` and `default` conditions that point at the same ESM files, so bundlers and tools that resolve without the `import` condition still find them. `require("@opencoredev/sms-sdk")` loads it only on Node.js versions that support `require()` of ES modules (20.19+ and 22.12+); on earlier Node.js 20 versions, use `await import("@opencoredev/sms-sdk")` from CommonJS.
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `default` condition on the JavaScript entry points ships in 0.2.0. On the current npm version, 0.1.1, `import` is the only runtime condition on those entry points, so `require()` can't load the package on any Node.js version, and tools that resolve without `import` can't find it. Use `import` or `await import()` on 0.1.1. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
+Use `import`, from an ES module (`"type": "module"`, `.mjs`, or a TypeScript project that emits ESM). Every JavaScript entry point has `import` and `default` conditions that point at the same ESM files, so bundlers and tools that resolve without the `import` condition still find them. `require("@opencoredev/sms-sdk")` loads it only on Node.js versions that support `require()` of ES modules (20.19+ and 22.12+); on earlier Node.js 20 versions, use `await import("@opencoredev/sms-sdk")` from CommonJS.
 
 The package uses only web-standard APIs: `fetch`, `URL`, `AbortController`, `TextEncoder`, `crypto.randomUUID`, and Web Crypto. Telnyx webhook verification needs Ed25519 and Vonage JWT auth needs RSA signing; Node.js 20 and Bun 1.1 have both. Cloudflare Workers and Vercel Edge expose the same APIs, but SMS SDK is not tested on them yet.
 
@@ -39,6 +44,11 @@ Each part is its own subpath, and importing one adapter never loads another. The
 | `@opencoredev/sms-sdk/webhooks` | `parseSmsWebhook()`, `parseSmsWebhooks()`, and per-provider verify helpers |
 | `@opencoredev/sms-sdk/testing` | The `memory()` adapter, `mockFetch()`, signed webhook builders, the adapter contract harness |
 | `@opencoredev/sms-sdk/encoding` | `estimateSegments`, `isGsm7`, GSM-7 tables, `SEGMENT_LIMITS` |
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`parseSmsWebhooks()` and the suppression-list helpers ship in 0.2.0. The current npm version, 0.1.1, doesn't export them yet. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ## Environment variables
 

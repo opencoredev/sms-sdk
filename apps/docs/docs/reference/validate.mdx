@@ -5,6 +5,11 @@ description: "sms.validate(input), the segment and encoding helpers (estimateSeg
 
 ## `sms.validate(input)`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Parts of this section ship in 0.2.0: the `"message"` and `"fromByAdapter"` fields, and returning issues instead of throwing for malformed input such as `null` or a non-array `mediaUrls`. On the current npm version, 0.1.1, `validate()` can throw for that input, so pass it an object you have already checked. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 Checks a message locally and estimates its segments. It is synchronous and free, and it never contacts a provider or claims that an account or sender is approved.
 
 ```ts

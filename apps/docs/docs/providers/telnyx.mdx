@@ -559,6 +559,11 @@ Telnyx sends no opt-out flag, so opt-outs come from keyword detection. `dedupeKe
 
 ## Look up a message
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The current npm version, 0.1.1, doesn't have `sms.getMessage()` yet. It ships in 0.2.0. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 `sms.getMessage(id, { adapter: "telnyx" })` retrieves the message (`GET /v2/messages/{id}`) and maps the first recipient's `status`, with the first error's `code` as `errorCode` for a failed message. A 404 returns `undefined`. See [getMessage()](/reference/create-sms-client#smsgetmessageproviderid-options).
 
 ## Limitations

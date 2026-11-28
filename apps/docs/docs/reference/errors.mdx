@@ -26,6 +26,11 @@ try {
 
 ## Summary
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Parts of this page ship in 0.2.0: `MessageLookupError`, `WebhookPayloadError.reason`, the `providerName` and `reason` fields in `toJSON()`, the `ConfigurationError` export from `@opencoredev/sms-sdk/webhooks`, and dropping free-form provider text from `provider`. On the current npm version, 0.1.1, `toJSON()` returns `{ name, code, message, retrySafe, attempts, provider? }`, and `provider` can include the provider's error message after redaction. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 | Class | `code` | `retrySafe` | What to do |
 | --- | --- | --- | --- |
 | `ConfigurationError` | `configuration` | true | Fix the options. Happens at startup. |
@@ -50,6 +55,11 @@ try {
 
 ## `SmsError`
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The sanitization described in this section ships in 0.2.0. On the current npm version, 0.1.1, `provider` keeps the provider's `code`, `requestId`, and a redacted error message as received, so log chosen fields such as `code`, `retrySafe`, and `provider.httpStatus` instead of the whole error. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 The base class. Every error has these fields.
 
 | Field | Type | Meaning |
@@ -69,6 +79,11 @@ The base class. Every error has these fields.
 ## Configuration
 
 ### `ConfigurationError`
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+Most of the checks listed here ship in 0.2.0. The current npm version, 0.1.1, throws `ConfigurationError` in fewer cases and passes some malformed options through, such as `idempotency.ttlSec: 0`, which lets a repeated key send twice. On 0.1.1, use a positive `ttlSec`. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 - `code`: `configuration`. `retrySafe`: true.
 - Thrown by `createSmsClient` for missing options, no adapters, malformed adapters, duplicate adapter names, an invalid `fallback`, `hooks`, or `beforeSend`, a `timeoutMs` that is not a positive number up to `2147483647`, an `idempotency.ttlSec` or `staleReservationSec` that is not a whole number of seconds of at least 1, a malformed `idempotency` or `retry` option, or `retry` values out of range (`maxAttempts` outside 1 to 10, or a delay outside 0 to `2147483647`).
@@ -212,6 +227,11 @@ Do not wrap `send()` in a generic retry loop. A loop that retries on any error t
 - Either the request body exceeded the 1 MiB limit (`reason: "body_too_large"`, checked before signature verification so oversized bodies are never buffered; respond with 413), the request body stream failed or aborted while reading (`reason: "body_unreadable"`; respond with 400), or the signature was valid but the payload is not valid JSON or lacks a required field such as `MessageSid` (respond with 400, log the provider and request, and report it if it looks like a new provider format).
 
 ## Message lookup
+
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+`MessageLookupError` ships in 0.2.0 with `sms.getMessage()`. The current npm version, 0.1.1, doesn't export it yet. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
 
 ### `MessageLookupError`
 

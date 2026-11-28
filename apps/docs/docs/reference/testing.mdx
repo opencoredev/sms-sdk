@@ -125,6 +125,11 @@ Runs every case and returns `Promise<ContractReport>`: `{ adapter: string; passe
 | `lookup?` | `{ providerId; request: { url; headers }; found: { response; delivery; providerStatus; errorCode? }; notFound: MockResponse }` | Optional `getMessage` checks, for adapters that implement it. `request` is the exact GET the adapter must make for `providerId`. |
 | `webhooks?` | `{ parse; cases: WebhookContractCase[]; tampered }` | Optional webhook checks. `parse(request)` returns an event, each case is `{ name, request: () => Promise<Request>, expected }`, and `tampered()` returns a request that must throw `WebhookSignatureError`. |
 
+{/* unreleased: remove when sms-sdk#6 ships */}
+:::note[Coming in the next release, 0.2.0]
+The `lookup` fixture ships in 0.2.0. The contract harness in the current npm version, 0.1.1, has no lookup checks. Track it in [the release PR](https://github.com/opencoredev/sms-sdk/pull/6).
+:::
+
 ### Checks
 
 - Capabilities are consistent.
